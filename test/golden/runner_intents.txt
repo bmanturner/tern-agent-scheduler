@@ -1,0 +1,11 @@
+PASS create/update/delete/settings dropped
+PASS undecodable intent retried then dropped
+PASS pause, resume, pause_all, run_now, focus_manager, roles_request
+PASS carly_create success (weekdays 9am, hands-off, created_by carly)
+PASS carly_create interval error
+PASS carly_create duplicate name error
+PASS carly_create name derivation
+PASS carly_create folder, prompt cap, schedule errors
+PASS carly_create cached role check
+PASS replies pruned
+PASS no errors

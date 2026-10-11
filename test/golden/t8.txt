@@ -1,0 +1,7 @@
+2026-02-30 09:00	ERR That date does not exist
+2026-10-12 09:00	once: +75600
+monthly on the 40th at 9am	ERR day of month: bad value '40'
+monthly on the 31st at 9am	cron:0 9 31 * *
+tomorrow 9am	once: +75600
+every 2 days	ERR Maximum interval is 24 hours; for longer periods use 'daily at 09:00', 'weekly' or a cron expression
+every 25h	ERR Maximum interval is 24 hours; for longer periods use 'daily at 09:00', 'weekly' or a cron expression

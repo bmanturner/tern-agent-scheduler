@@ -1,0 +1,10 @@
+PASS needs_input after 10 s hold, one notification
+PASS idle held 6 s with RESULT: pong => finished
+PASS no working sample in 180 s => failed/no_response
+PASS unobserved finish from the session tail
+PASS RESULT: FAILED => failed/agent_failed
+PASS host deadline => timed_out/max_runtime, pane closed
+PASS stop => cancelled/user_stop
+PASS pane closed by the user => cancelled/closed_by_user
+PASS finished-pane cap closes the oldest panes
+PASS no errors

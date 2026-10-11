@@ -1,0 +1,14 @@
+0 9 * * 1-5  =>  Weekdays at 09:00
+30 18 * * MON,THU  =>  Mon, Thu at 18:30
+0 7 * * *  =>  Daily at 07:00
+15 * * * *  =>  Every hour at :15
+*/5 * * * *  =>  Every 5 minutes
+0 9 1 * *  =>  Monthly on day 1 at 09:00
+0 9 1,15 * MON  =>  Day 1, 15 or Mon at 09:00 (day-of-month OR day-of-week)
+0 9,17 * * *  =>  Daily at 09:00, 17:00
+0 0 1 JAN *  =>  Monthly on day 1 at 00:00, in Jan
+0 9 * * 0,6  =>  Weekends at 09:00
+0 9 1 * 1-5  =>  Day 1 or Mon-Fri at 09:00 (day-of-month OR day-of-week)
+*/20 9-17 * * *  =>  Every 20 minutes during hours 9-17
+at 15:00 => once +10800
+in 20m => once +1200

@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "scripts": { "test": "bun test/check.ts" },
+  "devDependencies": { "luau-web": "*" }
+}

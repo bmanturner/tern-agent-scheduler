@@ -1,0 +1,8 @@
+PASS runs claimed
+PASS session then tab (queue serialized)
+PASS argv shape (yolo and write)
+PASS run records carry string block ids
+PASS run directory files
+PASS tab rename, no focus steal
+PASS snapshot and hot state
+PASS shown-session tab argv

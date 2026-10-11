@@ -1,0 +1,4 @@
+PASS phase 1 set up: 2 running, 1 lost launch, 1 stale slot
+PASS reconcile: tracked, interrupted, adopted, missed
+PASS obs after reload
+PASS no errors

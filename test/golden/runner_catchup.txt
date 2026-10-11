@@ -1,0 +1,4 @@
+PASS 4 h late => one missed record, no launch; 2 h late => one catch-up launch
+PASS no double handling
+PASS 1.5 h late => exactly one catch-up launch
+PASS no errors

@@ -1,0 +1,186 @@
+--!strict
+-- Window half: the four palette commands (UX §2.2 #1, #2, #4, #5). They never create or change jobs:
+-- they open the manager or send allowlisted intents. Nothing here runs at load time.
+
+local const = require("./const")
+local outbox = require("./outbox")
+local status = require("./status")
+local wsnap = require("./wsnap")
+
+local commands = {}
+
+local GROUP = "Agent Scheduler"
+
+-- The focused pane's working directory ("" when unknown), plus a reason when that pane is on
+-- another machine.
+function commands.focused_cwd(cx: WindowCx): (string, string?)
+	local okh, host = pcall(function()
+		return cx.hosts:current()
+	end)
+	if okh and type(host) == "table" and (host :: any).kind == "remote" then
+		return "", "That pane is on another machine. Pick a folder on this Mac."
+	end
+	local okp, info = pcall(function()
+		local pane = cx.session:focused()
+		if pane == nil then
+			return nil
+		end
+		return cx.session:pane(pane)
+	end)
+	if okp and info ~= nil and type(info.cwd) == "string" then
+		return info.cwd, nil
+	end
+	return "", nil
+end
+
+local function send(cx: WindowCx, kind: string, payload: { [string]: any }?): boolean
+	local name, err = outbox.send(kind, payload)
+	if name == nil then
+		cx:toast("error", "Agent Scheduler", err)
+		return false
+	end
+	return true
+end
+
+local function open_manager(cx: WindowCx)
+	wsnap.poll()
+	local snap = wsnap.get()
+	local managers: any = if snap then snap.managers else nil
+	if type(managers) == "table" and #managers > 0 then
+		send(cx, "focus_manager", nil)
+		return
+	end
+	cx:new_block(const.MANAGER_KIND, { "list" }, "tab")
+end
+
+local function new_job(cx: WindowCx)
+	local cwd = commands.focused_cwd(cx)
+	cx:new_block(const.MANAGER_KIND, { "new", cwd }, "tab")
+end
+
+local function job_group(job: any): string
+	if job.invalid ~= nil or job.paused_reason == "blocked" or job.paused_reason == "failures" then
+		return "Needs fixing"
+	elseif job.enabled == true then
+		return "Active"
+	end
+	return "Paused"
+end
+
+local GROUP_ORDER = { "Needs fixing", "Active", "Paused" }
+
+-- Items for the "Run a job now" picker, grouped Needs fixing / Active / Paused.
+function commands.run_items(jobs: { any }, inflight: { any }): { PickItem }
+	local running: { [string]: any } = {}
+	for _, r in inflight do
+		running[tostring(r.job_id)] = r
+	end
+	local buckets: { [string]: { PickItem } } = { ["Needs fixing"] = {}, Active = {}, Paused = {} }
+	for _, j in jobs do
+		local run = running[tostring(j.id)]
+		local detail = if run ~= nil
+			then "Already running"
+			else string.format("%s · %s · @%s", tostring(j.when), tostring(j.folder), tostring(j.role))
+		local group = job_group(j)
+		table.insert(buckets[group], {
+			label = tostring(j.name),
+			detail = detail,
+			group = group,
+			job_id = tostring(j.id),
+			run_id = if run ~= nil then tostring(run.run_id) else nil,
+		})
+	end
+	local items: { PickItem } = {}
+	for _, g in GROUP_ORDER do
+		for _, it in buckets[g] do
+			table.insert(items, it)
+		end
+	end
+	return items
+end
+
+local function run_job_now(cx: WindowCx)
+	wsnap.poll()
+	local snap = wsnap.get()
+	if snap == nil or #wsnap.jobs() == 0 then
+		cx:toast("info", "No jobs yet", "Open the manager to add one")
+		return
+	end
+	if snap.paused_all == true then
+		cx:toast("info", "Resume all jobs to run.")
+		return
+	end
+	local items = commands.run_items(wsnap.jobs(), wsnap.inflight())
+	cx:pick({ items = items, placeholder = "Run which job now?", icon = "timer", action = "run" }):next(
+		function(item, _err, cx2)
+			if item == nil or cx2 == nil then
+				return
+			end
+			local run_id: any = item.run_id
+			if type(run_id) == "string" then
+				send(cx2, "focus_run", { run_id = run_id })
+			else
+				if send(cx2, "run_now", { job_id = item.job_id }) then
+					cx2:toast("info", tostring(item.label) .. " queued")
+				end
+			end
+		end
+	)
+end
+
+local function go_to_needs_you(cx: WindowCx)
+	wsnap.poll()
+	status.recompute(os.time())
+	local needs = status.needs()
+	if #needs == 0 then
+		cx:toast("info", "Nothing needs you right now")
+		return
+	end
+	send(cx, "focus_run", { run_id = tostring(needs[1].run_id) })
+end
+
+local registered = false
+
+function commands.register()
+	if registered then
+		return
+	end
+	registered = true
+	tern.command({
+		id = "open-manager",
+		title = "Open manager",
+		icon = "timer",
+		group = GROUP,
+		keys = { "ctrl+alt+shift+s" },
+		run = open_manager,
+	})
+	tern.command({
+		id = "new-job",
+		title = "New job…",
+		icon = "plus",
+		group = GROUP,
+		keys = { "ctrl+alt+shift+j" },
+		run = new_job,
+	})
+	tern.command({
+		id = "run-job-now",
+		title = "Run a job now…",
+		icon = "play",
+		group = GROUP,
+		keys = { "ctrl+alt+shift+r" },
+		run = run_job_now,
+	})
+	tern.command({
+		id = "go-to-needs-you",
+		title = "Go to run that needs me",
+		icon = "bell",
+		group = GROUP,
+		keys = { "ctrl+alt+shift+a" },
+		available = function(_cx: WindowCx): boolean
+			return #status.needs() > 0
+		end,
+		run = go_to_needs_you,
+	})
+end
+
+return commands

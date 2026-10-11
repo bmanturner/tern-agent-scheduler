@@ -1,0 +1,13 @@
+on time (15s late)                 now=10-12 09:00:15 fire=10-12 09:00:00 missed=- next=10-13 09:00:00 done=false
+slept Fri night->Mon 10:00         now=10-12 10:00:00 fire=10-12 09:00:00(catchup) missed=- next=10-13 09:00:00 done=false
+slept Fri night->Mon 22:00         now=10-12 22:00:00 fire=- missed=1 since 10-12 09:00:00 next=10-13 09:00:00 done=false
+slept Fri->Wed 10:00 (3 slots)     now=10-14 10:00:00 fire=10-14 09:00:00(catchup) missed=2 since 10-12 09:00:00 next=10-15 09:00:00 done=false
+catch_up=skip, 1h late             now=10-12 10:00:00 fire=- missed=1 since 10-12 09:00:00 next=10-13 09:00:00 done=false
+not due yet                        now=10-12 08:59:00 fire=- missed=- next=10-12 09:00:00 done=false
+*/15 after 3h sleep                now=10-11 15:00:40 fire=10-11 15:00:00 missed=11 since 10-11 12:15:00 next=10-11 15:15:00 done=false
+interval 30m after 2h40 sleep      now=10-11 12:40:10 fire=10-11 12:30:00(catchup) missed=4 since 10-11 10:30:00 next=10-11 13:00:00 done=false
+once, fires 10s late               now=10-11 12:00:10 fire=10-11 12:00:00 missed=- next=- done=true
+once, 5h late (default 3h window)  now=10-11 17:00:00 fire=- missed=1 since 10-11 12:00:00 next=- done=true
+once, 5h late, catch_up=always     now=10-11 17:00:00 fire=10-11 12:00:00(catchup) missed=- next=- done=true
+daily, 2h50 late (<3h)             now=10-11 11:50:00 fire=10-11 09:00:00(catchup) missed=- next=10-12 09:00:00 done=false
+daily, 3h10 late (>3h)             now=10-11 12:10:00 fire=- missed=1 since 10-11 09:00:00 next=10-12 09:00:00 done=false

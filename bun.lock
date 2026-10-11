@@ -1,0 +1,14 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "devDependencies": {
+        "luau-web": "*",
+      },
+    },
+  },
+  "packages": {
+    "luau-web": ["luau-web@1.5.1", "", {}, "sha512-/PINL46SDMR7ezqnVxxjR66+k8+JH8U7VH/ct+tY53jXfQvTMwcgGzF0jW3MFYWaY5MnGtj0wlYKSAf3L/2Slw=="],
+  }
+}
