@@ -58,10 +58,17 @@ local function fail(call: ExportCall, message: string): ExportWait
 	return call:wait(1000)
 end
 
+-- Carly answers about state the user (or Carly) just changed, so always re-read snapshot.json
+-- rather than trusting the kv `hot` revision, which can lag the file by a second or two.
+function carly.fresh()
+	wsnap.reset()
+	wsnap.poll()
+end
+
 -- The job named `name` (case-insensitive exact, then a unique prefix when `name` has at least
 -- MIN_PREFIX characters) or nil and an error naming the candidates.
 function carly.find_job(name: string): (any?, string?)
-	wsnap.poll()
+	carly.fresh()
 	local jobs = wsnap.jobs()
 	if #jobs == 0 then
 		return nil, "There are no scheduled jobs yet."
@@ -116,6 +123,11 @@ local function next_text(at: any, j: any, paused_all: boolean): string
 end
 
 local function last_text(j: any): string
+	for _, r in wsnap.inflight() do
+		if r.job_id == j.id then
+			return if r.state == "needs_input" then "running: needs you" else "running"
+		end
+	end
 	local last = j.last
 	if type(last) ~= "table" then
 		return "never run"
@@ -131,6 +143,11 @@ local ADD_DOC = "Create and start a scheduled omp agent job right away (no revie
 
 function carly.job_add(...: any): any
 	local a, cx, call = split_args(...)
+	-- Carly sometimes passes one table of named fields instead of positional arguments.
+	local named: any = if #a == 1 and type(a[1]) == "table" then a[1] else nil
+	if named ~= nil then
+		a = { named.name, named.prompt, named.when, named.folder, named.role }
+	end
 	local name = str(a[1]) or ""
 	local prompt = a[2]
 	local when = str(a[3])
@@ -204,7 +221,7 @@ function carly.register()
 		sig = "() -> {{name: string, when: string, next: string, role: string, folder: string, state: string, last: string}}",
 		doc = fit("Lists the scheduled agent jobs: name, schedule text, next run, role, folder, state (\"active\", \"paused\" or \"needs fixing\") and the last run's outcome. Read-only and instant."),
 	}, function(): any
-		wsnap.poll()
+		carly.fresh()
 		local out: { any } = {}
 		local snap = wsnap.get()
 		local paused_all = snap ~= nil and snap.paused_all == true
