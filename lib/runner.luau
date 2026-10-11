@@ -18,6 +18,7 @@ local tern_state = require("./tern_state")
 local launcher = require("./launcher")
 local session_tail = require("./session_tail")
 local notify = require("./notify")
+local platform = require("./platform")
 local intents = require("./intents")
 
 type Run = { [string]: any }
@@ -913,7 +914,9 @@ local function advance_scheduled(now: number)
 			elseif jobs.settings().paused_all == true then
 				-- EN §6.7: Pause all is an absolute kill switch, including for runs already claimed
 				transition(run, "skipped", "paused_all", {})
-			elseif job.enabled == false and run.trigger ~= "manual" then
+			elseif job.enabled == false and run.trigger ~= "manual" and jobs.state(job.id).done ~= true then
+				-- Paused by the user (or for failures) while this run waited. A one-shot also turns
+				-- itself off (`done`) as soon as its run is claimed; that run must still go ahead.
 				transition(run, "cancelled", "user_stop", {})
 			elseif rt.stage == nil then
 				rt.stage = "checking"
@@ -1817,11 +1820,12 @@ local function setup_rows(): { SetupRow }
 		text = ka ~= nil and ka.text
 			or "Checking whether anything keeps Tern's session service alive…",
 	})
+	local notify_ok, notify_text = platform.notify_status()
 	table.insert(rows, {
 		id = "notifications",
 		label = "System notifications",
-		ok = nil,
-		text = "Banners come from osascript. If they're off you'll still see toasts.",
+		ok = notify_ok,
+		text = notify_text,
 	})
 	return rows
 end

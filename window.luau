@@ -20,6 +20,7 @@ local MODULES = {
 	"./lib/fmt",
 	"./lib/outbox",
 	"./lib/wsnap",
+	"./lib/platform",
 	"./lib/observer",
 	"./lib/status",
 	"./lib/commands",

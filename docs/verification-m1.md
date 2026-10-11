@@ -31,3 +31,18 @@ Run on 2026-10-11. Real-daemon probes used a throwaway `SchedProbe` session (kil
 | V32 osascript argv | Hostile text `x" & (do shell script "touch /tmp/pwn") & "` shown literally; `/tmp/pwn` not created. | Notifications ship. |
 | V27 end to end | Job `e2e` (`@tiny`, `/tmp`, `in 2m`, prompt `Reply with exactly: RESULT: pong`) created through the host: it launched 13 s after its slot into a new "Scheduled runs" session (tab `⏲ e2e`), went `scheduled → launching → running → finished` with `summary = "pong"`, cost $0.00029, `session_file` set; the user's focused block was unchanged. One window was open (`observed = true`). The zero-window repeat needs every window closed, so it is left to the user. | M1 shippable. |
 | Host clock | In the host, `os.time({…})` reads the table as **UTC** while `os.date("*t")` is local, so `weekdays 9am` first resolved to 08:00 CDT. | `lib/cron.luau`'s default clock now corrects the guess until `os.date("*t")` shows the requested wall time; `test/t9.luau` covers it. `jobs.load` recomputes cached `next_run` from the cursor. (`docs/design/engine-src/cron.luau` is the pre-fix copy.) |
+
+## Linux (Ubuntu 24.04, Tern 0.8.0, omp 18.8.3)
+
+Run against an isolated daemon (`TERN_CONFIG_DIR` and socket under `/tmp`, removed afterwards) on a headless home server.
+
+| Check | Result |
+|---|---|
+| Plugin load | Host half ready (1 block) on Tern 0.8.0. |
+| Pane wrapping | Tern runs pane commands as `$SHELL -l -c '<command>'` (`/usr/bin/zsh` here), the same shape as macOS, with correct quoting; the run marker in `args[3]` works unchanged. |
+| Binaries | `tern` and `omp` found in `~/.local/bin` and validated with `--version`. No Tern-managed omp on this box; Tern keeps it under `$XDG_DATA_HOME` on Linux, which is now a candidate. |
+| Data folder | `~/.config/tern/plugin-data/tern-agent-scheduler` (`$TERN_CONFIG_DIR/plugin-data/…`). |
+| Daemon lifetime | With no window and no pane left the daemon stops ("daemon stopped kind=idle"), as on macOS. |
+| End to end | A Carly-style `in 2m` job (`@smol`, Hands-off) launched into a new "Scheduled runs" session as `⏲ linux-e2e-2` and finished unobserved (no window) with summary `Linux`, cost $0.056. |
+| One-shot regression | The first attempt was cancelled as "Stopped by you": the review fix that cancels waiting runs of paused jobs also caught a one-shot, which turns itself off when its run is claimed. Fixed in the runner, covered by `test/runner_once.luau` (fails before, passes after); affected macOS too. |
+| Notifications / Open folder | `notify-send` and `xdg-open` are used when installed; not visible on a headless box, so unverified visually. |

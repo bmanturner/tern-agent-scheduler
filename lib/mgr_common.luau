@@ -5,6 +5,7 @@
 local ui = tern.ui
 local textfield = require("./textfield")
 local validate = require("./validate")
+local platform = require("./platform")
 
 local C = {}
 
@@ -101,8 +102,9 @@ export type State = {
 	undo_until: number?,
 }
 
-C.AVAILABILITY =
-	"Jobs run while Tern's session service is running. It keeps running after you close windows as long as a terminal or run is still open. Nothing runs while your Mac is asleep, or after a restart until you open Tern."
+C.AVAILABILITY = "Jobs run while Tern's session service is running. It keeps running after you close windows as long as a terminal or run is still open. Nothing runs while your "
+	.. platform.machine()
+	.. " is asleep, or after a restart until you open Tern."
 
 C.NO_WINDOW =
 	"With no Tern window open, a run that stops to ask for approval waits silently until you open a window or its time limit is reached. Launch failures, early exits, time-outs and blocked jobs still send a notification."

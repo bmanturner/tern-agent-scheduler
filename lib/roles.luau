@@ -3,6 +3,7 @@
 -- folder so project overlays apply), cached per cwd in cache.json (`roles[cwd] = {at, list, map}`).
 local const = require("./const")
 local bins = require("./bins")
+local platform = require("./platform")
 
 local roles = {}
 
@@ -131,7 +132,7 @@ function roles.list(omp: string, cwd: string, cb: ({ string }?, string?) -> ())
 	end
 	local okf, err = pcall(function()
 		(tern :: any).process.run({
-			"/bin/zsh",
+			platform.login_shell(),
 			"-l",
 			"-c",
 			'cd "$1" && exec "$2" config get modelRoles --json',

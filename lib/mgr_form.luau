@@ -13,6 +13,7 @@ local const = require("./const")
 local jobs = require("./jobs")
 local runner = require("./runner")
 local ids = require("./ids")
+local platform = require("./platform")
 
 local F = {}
 
@@ -37,7 +38,7 @@ local ROW_LABEL: { [string]: string } = {
 	name = "Name",
 	prompt = "Prompt",
 	when = "When",
-	catch_up = "If your Mac was asleep",
+	catch_up = "If your " .. platform.machine() .. " was asleep",
 	folder = "Folder",
 	role = "Role",
 	approval = "Approval",
@@ -469,7 +470,7 @@ function F.sections(state: State, errs: { [string]: string }?): { P.Section }
 		{
 			id = "catch_up",
 			label = ROW_LABEL.catch_up,
-			hint = "Missed means Tern wasn't running or your Mac was asleep. Several misses count as one.",
+			hint = "Missed means Tern wasn't running or your " .. platform.machine() .. " was asleep. Several misses count as one.",
 			warning = warn("catch_up"),
 			changed = form.catch_up ~= default_for(form, "catch_up"),
 			defaultLabel = C.catch_up_label(default_for(form, "catch_up") :: string, window_s(form)),

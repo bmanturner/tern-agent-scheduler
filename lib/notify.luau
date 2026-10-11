@@ -1,12 +1,14 @@
 --!strict
--- lib/notify.luau : host OS notifications (LA §8.7, DEC R8). Argv-passing osascript only: text and title
--- are NEVER interpolated into script source. Deduped by (run, transition) on `run.notified`.
+-- lib/notify.luau : host OS notifications (LA §8.7, DEC R8): osascript on macOS, notify-send on Linux
+-- (lib/platform). Text and title are argv elements, NEVER interpolated into script source. Deduped by
+-- (run, transition) on `run.notified`.
 local jobs = require("./jobs")
 local ledger = require("./ledger")
+local platform = require("./platform")
 
 local notify = {}
 
--- Control characters out, whitespace collapsed, a leading "-" out (osascript must not read it as an
+-- Control characters out, whitespace collapsed, a leading "-" out (no notifier may read it as an
 -- option), at most 200 characters.
 function notify.clean(s: string): string
 	local out = s:gsub("%c", " "):gsub("%s+", " "):gsub("^[%s%-]+", "")
@@ -17,20 +19,14 @@ function notify.clean(s: string): string
 	return out
 end
 
--- Sends one banner; failure is cosmetic.
+-- Sends one banner; failure (or no notifier on this system) is cosmetic.
 function notify.raw(text: string, title: string)
+	local argv = platform.notify_argv(notify.clean(title), notify.clean(text))
+	if argv == nil then
+		return
+	end
 	pcall(function()
-		(tern :: any).process.run({
-			"/usr/bin/osascript",
-			"-e",
-			"on run argv",
-			"-e",
-			"display notification (item 1 of argv) with title (item 2 of argv)",
-			"-e",
-			"end run",
-			notify.clean(text),
-			notify.clean(title),
-		}, { timeout_ms = 5000 }, function() end)
+		(tern :: any).process.run(argv, { timeout_ms = 5000 }, function() end)
 	end)
 end
 

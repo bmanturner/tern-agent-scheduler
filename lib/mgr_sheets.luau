@@ -13,6 +13,7 @@ local const = require("./const")
 local jobs = require("./jobs")
 local bins = require("./bins")
 local runner = require("./runner")
+local platform = require("./platform")
 
 local S = {}
 
@@ -339,8 +340,12 @@ local function run_setup_check(state: State, sheet: Sheet)
 end
 
 local function open_data_folder()
+	local argv = platform.open_argv(tern.plugin.data)
+	if argv == nil then
+		return
+	end
 	pcall(function()
-		tern.process.run({ "/usr/bin/open", tern.plugin.data }, { timeout_ms = 5000 }, function() end)
+		tern.process.run(argv :: { string }, { timeout_ms = 5000 }, function() end)
 	end)
 end
 
@@ -449,7 +454,7 @@ local function settings_sections(state: State, sheet: Sheet): { P.Section }
 				{
 					id = "catchup_window_s",
 					label = "Late limit for missed runs",
-					hint = "If your Mac was asleep: a run later than this is recorded as missed.",
+					hint = "If your " .. platform.machine() .. " was asleep: a run later than this is recorded as missed.",
 					warning = warn.catchup_window_s,
 					control = { k = "number", value = math.max(1, window_s // 3600), min = 1, max = 168, unit = "h" },
 				},

@@ -6,6 +6,7 @@ local cron = require("./cron")
 local ids = require("./ids")
 local store = require("./store")
 local validate = require("./validate")
+local platform = require("./platform")
 
 local ledger = {}
 
@@ -315,9 +316,9 @@ function ledger.reason_text(code: string?, run: Run): string
 		local count = tonumber(run.count) or 1
 		local slot = tonumber(run.last) or tonumber(run.slot) or 0
 		if count > 1 then
-			return string.format("Missed %d runs, last %s: Tern wasn't running or your Mac was asleep.", count, day_time(slot))
+			return string.format("Missed %d runs, last %s: Tern wasn't running or your %s was asleep.", count, day_time(slot), platform.machine())
 		end
-		return string.format("Missed %s: Tern wasn't running or your Mac was asleep.", day_time(slot))
+		return string.format("Missed %s: Tern wasn't running or your %s was asleep.", day_time(slot), platform.machine())
 	end
 	return ""
 end

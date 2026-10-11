@@ -1,0 +1,20 @@
+default os	macos
+mac machine	Mac
+mac tern	/Applications/Tern.app/Contents/MacOS/tern
+mac omp dirs	/home/u/Library/Application Support/Tern/omp
+mac notify	/usr/bin/osascript
+mac open	/usr/bin/open | /d
+mac shell (fish)	/bin/zsh
+linux machine	computer
+linux tern	/home/u/.local/bin/tern | /home/u/.local/opt/tern/tern | /usr/local/bin/tern | /usr/bin/tern
+linux omp dirs	/home/u/.local/share/tern/omp | /home/u/.local/share/Tern/omp
+linux omp dirs (XDG)	/xdg/tern/omp | /xdg/Tern/omp
+linux notify (none)	nil
+linux notify status (none)	false notify-send isn't installed (libnotify), so there are no desktop banners. Toasts still work.
+linux notify	/usr/bin/notify-send | --app-name=Agent Scheduler | -- | Title | Body
+linux open	/usr/bin/xdg-open | /d
+linux shell (zsh)	/usr/bin/zsh
+linux shell (fish, no bash)	/bin/sh
+linux shell (fish, bash)	/bin/bash
+interactive dash	false
+missed copy	your computer was asleep

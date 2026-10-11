@@ -6,6 +6,7 @@ local const = require("./const")
 local outbox = require("./outbox")
 local status = require("./status")
 local wsnap = require("./wsnap")
+local platform = require("./platform")
 
 local commands = {}
 
@@ -20,7 +21,7 @@ function commands.focused_cwd(cx: WindowCx): (string, string?)
 		return cx.hosts:current()
 	end)
 	if okh and type(host) == "table" and (host :: any).kind == "remote" then
-		return "", "That pane is on another machine. Pick a folder on this Mac."
+		return "", "That pane is on another machine. Pick a folder on this " .. platform.machine() .. "."
 	end
 	local okp, info = pcall(function()
 		local pane = cx.session:focused()

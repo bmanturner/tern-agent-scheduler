@@ -4,11 +4,11 @@ Scheduled [omp](https://github.com/can1357/oh-my-pi) agent runs for [Tern](https
 
 ![The Agent Scheduler manager: a run in progress showing its model, tool calls, cost, running time and the tool it is using now, above four upcoming jobs with their schedules, last results and next run times](docs/screenshots/manager.png)
 
-Write a prompt, pick a folder and say when ("weekdays 9am", "every 2h", `0 9 * * 1-5`). At that time Agent Scheduler starts omp in a background **Scheduled runs** session, watches it, and records how the run ended. Your focus never moves. The status line, toasts and macOS notifications tell you when something needs you or fails, and every run keeps its session so you can open it and carry on.
+Write a prompt, pick a folder and say when ("weekdays 9am", "every 2h", `0 9 * * 1-5`). At that time Agent Scheduler starts omp in a background **Scheduled runs** session, watches it, and records how the run ended. Your focus never moves. The status line, toasts and desktop notifications tell you when something needs you or fails, and every run keeps its session so you can open it and carry on.
 
 ## Install
 
-Needs Tern 0.7.2 or later on macOS, and [omp](https://github.com/can1357/oh-my-pi).
+Needs Tern 0.7.2 or later on macOS or Linux (not Windows yet), and [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
 
 ```sh
 tern plugin install github.com/bmanturner/tern-agent-scheduler
@@ -26,7 +26,7 @@ Press `n` in the manager, or `ctrl+alt+shift+j` anywhere. The folder starts as t
 | --- | --- |
 | Prompt | What the agent should do, in Markdown. `ctrl+o` opens it in an editor. |
 | When | The schedule, with a preview of the next three runs. `ctrl+p` picks a preset. |
-| If your Mac was asleep | Run once when you're back if under 3 h late (default), always catch up, or skip. |
+| If your computer was asleep | Run once when you're back if under 3 h late (default), always catch up, or skip. |
 | Folder | Where every run starts. |
 | Role | An omp model role such as `@default` or `@smol`, including your project's roles. |
 | Approval | **Hands-off** (default), **Ask before commands** or **Ask for everything**. |
@@ -78,11 +78,11 @@ From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+
 Ask Tern's assistant to create, list, run or pause jobs, for example *"Schedule a job called standup-notes in ~/Dev/app every weekday at 9am that summarises yesterday's commits."*
 
 > [!NOTE]
-> Jobs Carly creates are active immediately with the default approval (Hands-off). You get a toast and a macOS notification, and the manager marks them `by Carly`.
+> Jobs Carly creates are active immediately with the default approval (Hands-off). You get a toast and a desktop notification, and the manager marks them `by Carly`.
 
 ## Good to know
 
-- **Jobs run while Tern's session service is running.** It keeps running after you close every window, as long as a terminal or a run tab is open. Nothing runs while your Mac is asleep or after a restart until you open Tern; missed runs follow the job's **If your Mac was asleep** setting.
+- **Jobs run while Tern's session service is running.** It keeps running after you close every window, as long as a terminal or a run tab is open. Nothing runs while your computer is asleep or after a restart until you open Tern; missed runs follow the job's **If your computer was asleep** setting.
 - **A run waiting for your approval** is only noticed while a Tern window is open.
 - **With several Tern windows,** runs go to the first window's **Scheduled runs** session.
 - **Failures:** a run that hits its time limit is stopped. After three failures in a row the job pauses itself and tells you.
@@ -91,7 +91,7 @@ Ask Tern's assistant to create, list, run or pause jobs, for example *"Schedule 
 
 ## Your data
 
-Jobs, prompts and run history live in Tern's plugin data folder (**Settings › Setup › Open data folder**): `~/Library/Application Support/Tern/plugin-data/tern-agent-scheduler/`. If its files are ever damaged, the manager offers **Start fresh**.
+Jobs, prompts and run history live in Tern's plugin data folder (**Settings › Setup › Open data folder**): `~/Library/Application Support/Tern/plugin-data/tern-agent-scheduler/` on macOS, `~/.config/tern/plugin-data/tern-agent-scheduler/` on Linux. If its files are ever damaged, the manager offers **Start fresh**.
 
 > [!WARNING]
 > Anything that can write to the data folder can create jobs or change what they run, including Hands-off ones. Keep it private to your user.

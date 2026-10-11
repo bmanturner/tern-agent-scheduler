@@ -1,0 +1,2 @@
+PASS one-shot run launches although the job turned itself off
+PASS user pause cancels a waiting recurring run

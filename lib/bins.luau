@@ -3,6 +3,7 @@
 -- cache.json (`bin`). Also owns the in-memory copy of cache.json (shared with roles.luau).
 -- No bare-`omp` fallback (R4): no valid candidate => "omp_missing" / "tern_missing".
 local const = require("./const")
+local platform = require("./platform")
 local store = require("./store")
 
 export type Bins = { tern: string, omp: string, tern_version: string, omp_version: string }
@@ -61,16 +62,13 @@ function bins.invalidate()
 end
 
 local function tern_candidates(settings: any): { string }
-	local h = home()
 	local out: { string } = {}
 	if type(settings.tern_path) == "string" and settings.tern_path ~= "" then
 		table.insert(out, settings.tern_path)
 	end
-	table.insert(out, "/Applications/Tern.app/Contents/MacOS/tern")
-	table.insert(out, h .. "/Applications/Tern.app/Contents/MacOS/tern")
-	table.insert(out, h .. "/.local/bin/tern")
-	table.insert(out, "/opt/homebrew/bin/tern")
-	table.insert(out, "/usr/local/bin/tern")
+	for _, p in platform.tern_paths() do
+		table.insert(out, p)
+	end
 	return out
 end
 
@@ -122,20 +120,27 @@ local function omp_candidates(settings: any): ({ string }, { string })
 	if type(settings.omp_path) == "string" and settings.omp_path ~= "" then
 		table.insert(before, settings.omp_path)
 	end
-	-- the link Tern's own omp manager records (a small file at a fixed path)
-	local okr, text = pcall(function()
-		return (tern :: any).fs.read(h .. "/Library/Application Support/Tern/omp/state.json", 65536)
-	end)
-	if okr and type(text) == "string" then
-		local okd, j = pcall(function()
-			return (tern :: any).json.decode(text)
+	-- the link Tern's own omp manager records (a small file at a fixed path), then its own copy
+	local dirs = platform.tern_omp_dirs()
+	for _, dir in dirs do
+		local okr, text = pcall(function()
+			return (tern :: any).fs.read(dir .. "/state.json", 65536)
 		end)
-		if okd and type(j) == "table" and type(j.link) == "string" then
-			table.insert(before, j.link)
+		if okr and type(text) == "string" then
+			local okd, j = pcall(function()
+				return (tern :: any).json.decode(text)
+			end)
+			if okd and type(j) == "table" and type(j.link) == "string" then
+				table.insert(before, j.link)
+			end
 		end
 	end
-	table.insert(before, h .. "/Library/Application Support/Tern/omp/bin/omp")
-	table.insert(before, "/opt/homebrew/bin/omp")
+	for _, dir in dirs do
+		table.insert(before, dir .. "/bin/omp")
+	end
+	for _, p in platform.omp_paths_before() do
+		table.insert(before, p)
+	end
 	local after: { string } = {
 		h .. "/.local/bin/omp",
 		h .. "/.bun/bin/omp",
@@ -144,17 +149,14 @@ local function omp_candidates(settings: any): ({ string }, { string })
 	return before, after
 end
 
--- Interactive login shell argv for `command -v omp`: the user's own zsh/bash so rc files that extend PATH
--- (bun, nvm, mise) are read; /bin/zsh otherwise.
+-- Login shell argv for `command -v omp`: the user's own shell, interactive when it is zsh/bash so rc
+-- files that extend PATH (bun, nvm, mise) are read.
 local function lookup_argv(): { string }
-	local sh = (tern :: any).getenv("SHELL") :: string?
-	if type(sh) == "string" and sh:sub(1, 1) == "/" then
-		local base = sh:match("([^/]+)$")
-		if base == "zsh" or base == "bash" then
-			return { sh, "-l", "-i", "-c", "command -v omp" }
-		end
+	local sh = platform.login_shell()
+	if platform.interactive_ok(sh) then
+		return { sh, "-l", "-i", "-c", "command -v omp" }
 	end
-	return { "/bin/zsh", "-l", "-i", "-c", "command -v omp" }
+	return { sh, "-l", "-c", "command -v omp" }
 end
 
 -- rc files may print banners; the answer is the last line that is an absolute path.
