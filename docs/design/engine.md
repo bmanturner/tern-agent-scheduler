@@ -1,5 +1,8 @@
 # Schedule: scheduler engine spec
 
+> [!NOTE]
+> Historical design notes, written before the build under the working name `schedule`. The shipped plugin is `tern-agent-scheduler` ("Agent Scheduler"); where these notes disagree with the code or the [README](../../README.md), the code and README win. Links to `research/`, `review/` and `engine-src/` point at internal notes that aren't published; the engine now lives in `lib/` and its tests in `test/`.
+
 Audience: the developer implementing the engine half of the `schedule` Tern plugin (repo `tern-schedule`). UX is in `./ux.md`; this file owns the clock, the job store, the policies, the run ledger and the tests. Architecture is decided in `./architecture.md` (`AR`): host half = brain and launcher (`tern new …` CLI), window half = eyes and chrome; this spec follows it.
 
 **Citation keys.** `PA §n` = `research/prior-art.md` §5 pattern n / §6 pitfall; `TP §x` = `research/tern-platform.md`; `PR Qn` = `research/tern-probe.md`; `PR2 T n` = `research/tern-probe2.md` test n; `AR` = `design/architecture.md`; `OC §n` = `research/omp-capabilities.md`; `LP #n` = `research/local-patterns.md` pattern n. Tern docs (under `~/.omp/agent/skills/tern-plugin/references/docs/`): `RT` = `concepts/runtime.md`, `API` = `reference/api-shared.md`, `LIM` = `reference/limits.md`, `LC` = `concepts/lifecycle.md`. `[VERIFIED]` = I ran it on this machine while writing the spec (§8, Appendix). `[INFERENCE]` = not observed.

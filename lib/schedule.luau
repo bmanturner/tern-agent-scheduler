@@ -68,7 +68,7 @@ function M.parse(input: string, now: number)
   if n2 and UNIT[u2] then
     local secs = (n2 == "" and 1 or tonumber(n2)) * UNIT[u2]
     if secs < cron.MIN_INTERVAL_S then return nil, "Minimum interval is 5 minutes" end
-    if secs > 86400 then return nil, "Maximum interval is 24 hours; for longer periods use 'daily at 09:00', 'weekly' or a cron expression" end
+    if secs > 86400 then return nil, "Maximum interval is 24 hours; for longer periods use 'daily at 09:00', 'every monday 9am' or a cron expression" end
     local r = rec("interval", tostring(secs)) r.secs = secs return r
   end
 

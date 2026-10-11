@@ -9,6 +9,7 @@ local F = require("./mgr_form")
 local S = require("./mgr_sheets")
 local jobs = require("./jobs")
 local runner = require("./runner")
+local store = require("./store")
 
 local L = {}
 
@@ -271,13 +272,15 @@ local function clip(text: string, max: number): string
 	return string.sub(first, 1, (utf8.offset(first, max) or max + 1) - 1) .. "…"
 end
 
+-- `by Carly` is the only marker of a job Carly created, so it stays at every width: the role chip goes first, and
+-- below tier 3 the mark shrinks to a glyph.
 local function job_label(job: any, tier: number): Spans
 	local spans: { Span | string } = { ui.span(job.name, "strong") }
 	if tier >= 3 then
 		table.insert(spans, ui.span("  @" .. tostring(job.role), "muted"))
-		if job.created_by == "carly" then
-			table.insert(spans, ui.span("  by Carly", "muted"))
-		end
+	end
+	if job.created_by == "carly" then
+		table.insert(spans, ui.span(if tier >= 3 then "  by Carly" else "  ✦", "muted"))
 	end
 	return spans
 end
@@ -377,7 +380,17 @@ local function item_node(row: Row, now: number, tier: number): Node
 	if tier >= 2 and #detail_parts > 0 then
 		props.detail = { ui.span(table.concat(detail_parts, " · "), "muted") }
 	end
-	props.value = { ui.span(value, if sec == "needs" then "warning" else "num") }
+	-- Accent only for a fire under 5 minutes away (UX §8.1); everything else scheduled is muted.
+	local tone = "muted"
+	local js_next: any = if row.js ~= nil then (row.js :: any).next_run else nil
+	if sec == "needs" then
+		tone = "warning"
+	elseif sec == "running" then
+		tone = "num"
+	elseif sec == "upcoming" and type(js_next) == "number" and js_next - now < 300 then
+		tone = "accent"
+	end
+	props.value = { ui.span(value, tone) }
 	props.aria = string.format("%s, %s", job.name, value)
 	return ui.node("item", props)
 end
@@ -389,7 +402,7 @@ function L.hints_text(cols: number): Node
 	local hints: { { string } }
 	local sep = "  "
 	if cols >= 80 then
-		hints = { { "n", "new" }, { "e", "edit" }, { "⏎", "open" }, { "r", "run now" }, { "␣", "pause" }, { "dd", "delete" }, { "h", "history" }, { "P", "pause all" }, { "?", "more" } }
+		hints = { { "n", "new" }, { "e", "edit" }, { "⏎", "open" }, { "r", "run now" }, { "␣", "pause" }, { "dd", "delete" }, { "h", "history" }, { "⇧P", "pause all" }, { "?", "more" } }
 	elseif cols >= 56 then
 		hints = { { "n", "new" }, { "e", "edit" }, { "⏎", "open" }, { "r", "run" }, { "␣", "pause" }, { "?", "keys" } }
 		sep = " · "
@@ -417,21 +430,47 @@ local function badge_label(label: string, cols: number): string?
 	return nil
 end
 
+local DATA_TEXT: { [string]: string } = {
+	damaged = "Saved data is damaged, so jobs are paused. Start fresh clears it, or open the data folder to repair it by hand.",
+	readonly = "Agent Scheduler can't write its data folder, so jobs are paused. Fix the folder's permissions, then start fresh.",
+}
+
+-- "damaged" or "readonly" while the store refuses writes (EN §2.2.4), else nil.
+local function data_problem(): string?
+	local ok, health = pcall(store.health)
+	if ok and (health == "damaged" or health == "readonly") then
+		return health
+	end
+	return nil
+end
+
 local function row_badges(state: State, row: Row?): { Node }
 	local cols = state.cx.cols
 	local out: { Node } = {}
-	local function add(label: string, tone: string, act: string, key: string, value: string?)
+	-- `min_cols` hides a long-label badge on narrower panes (its key still works).
+	local function add(label: string, tone: string, act: string, key: string, value: string?, min_cols: number?)
 		local shown = badge_label(label, cols)
+		if min_cols ~= nil and cols < min_cols then
+			shown = nil
+		end
 		if shown ~= nil then
 			table.insert(out, C.badge(shown, tone, act, key, value))
 		end
 	end
+	if data_problem() ~= nil then
+		-- The only way out of damaged data, so these show at every width.
+		table.insert(out, C.badge("Start fresh", "error", "start_fresh", "fresh"))
+		table.insert(out, C.badge("Open data folder", "neutral", "open_data", "data"))
+	end
 	add("+ New", "accent", "new", "new")
-	if row ~= nil and row.kind == "run" then
+	if row ~= nil and row.kind == "invalid" then
+		local armed = state.armed == row.key
+		add(if armed then "Confirm delete" else "Delete", if armed then "error" else "neutral", "delete", "delete", row.key)
+	elseif row ~= nil and row.kind == "run" then
 		local run: any = row.run
 		add("Open run", "accent", "open_run", "open", run.run_id)
 		add("Stop", "neutral", "stop_run", "stop", run.run_id)
-		add("History", "neutral", "history", "history", row.key)
+		add("History", "neutral", "history", "history", run.job_id)
 	elseif row ~= nil and row.kind == "job" then
 		local job: any = row.job
 		local running = #A.runs_of(job.id) > 0
@@ -442,10 +481,15 @@ local function row_badges(state: State, row: Row?): { Node }
 			add("Open run", "neutral", "open_job", "open", job.id)
 		end
 		add("History", "neutral", "history", "history", job.id)
+		add("Duplicate", "neutral", "duplicate", "duplicate", job.id, 100)
 		local armed = state.armed == job.id
 		add(if armed then "Confirm delete" else "Delete", if armed then "error" else "neutral", "delete", "delete", job.id)
 	end
+	if state.undo_until ~= nil and tern.now() < state.undo_until then
+		add("Undo", "accent", "undo", "undo")
+	end
 	add("Settings", "neutral", "settings", "settings")
+	add(if jobs.paused_all() then "Resume all" else "Pause all", "neutral", "pause_all", "pause_all", nil, 100)
 	add("?", "neutral", "help", "help")
 	return out
 end
@@ -467,6 +511,13 @@ local function setup_failing(): boolean
 	return false
 end
 
+local function setup_line(): Node
+	return C.with(
+		ui.text({ ui.span("Agent Scheduler needs attention", "warning"), ui.span("  Check setup", "key") }),
+		{ key = "ctx", actions = { click = "setup" } }
+	)
+end
+
 local function context_line(state: State, model: Model, row: Row?): Node
 	local now = C.now()
 	local armed = state.armed
@@ -478,19 +529,25 @@ local function context_line(state: State, model: Model, row: Row?): Node
 				then string.format("%s is running. d again stops it and deletes the job, or esc to keep it.", job.name)
 				else string.format("Press d again to delete %s, or esc to keep it.", job.name)
 			return C.text({ ui.span(text, "warning") }, "ctx")
+		elseif row ~= nil and row.kind == "invalid" and row.key == armed then
+			return C.text({ ui.span(string.format("Press d again to remove %s, or esc to keep it.", (row.job :: any).name), "warning") }, "ctx")
 		end
 	end
 	if state.notice ~= nil and tern.now() - state.notice_at < 6000 then
 		return C.text({ ui.span(state.notice, "warning") }, "ctx")
 	end
+	local problem = data_problem()
+	if problem ~= nil then
+		return C.text({ ui.span(DATA_TEXT[problem], "warning") }, "ctx")
+	end
+	if row ~= nil and row.kind == "invalid" then
+		return C.text({ ui.span(string.format("This job can't be read: %s. d d removes it, or open the data folder to fix jobs.json.", row.error or "unknown error"), "warning") }, "ctx")
+	end
 	if jobs.paused_all() then
-		return C.text({ ui.span("All jobs are paused. Press P to resume.", "warning") }, "ctx")
+		return C.text({ ui.span("All jobs are paused. Press shift+p to resume.", "warning") }, "ctx")
 	end
 	if setup_failing() then
-		return C.with(
-			ui.text({ ui.span("Agent Scheduler needs attention", "warning"), ui.span("  Check setup", "key") }),
-			{ key = "ctx", actions = { click = "setup" } }
-		)
+		return setup_line()
 	end
 	if model.next_job ~= nil and model.next_at ~= nil then
 		local at: number = model.next_at
@@ -550,15 +607,24 @@ local function example_view(state: State): (Node, Node)
 			{ key = "avail", actions = { click = "setup" } }
 		),
 	})
-	local acts: { Node } = {
-		C.badge("+ New", "accent", "new", "new"),
-		C.badge("Settings", "neutral", "settings", "settings"),
-		C.badge("?", "neutral", "help", "help"),
-	}
-	local dock = ui.col({
-		C.with(ui.row(acts), { key = "acts" }),
-		C.text({ ui.span("⏎", "key"), ui.span(" use example   ", "muted"), ui.span("n", "key"), ui.span(" new job   ", "muted"), ui.span("?", "key"), ui.span(" how it works", "muted") }, "hints"),
-	})
+	local acts: { Node } = {}
+	local problem = data_problem()
+	if problem ~= nil then
+		table.insert(acts, C.badge("Start fresh", "error", "start_fresh", "fresh"))
+		table.insert(acts, C.badge("Open data folder", "neutral", "open_data", "data"))
+	end
+	table.insert(acts, C.badge("+ New", "accent", "new", "new"))
+	table.insert(acts, C.badge("Settings", "neutral", "settings", "settings"))
+	table.insert(acts, C.badge("?", "neutral", "help", "help"))
+	local dock_children: { Node } = {}
+	if problem ~= nil then
+		table.insert(dock_children, C.text({ ui.span(DATA_TEXT[problem], "warning") }, "ctx"))
+	elseif setup_failing() then
+		table.insert(dock_children, setup_line())
+	end
+	table.insert(dock_children, C.with(ui.row(acts), { key = "acts" }))
+	table.insert(dock_children, C.text({ ui.span("⏎", "key"), ui.span(" use example   ", "muted"), ui.span("n", "key"), ui.span(" new job   ", "muted"), ui.span("?", "key"), ui.span(" how it works", "muted") }, "hints"))
+	local dock = ui.col(dock_children)
 	return main, dock
 end
 
@@ -652,7 +718,7 @@ local function job_id_of(row: Row): string
 end
 
 -- Starts the form for a new job or opens a settings sheet, etc.; `true` when the state changed.
-function L.key(state: State, k: Key): boolean?
+local function key_inner(state: State, k: Key): boolean?
 	local name = k.name
 	local model = L.model(state)
 
@@ -718,7 +784,13 @@ function L.key(state: State, k: Key): boolean?
 		return A.undo(state)
 	end
 
-	if row == nil or row.kind == "invalid" then
+	if row == nil then
+		return false
+	elseif row.kind == "invalid" then
+		if name == "d" then
+			A.delete(state, row.key)
+			return true
+		end
 		return false
 	end
 	local jid = job_id_of(row)
@@ -758,6 +830,13 @@ function L.key(state: State, k: Key): boolean?
 		return true
 	end
 	return false
+end
+
+function L.key(state: State, k: Key): boolean?
+	-- A key that disarms a pending delete must redraw even when it does nothing else.
+	local disarmed = state.armed ~= nil and k.name ~= "d"
+	local handled = key_inner(state, k)
+	return handled or disarmed
 end
 
 -- Events ------------------------------------------------------------------------------------------------------
@@ -804,6 +883,16 @@ function L.event(state: State, ev: UiEvent)
 		local value: any = ev.value
 		if act == "fold" and type(value) == "string" then
 			state.folds[value] = not collapsed(state, value)
+		elseif act == "start_fresh" then
+			A.start_fresh(state)
+		elseif act == "open_data" then
+			S.open_data_folder()
+		elseif act == "undo" then
+			if not A.undo(state) then
+				C.notice(state, "Nothing to undo.")
+			end
+		elseif act == "pause_all" then
+			A.pause_all(state)
 		elseif act == "new" then
 			A.new_job(state)
 		elseif act == "settings" then
@@ -817,6 +906,8 @@ function L.event(state: State, ev: UiEvent)
 				A.run_now(state, value)
 			elseif act == "edit" then
 				A.edit(state, value)
+			elseif act == "duplicate" then
+				A.duplicate(state, value)
 			elseif act == "pause" then
 				A.toggle_pause(state, value)
 			elseif act == "history" then

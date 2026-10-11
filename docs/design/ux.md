@@ -1,5 +1,8 @@
 # Schedule — end-user experience spec
 
+> [!NOTE]
+> Historical design notes, written before the build under the working name `schedule`. The shipped plugin is `tern-agent-scheduler` ("Agent Scheduler"); where these notes disagree with the code or the [README](../../README.md), the code and README win. Links to `research/`, `review/` and `engine-src/` point at internal notes that aren't published; the engine now lives in `lib/` and its tests in `test/`.
+
 Plugin id `schedule` · repo `tern-schedule` · target Tern 0.7.2 · omp 18.9.1.
 
 > ## Revision 2 (after review, 2026-10-11)

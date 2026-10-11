@@ -85,7 +85,22 @@ local function snapshot_of(form: Form): { [string]: any }
 	}
 end
 
+-- The draft file (ctrl+o) is the source of truth only once it was edited there, meaning its text differs from what was
+-- written to it. Until then the inline prompt is, so typing after ctrl+o is never overwritten.
+local function sync_draft(form: Form)
+	local path = form.draft_path
+	if path == nil then
+		return
+	end
+	local ok, text = pcall(tern.fs.read, path, const.PROMPT_MAX + 1024)
+	if ok and type(text) == "string" and text ~= form.draft_seed then
+		textfield.set(form.prompt, text)
+		form.draft_seed = text
+	end
+end
+
 function F.dirty(form: Form): boolean
+	sync_draft(form)
 	local now = snapshot_of(form)
 	for k, v in form.orig do
 		if now[k] ~= v then
@@ -124,6 +139,9 @@ function F.new(seed: Seed, id: string?, title: string): Form
 		busy = false,
 		catch_up_window_s = seed.window_s,
 		draft_path = nil,
+		draft_seed = nil,
+		was_done = false,
+		return_to = nil,
 	}
 	form.orig = snapshot_of(form)
 	return form
@@ -261,7 +279,7 @@ function F.errors(state: State): { [string]: string }
 	if out.folder == nil and fok ~= nil and not fok.ok and fok.path == expand(form.folder.text) then
 		out.folder = string.format("%s doesn't exist or can't be opened.", C.tilde(fok.path))
 	end
-	if out.role == nil and form.roles ~= nil and #form.roles > 0 and table.find(form.roles, form.role) == nil then
+	if out.role == nil and form.role ~= "default" and form.roles ~= nil and #form.roles > 0 and table.find(form.roles, form.role) == nil then
 		local names: { string } = {}
 		for _, r in form.roles do
 			table.insert(names, "@" .. r)
@@ -537,12 +555,9 @@ local function start_edit(state: State, row: string)
 	if f == nil then
 		return
 	end
-	if row == "prompt" and form.draft_path ~= nil then
-		-- The draft file is the source of truth once it was opened.
-		local ok, text = pcall(tern.fs.read, form.draft_path, const.PROMPT_MAX + 1024)
-		if ok and type(text) == "string" then
-			textfield.set(form.prompt, text)
-		end
+	if row == "prompt" then
+		-- Adopt the draft file if it was edited there.
+		sync_draft(form)
 	end
 	form.focus = row
 	form.menu = nil
@@ -564,6 +579,7 @@ local function stop_edit(state: State, revert: boolean)
 	if e == nil then
 		return
 	end
+	form.esc_at = nil
 	local f = field_of(form, e.row)
 	if f ~= nil and revert then
 		textfield.set(f, e.initial)
@@ -575,6 +591,10 @@ local function stop_edit(state: State, revert: boolean)
 	if not revert and f ~= nil and f.text ~= e.initial then
 		form.touched[e.row] = true
 		form.extra[e.row] = nil
+		if e.row == "when" and form.was_done == true then
+			-- A new time on a finished one-shot makes it active again (EN §6.6).
+			form.enabled = true
+		end
 		if e.row == "folder" then
 			form.folder_ok = nil
 			form.extra.role = nil
@@ -640,6 +660,9 @@ function F.set_when(state: State, phrase: string)
 	textfield.set(form.when, phrase)
 	form.touched.when = true
 	form.extra.when = nil
+	if form.was_done == true then
+		form.enabled = true
+	end
 	form.focus = "when"
 end
 
@@ -657,6 +680,12 @@ local function close_form(state: State, select_job: string?)
 	C.focus(state.cx, nil)
 	if select_job ~= nil then
 		state.sel = { sec = "upcoming", key = select_job }
+	end
+	-- Opened from a job's Detail: go back to it (the new job after a duplicate was saved).
+	local back: string? = if form ~= nil and form.return_to ~= nil then (select_job or form.return_to) else nil
+	if back ~= nil and jobs.get(back) ~= nil then
+		state.mode = "detail"
+		state.detail = { job_id = back, sel = nil, expanded = nil }
 	end
 end
 
@@ -686,9 +715,9 @@ local function next_text(job_id: string): string
 	local js: any = jobs.state(job_id)
 	local nxt = if type(js) == "table" then js.next_run else nil
 	if type(nxt) == "number" then
-		return "next " .. C.abs(nxt)
+		return "Next " .. C.abs(nxt)
 	end
-	return "manual only"
+	return "Manual only"
 end
 
 local function commit(state: State, form: Form, run_now: boolean)
@@ -732,9 +761,9 @@ local function commit(state: State, form: Form, run_now: boolean)
 	runner.changed()
 	close_form(state, id)
 	if job.enabled == false then
-		C.toast(state, "success", "Saved " .. job.name .. " (paused)", "press space to resume")
+		C.toast(state, "success", "Saved " .. job.name .. " (paused)", "Press space to resume it.")
 	elseif editing and was_running then
-		C.toast(state, "success", "Saved " .. job.name, "takes effect on the next run")
+		C.toast(state, "success", "Saved " .. job.name, "Takes effect on the next run.")
 	else
 		C.toast(state, "success", "Saved " .. job.name, next_text(id))
 	end
@@ -758,12 +787,7 @@ function F.save(state: State, run_now: boolean)
 	if form.editing ~= nil then
 		stop_edit(state, false)
 	end
-	if form.draft_path ~= nil then
-		local ok, text = pcall(tern.fs.read, form.draft_path, const.PROMPT_MAX + 1024)
-		if ok and type(text) == "string" then
-			textfield.set(form.prompt, text)
-		end
-	end
+	sync_draft(form)
 	local errs = F.errors(state)
 	if next(errs) ~= nil then
 		form.submitted = true
@@ -789,6 +813,7 @@ end
 -- Opening ------------------------------------------------------------------------------------------------
 
 local function start(state: State, form: Form)
+	form.return_to = if state.mode == "detail" and state.detail ~= nil then state.detail.job_id else nil
 	state.form = form
 	state.mode = "form"
 	state.sheet = nil
@@ -824,7 +849,80 @@ function F.open_edit(state: State, job_id: string)
 	seed.approval = job.approval
 	seed.stop_s = job.max_runtime_s
 	seed.window_s = job.catch_up_window_s
-	start(state, F.new(seed, job_id, "Edit " .. job.name))
+	local form = F.new(seed, job_id, "Edit " .. job.name)
+	local js: any = jobs.state(job_id)
+	form.was_done = type(js) == "table" and js.done == true
+	start(state, form)
+end
+
+-- The form's fields for the block `save`, so an open form survives a plugin reload or restart.
+function F.snapshot(form: Form): { [string]: any }
+	sync_draft(form)
+	return {
+		id = form.id,
+		title = form.title,
+		name = form.name.text,
+		prompt = form.prompt.text,
+		when = form.when.text,
+		folder = form.folder.text,
+		role = form.role,
+		catch_up = form.catch_up,
+		approval = form.approval,
+		stop_s = form.stop_s,
+		enabled = form.enabled,
+		window_s = form.catch_up_window_s,
+		draft_path = form.draft_path,
+		draft_seed = form.draft_seed,
+		was_done = form.was_done,
+		return_to = form.return_to,
+		orig = form.orig,
+	}
+end
+
+-- Rebuilds a form from F.snapshot output; false when it can't be (the edited job is gone, bad data).
+function F.restore(state: State, saved: any): boolean
+	if type(saved) ~= "table" then
+		return false
+	end
+	local s: { [string]: any } = saved
+	local id: string? = if type(s.id) == "string" then s.id else nil
+	if id ~= nil and jobs.get(id) == nil then
+		return false
+	end
+	local function str(v: any): string?
+		return if type(v) == "string" then v else nil
+	end
+	local seed: Seed = {
+		name = str(s.name),
+		prompt = str(s.prompt),
+		when = str(s.when),
+		cwd = str(s.folder),
+		role = str(s.role),
+		enabled = if type(s.enabled) == "boolean" then s.enabled else nil,
+		catch_up = str(s.catch_up),
+		approval = str(s.approval),
+		stop_s = if type(s.stop_s) == "number" then s.stop_s else nil,
+		window_s = if type(s.window_s) == "number" then s.window_s else nil,
+	}
+	local form = F.new(seed, id, str(s.title) or (if id ~= nil then "Edit job" else "New job"))
+	if type(s.orig) == "table" then
+		local orig: { [string]: any } = {}
+		for k, v in s.orig do
+			local t = type(v)
+			if type(k) == "string" and (t == "string" or t == "number" or t == "boolean") then
+				orig[k] = v
+			end
+		end
+		if next(orig) ~= nil then
+			form.orig = orig
+		end
+	end
+	form.draft_path = str(s.draft_path)
+	form.draft_seed = str(s.draft_seed)
+	form.was_done = s.was_done == true
+	start(state, form)
+	form.return_to = str(s.return_to)
+	return true
 end
 
 -- View -------------------------------------------------------------------------------------------------------
@@ -833,7 +931,7 @@ function F.hints(cols: number, editing: string?): string
 	if editing == "prompt" then
 		return if cols < 56 then "^⏎ done · esc revert" else "⏎ newline · ^⏎ done · esc revert"
 	elseif editing ~= nil then
-		return "⏎ done · esc revert"
+		return if cols < 56 then "⏎ done · ^⏎ save" else "⏎ done · ^⏎ save · esc revert"
 	elseif cols < 56 then
 		return "^⏎ save · esc cancel"
 	end
@@ -859,10 +957,10 @@ function F.view(state: State): (Node, Node)
 
 	local props: { [string]: any } = {
 		key = "prefs",
-		title = form.title,
-		lead = "Run an omp agent on a schedule.",
-		-- One page, so the header reads "01 · New job" rather than an empty label.
-		pages = C.arr({ { id = "job", label = form.title, icon = "timer" } }),
+		title = "Agent Scheduler",
+		lead = if form.id ~= nil then "Change this job. Saved changes apply from its next run." else "Run an omp agent on a schedule.",
+		-- One page, so the header reads "01 · Job" rather than an empty label.
+		pages = C.arr({ { id = "job", label = "Job", icon = "timer" } }),
 		page = "job",
 		sections = P.node_sections(sections),
 		focus = form.focus,
@@ -892,7 +990,7 @@ function F.view(state: State): (Node, Node)
 	if state.notice ~= nil and tern.now() - state.notice_at < 6000 then
 		status = { ui.span(state.notice, "warning") }
 	elseif discard then
-		status = { ui.span("Discard changes? esc again", "warning") }
+		status = { ui.span(if e ~= nil and e.row == "prompt" then "Discard prompt edits? esc again" else "Discard changes? esc again", "warning") }
 	elseif #failing_rows > 0 then
 		local names: { string } = {}
 		for _, row in failing_rows do
@@ -900,7 +998,7 @@ function F.view(state: State): (Node, Node)
 		end
 		status = { ui.span("Fix: " .. table.concat(names, ", "), "warning") }
 	else
-		status = { ui.span(C.AVAILABILITY, "muted") }
+		status = { ui.span("Save & run now runs it once right away, exactly as scheduled. It can change files.", "muted") }
 	end
 	local blocked = next(errs) ~= nil
 	local narrow = cx.cols < 70
@@ -926,18 +1024,35 @@ local function key_text(state: State, k: Key): boolean
 	local name = k.name
 	local multi = e.row == "prompt"
 	if name == "escape" then
+		-- A multi-line prompt can hold minutes of typing: ask before throwing it away.
+		if multi and f.text ~= e.initial and not (form.esc_at ~= nil and tern.now() - form.esc_at < 3000) then
+			form.esc_at = tern.now()
+			tern.timer(3100, function()
+				if state.form == form then
+					C.render(state)
+				end
+			end)
+			return true
+		end
 		stop_edit(state, true)
 		return true
-	elseif name == "enter" then
+	end
+	local pending = form.esc_at ~= nil
+	form.esc_at = nil
+	if name == "enter" then
 		if multi then
 			if k.ctrl or k.meta then
 				stop_edit(state, false)
 				return true
 			end
 			form.touched.prompt = true
-			return textfield.insert(f, "\n")
+			textfield.insert(f, "\n")
+			return true
 		end
 		stop_edit(state, false)
+		if k.ctrl or k.meta then
+			F.save(state, k.shift)
+		end
 		return true
 	elseif name == "tab" and not multi then
 		stop_edit(state, false)
@@ -952,7 +1067,7 @@ local function key_text(state: State, k: Key): boolean
 	if changed then
 		form.touched[e.row] = true
 	end
-	return changed
+	return changed or pending
 end
 
 local function key_menu(state: State, k: Key): boolean
@@ -1013,6 +1128,9 @@ local function open_file(state: State)
 		end
 		-- The creation time leads the name (tern.fs has no mtime) so housekeeping can age it out.
 		path = string.format("%s/%d-%s.md", dir, os.time(), ids.draft_id())
+	else
+		-- Keep edits already made in the file before writing the current prompt over it.
+		sync_draft(form)
 	end
 	local ok = pcall(tern.fs.write, path :: string, form.prompt.text)
 	if not ok then
@@ -1020,11 +1138,12 @@ local function open_file(state: State)
 		return
 	end
 	form.draft_path = path
+	form.draft_seed = form.prompt.text
 	state.cx:open(path :: string)
 	C.notice(state, "Editing the file replaces the prompt here when you save.")
 end
 
-function F.key(state: State, k: Key): boolean?
+local function key_inner(state: State, k: Key): boolean?
 	local form = state.form :: Form
 	local name = k.name
 	if form.editing ~= nil then
@@ -1093,6 +1212,14 @@ function F.key(state: State, k: Key): boolean?
 	return false
 end
 
+function F.key(state: State, k: Key): boolean?
+	local form = state.form :: Form
+	local pending = form.esc_at ~= nil
+	local handled = key_inner(state, k)
+	-- A key that clears the "esc again" prompt must redraw even when it does nothing else.
+	return handled or (pending and state.form == form and form.esc_at == nil)
+end
+
 -- Events (mouse) ---------------------------------------------------------------------------------------------
 
 function F.event(state: State, ev: UiEvent)
@@ -1110,8 +1237,13 @@ function F.event(state: State, ev: UiEvent)
 			F.save(state, true)
 		elseif act == "cancel" then
 			F.request_cancel(state)
-		elseif act == "close" and form.menu ~= nil then
-			form.menu = nil
+		elseif act == "close" then
+			-- Close on an open menu's button (it carries a row) closes the menu; the header's Close leaves the form.
+			if form.menu ~= nil and ev.value ~= nil and ev.value ~= tern.json.null then
+				form.menu = nil
+			else
+				F.request_cancel(state)
+			end
 		end
 	elseif kind == "change" and type(item) == "string" then
 		if form.editing ~= nil then

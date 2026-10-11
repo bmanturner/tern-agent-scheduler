@@ -1,5 +1,8 @@
 # Launcher + run tracking: Schedule (tern-schedule)
 
+> [!NOTE]
+> Historical design notes, written before the build under the working name `schedule`. The shipped plugin is `tern-agent-scheduler` ("Agent Scheduler"); where these notes disagree with the code or the [README](../../README.md), the code and README win. Links to `research/`, `review/` and `engine-src/` point at internal notes that aren't published; the engine now lives in `lib/` and its tests in `test/`.
+
 > **Revision 2 (after review).** `design/decisions.md` is authoritative and overrides this doc where they differ. Changes made here:
 > - **R1** prompt source of truth is `prompts/<job id>.md`, snapshotted to `runs/<job>/<run>/prompt.md` at fire time; `prompt_source="file"`/`prompt_path` cut (§2.3). **R2** run dir layout and correlation key by the `/runs/<job>/<run>/` substring (§2.2, §8.2). **R3** every example id is `j_xxxxxxxx` / `r_<job8>_<slot>` (manual `r_<job8>_<epoch>_<rand4>`); block/tab/session ids are strings (§2.1, §2.5).
 > - **R4** no bare-`omp` fallback: missing omp is `blocked/omp_missing` (§1). **R5** `--keep-open` always, only the host closes panes, global cap of 5 finished run panes in M1 (§2.1, §9). **R6** preamble always on in M1, `RESULT:` protocol kept, quiet success deferred (§3).
@@ -20,13 +23,13 @@ Cross-cutting rule (the keystone of the quoting design): **no user-authored text
 
 ## 1. Binary resolution
 
-Host `PATH` is `/usr/bin:/bin:/usr/sbin:/sbin`, `HOME=/Users/bfturner` (PR2 test 7), so nothing is found by name. Panes run `/bin/zsh -l -c '<command>'` (PR2 test 4: `program=/bin/zsh args=["-l","-c","/opt/homebrew/bin/omp --model @tiny 'Reply with exactly: pong'"]`), so inside the pane the login `PATH` applies (verified: `/bin/zsh -l -c 'echo $PATH'` begins `~/.local/bin:/opt/homebrew/bin:...`). Hence: **the host must pass absolute paths for both `tern` and `omp`; the pane's login PATH only matters for what omp itself spawns** (git, node, bun, ...).
+Host `PATH` is `/usr/bin:/bin:/usr/sbin:/sbin`, `HOME=~` (PR2 test 7), so nothing is found by name. Panes run `/bin/zsh -l -c '<command>'` (PR2 test 4: `program=/bin/zsh args=["-l","-c","/opt/homebrew/bin/omp --model @tiny 'Reply with exactly: pong'"]`), so inside the pane the login `PATH` applies (verified: `/bin/zsh -l -c 'echo $PATH'` begins `~/.local/bin:/opt/homebrew/bin:...`). Hence: **the host must pass absolute paths for both `tern` and `omp`; the pane's login PATH only matters for what omp itself spawns** (git, node, bun, ...).
 
 Observed on this machine (HELP/`ls -la`):
 
 | Path | Is |
 |---|---|
-| `/Users/bfturner/.local/bin/tern` | symlink → `/Applications/Tern.app/Contents/MacOS/tern` (136 MB Mach-O) |
+| `~/.local/bin/tern` | symlink → `/Applications/Tern.app/Contents/MacOS/tern` (136 MB Mach-O) |
 | `/Applications/Tern.app/Contents/MacOS/tern` | the real binary |
 | `/opt/homebrew/bin/omp` | symlink → `~/Library/Application Support/Tern/omp/bin/omp` → `../versions/18.9.1` (Tern-managed; `state.json`: `"managed":true,"link":"/opt/homebrew/bin/omp","installed.version":"18.9.1"`) |
 | `~/.local/bin/omp` | standalone 212 MB binary, **`omp/18.8.6`**; first in the login PATH, so a typed `omp` in a Tern shell is 18.8.6 while the Tern-managed one is 18.9.1 |
@@ -97,7 +100,7 @@ Dedicated session default is the verified no-focus-change path (PR2 test 4 "sess
 
 ### 2.2 The omp part (per run)
 
-Run dir (host creates with `tern.fs.mkdir`, one level at a time; `mkdir` recursion is not documented): `<data>/runs/<job_id>/<run_id>/` with `prompt.md`, `preamble.md`, `omp.yml` and `session/` (omp creates it) (R2). `<data>` = `tern.plugin.data` = `/Users/bfturner/Library/Application Support/Tern/plugin-data/schedule` (contains a space). Ids (R3): `job_id` = `j_` + 8 `[a-z0-9]`; `run_id` = `r_<job8>_<slot>` for scheduled/catch-up slots and `r_<job8>_<epoch>_<rand4>` for manual runs, so both are `[a-z0-9_]+` slugs and the path `/runs/<job_id>/<run_id>/` is the correlation key. The ledger lives elsewhere (`ledger/<job id>.jsonl`, engine.md).
+Run dir (host creates with `tern.fs.mkdir`, one level at a time; `mkdir` recursion is not documented): `<data>/runs/<job_id>/<run_id>/` with `prompt.md`, `preamble.md`, `omp.yml` and `session/` (omp creates it) (R2). `<data>` = `tern.plugin.data` = `~/Library/Application Support/Tern/plugin-data/schedule` (contains a space). Ids (R3): `job_id` = `j_` + 8 `[a-z0-9]`; `run_id` = `r_<job8>_<slot>` for scheduled/catch-up slots and `r_<job8>_<epoch>_<rand4>` for manual runs, so both are `[a-z0-9_]+` slugs and the path `/runs/<job_id>/<run_id>/` is the correlation key. The ledger lives elsewhere (`ledger/<job id>.jsonl`, engine.md).
 
 Field names are engine.md's (§1.1): `role` (bare), `approval` (`read_only|write|always_ask|yolo`), `max_runtime_s`, `after`, `allow_home`. There are **no `thinking`, `tools` or `tell_unattended` job fields in v1** (preamble is always on, R6; Read-only is hidden until V9, R18).
 ```lua
@@ -145,12 +148,12 @@ PR2 test 4, `tern inspect` of a launched block: `args=["-l","-c","/opt/homebrew/
 
 ### 2.5 Three worked examples
 
-Common: `TERN="/Applications/Tern.app/Contents/MacOS/tern"`, `OMP="/opt/homebrew/bin/omp"`, `D="/Users/bfturner/Library/Application Support/Tern/plugin-data/schedule"`, `R = D.."/runs/<job id>/<run id>"`.
+Common: `TERN="/Applications/Tern.app/Contents/MacOS/tern"`, `OMP="/opt/homebrew/bin/omp"`, `D="~/Library/Application Support/Tern/plugin-data/schedule"`, `R = D.."/runs/<job id>/<run id>"`.
 
-**A. Daily review (typical), session exists, ask-before-commands.** Job `j_k3x9a2bc` "daily-review", role `default` (`@default`), approval `write`, `max_runtime_s` 1800, `after` `keep`, cwd `/Users/bfturner/Dev/app`, scheduled slot 1791727200 → run `r_k3x9a2bc_1791727200`. Overlay `omp.yml` = the §7.2 approval pin.
+**A. Daily review (typical), session exists, ask-before-commands.** Job `j_k3x9a2bc` "daily-review", role `default` (`@default`), approval `write`, `max_runtime_s` 1800, `after` `keep`, cwd `~/Dev/app`, scheduled slot 1791727200 → run `r_k3x9a2bc_1791727200`. Overlay `omp.yml` = the §7.2 approval pin.
 ```lua
 local R = D.."/runs/j_k3x9a2bc/r_k3x9a2bc_1791727200"
-{ TERN, "new", "tab", "Scheduled runs", "--json", "--cwd", "/Users/bfturner/Dev/app", "--keep-open", "--",
+{ TERN, "new", "tab", "Scheduled runs", "--json", "--cwd", "~/Dev/app", "--keep-open", "--",
   OMP, "--model", "@default", "--approval-mode", "write", "--max-time", "1800",
   "--session-dir", R.."/session",
   "--append-system-prompt", R.."/preamble.md",
@@ -158,13 +161,13 @@ local R = D.."/runs/j_k3x9a2bc/r_k3x9a2bc_1791727200"
   "@"..R.."/prompt.md",
   "Run the scheduled job described in the attached file." }
 ```
-Pane command (expected, [INFERENCE V1] for the exact quoting): `/opt/homebrew/bin/omp --model @default --approval-mode write --max-time 1800 --session-dir '/Users/bfturner/Library/Application Support/Tern/plugin-data/schedule/runs/j_k3x9a2bc/r_k3x9a2bc_1791727200/session' --append-system-prompt '…/preamble.md' --config '…/omp.yml' '@/Users/…/prompt.md' 'Run the scheduled job described in the attached file.'`
+Pane command (expected, [INFERENCE V1] for the exact quoting): `/opt/homebrew/bin/omp --model @default --approval-mode write --max-time 1800 --session-dir '~/Library/Application Support/Tern/plugin-data/schedule/runs/j_k3x9a2bc/r_k3x9a2bc_1791727200/session' --append-system-prompt '…/preamble.md' --config '…/omp.yml' '@/Users/…/prompt.md' 'Run the scheduled job described in the attached file.'`
 Follow-ups: `tern rename <block> '⏲ daily-review'` (§4). The `Scheduled runs` argument contains a space; it is a `tern` argv element (direct exec), not shell text.
 
-**B. First run ever, no `Scheduled runs` session, hands-off, folder with a space, unicode prompt.** Job `j_q1w2e3r4` "nightly-news 🗞", role `smol` (`@smol`, cost shown on the form, R16), approval `yolo`, 900 s, cwd `/Users/bfturner/Dev/my app`, slot 1791770400 → run `r_q1w2e3r4_1791770400`. `tern ls --json` has no `Scheduled runs` → ensure-session creates it. Prompt text `Résumé les nouvelles — it's “fine”; don't ask` lives in `prompt.md` only. Hands-off ⇒ `omp.yml` = `ask: {enabled: false}` (§7.2) and the preflight verifies the hands-off confirmation hash of (prompt text, cwd, role) (R10): a mismatch is `blocked/hands_off_review` and nothing launches.
+**B. First run ever, no `Scheduled runs` session, hands-off, folder with a space, unicode prompt.** Job `j_q1w2e3r4` "nightly-news 🗞", role `smol` (`@smol`, cost shown on the form, R16), approval `yolo`, 900 s, cwd `~/Dev/my app`, slot 1791770400 → run `r_q1w2e3r4_1791770400`. `tern ls --json` has no `Scheduled runs` → ensure-session creates it. Prompt text `Résumé les nouvelles — it's “fine”; don't ask` lives in `prompt.md` only. Hands-off ⇒ `omp.yml` = `ask: {enabled: false}` (§7.2) and the preflight verifies the hands-off confirmation hash of (prompt text, cwd, role) (R10): a mismatch is `blocked/hands_off_review` and nothing launches.
 ```lua
 local R = D.."/runs/j_q1w2e3r4/r_q1w2e3r4_1791770400"
-{ TERN, "new", "session", "Scheduled runs", "--json", "--cwd", "/Users/bfturner/Dev/my app", "--keep-open", "--",
+{ TERN, "new", "session", "Scheduled runs", "--json", "--cwd", "~/Dev/my app", "--keep-open", "--",
   OMP, "--model", "@smol", "--approval-mode", "yolo", "--max-time", "900",
   "--session-dir", R.."/session",
   "--append-system-prompt", R.."/preamble.md",
@@ -174,10 +177,10 @@ local R = D.."/runs/j_q1w2e3r4/r_q1w2e3r4_1791770400"
 ```
 The job name, emoji, apostrophes and curly quotes never reach this argv. `cwd` has a space (Tern `--cwd` value; not shell text).
 
-**C. Run now beside the work, project role, ask-for-everything, brought to front (M1).** Job `j_z8m4q7dd` "check-docs", role `nightly` (project role from `<cwd>/.omp/config.yml`, §6), approval `always_ask`, 300 s, placement "Background tab in the current session" + Bring to front, cwd `/Users/bfturner/Dev/personal`. Manual run → `r_z8m4q7dd_1791771000_a3f9`.
+**C. Run now beside the work, project role, ask-for-everything, brought to front (M1).** Job `j_z8m4q7dd` "check-docs", role `nightly` (project role from `<cwd>/.omp/config.yml`, §6), approval `always_ask`, 300 s, placement "Background tab in the current session" + Bring to front, cwd `~/Dev/personal`. Manual run → `r_z8m4q7dd_1791771000_a3f9`.
 ```lua
 local R = D.."/runs/j_z8m4q7dd/r_z8m4q7dd_1791771000_a3f9"
-{ TERN, "new", "tab", "--json", "--cwd", "/Users/bfturner/Dev/personal", "--keep-open", "--",   -- no session arg ⇒ "the session shown" (§4 b)
+{ TERN, "new", "tab", "--json", "--cwd", "~/Dev/personal", "--keep-open", "--",   -- no session arg ⇒ "the session shown" (§4 b)
   OMP, "--model", "@nightly", "--approval-mode", "always-ask", "--max-time", "300",
   "--session-dir", R.."/session",
   "--append-system-prompt", R.."/preamble.md",

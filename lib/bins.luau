@@ -115,11 +115,12 @@ local function omp_version(r: any): string?
 	return line
 end
 
-local function omp_candidates(settings: any, login_lookup: string?): { string }
+-- Candidates tried before the login-shell lookup, and those tried after it.
+local function omp_candidates(settings: any): ({ string }, { string })
 	local h = home()
-	local out: { string } = {}
+	local before: { string } = {}
 	if type(settings.omp_path) == "string" and settings.omp_path ~= "" then
-		table.insert(out, settings.omp_path)
+		table.insert(before, settings.omp_path)
 	end
 	-- the link Tern's own omp manager records (a small file at a fixed path)
 	local okr, text = pcall(function()
@@ -130,17 +131,42 @@ local function omp_candidates(settings: any, login_lookup: string?): { string }
 			return (tern :: any).json.decode(text)
 		end)
 		if okd and type(j) == "table" and type(j.link) == "string" then
-			table.insert(out, j.link)
+			table.insert(before, j.link)
 		end
 	end
-	table.insert(out, h .. "/Library/Application Support/Tern/omp/bin/omp")
-	table.insert(out, "/opt/homebrew/bin/omp")
-	if login_lookup ~= nil then
-		table.insert(out, login_lookup)
+	table.insert(before, h .. "/Library/Application Support/Tern/omp/bin/omp")
+	table.insert(before, "/opt/homebrew/bin/omp")
+	local after: { string } = {
+		h .. "/.local/bin/omp",
+		h .. "/.bun/bin/omp",
+		"/usr/local/bin/omp",
+	}
+	return before, after
+end
+
+-- Interactive login shell argv for `command -v omp`: the user's own zsh/bash so rc files that extend PATH
+-- (bun, nvm, mise) are read; /bin/zsh otherwise.
+local function lookup_argv(): { string }
+	local sh = (tern :: any).getenv("SHELL") :: string?
+	if type(sh) == "string" and sh:sub(1, 1) == "/" then
+		local base = sh:match("([^/]+)$")
+		if base == "zsh" or base == "bash" then
+			return { sh, "-l", "-i", "-c", "command -v omp" }
+		end
 	end
-	table.insert(out, h .. "/.local/bin/omp")
-	table.insert(out, "/usr/local/bin/omp")
-	return out
+	return { "/bin/zsh", "-l", "-i", "-c", "command -v omp" }
+end
+
+-- rc files may print banners; the answer is the last line that is an absolute path.
+local function last_path_line(stdout: string): string?
+	local found_line: string? = nil
+	for line in stdout:gmatch("[^\r\n]+") do
+		local t = line:match("^%s*(/.-)%s*$")
+		if t ~= nil and t ~= "" then
+			found_line = t
+		end
+	end
+	return found_line
 end
 
 local function finish(b: Bins?, err: string?)
@@ -154,9 +180,9 @@ end
 
 local function resolve_fresh(settings: any)
 	first_valid(tern_candidates(settings), tern_version, function(tpath, tver)
-		found.tern, found.tern_version = tpath, tver
 		local function with_omp(omp_path: string?, over: string?)
-			found.omp, found.omp_version = omp_path, over
+			-- the known paths are replaced only now, so they stay usable while the probes run
+			found = { tern = tpath, tern_version = tver, omp = omp_path, omp_version = over }
 			local c = bins.cache()
 			if found.tern ~= nil or found.omp ~= nil then
 				c.bin = {
@@ -178,38 +204,26 @@ local function resolve_fresh(settings: any)
 			end
 			finish(bins.get(), nil)
 		end
-		-- candidates 1-4, then the login-shell lookup (5), then 6-7
-		local pre = omp_candidates(settings, nil)
-		local cut = #pre - 2 -- the last two entries (.local/bin, /usr/local/bin) come after the login lookup
-		local first: { string } = {}
-		for i = 1, cut do
-			table.insert(first, pre[i])
-		end
-		first_valid(first, omp_version, function(p1, v1)
+		local before, after = omp_candidates(settings)
+		first_valid(before, omp_version, function(p1, v1)
 			if p1 ~= nil then
 				return with_omp(p1, v1)
 			end
-			local looked: string? = nil
 			local okl = pcall(function()
-				(tern :: any).process.run(
-					{ "/bin/zsh", "-l", "-c", "command -v omp" },
-					{ timeout_ms = 5000 },
-					function(r: any)
-						if r.status == 0 then
-							looked = tostring(r.stdout):match("^%s*([^\r\n]+)")
-						end
-						local rest: { string } = {}
-						if looked ~= nil then
-							table.insert(rest, looked)
-						end
-						table.insert(rest, pre[#pre - 1])
-						table.insert(rest, pre[#pre])
-						first_valid(rest, omp_version, with_omp)
+				(tern :: any).process.run(lookup_argv(), { timeout_ms = 5000 }, function(r: any)
+					local rest: { string } = {}
+					local looked = r.status == 0 and last_path_line(tostring(r.stdout)) or nil
+					if looked ~= nil then
+						table.insert(rest, looked)
 					end
-				)
+					for _, p in ipairs(after) do
+						table.insert(rest, p)
+					end
+					first_valid(rest, omp_version, with_omp)
+				end)
 			end)
 			if not okl then
-				first_valid({ pre[#pre - 1], pre[#pre] }, omp_version, with_omp)
+				first_valid(after, omp_version, with_omp)
 			end
 		end)
 	end)
@@ -235,7 +249,6 @@ function bins.resolve(settings: any, cb: (Bins?, string?) -> (), force: boolean?
 		return
 	end
 	resolving = true
-	found = {}
 	resolve_fresh(settings)
 end
 

@@ -34,6 +34,11 @@ function notify.raw(text: string, title: string)
 	end)
 end
 
+-- One banner with no run record and no dedupe (e.g. Carly created a job). Failure is cosmetic.
+function notify.plain(title: string, text: string)
+	notify.raw(text, title)
+end
+
 -- true when a banner was sent. `transition` is the dedupe key stored in run.notified.
 function notify.send(run: any, transition: string, title: string, text: string): boolean
 	local notified = run.notified

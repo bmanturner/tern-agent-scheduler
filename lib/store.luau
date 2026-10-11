@@ -60,7 +60,23 @@ function store.exists(path: string): boolean
 	return ok and res == true
 end
 
+-- Refuses `..` segments and absolute paths outside the plugin data folder (F60).
+local function safe_target(path: string): boolean
+	if path:find("%.%.") and (path == ".." or path:find("^%.%./") or path:find("/%.%./") or path:find("/%.%.$")) then
+		return false
+	end
+	if path:sub(1, 1) == "/" then
+		local root = store.root()
+		return path:sub(1, #root + 1) == root .. "/"
+	end
+	return true
+end
+
 function store.remove(path: string)
+	if not safe_target(path) then
+		warn("store: refused to remove", path)
+		return
+	end
 	local abs = store.path(path)
 	pcall(function()
 		(tern :: any).fs.remove(abs)
@@ -194,6 +210,21 @@ local function decode_file(abs: string, cap: number): (any?, string?, string?)
 	return value, text, nil
 end
 
+-- Files that can be rebuilt from scratch: a bad copy is set aside and never blocks writes or pauses jobs.
+local REGENERABLE: { [string]: boolean } = { cache = true }
+
+-- Keep the bytes of an unusable main file as <name>.json.corrupt-<t> (best effort).
+local function keep_corrupt(abs: string, cap: number)
+	local okc, raw = pcall(function()
+		return (tern :: any).fs.read(abs, cap * 4)
+	end)
+	if okc and type(raw) == "string" then
+		pcall(function()
+			(tern :: any).fs.write(string.format("%s.corrupt-%d", abs, os.time()), raw)
+		end)
+	end
+end
+
 -- Decoded structured file (`settings|cache|jobs|state`). Returns data, or nil + "missing" | "readonly" | "damaged".
 function store.load(name: string, cap: number): (any?, string?)
 	local abs = store.path(name .. ".json")
@@ -208,7 +239,7 @@ function store.load(name: string, cap: number): (any?, string?)
 		known_good[abs] = text
 		return value, nil
 	end
-	if why == "newer" then
+	if why == "newer" and not REGENERABLE[name] then
 		blocked[name] = "readonly"
 		warn("store: newer format, read-only", name)
 		return nil, "readonly"
@@ -218,22 +249,23 @@ function store.load(name: string, cap: number): (any?, string?)
 	end
 	local bval, btext, bwhy = decode_file(bak, cap)
 	if bval ~= nil and btext ~= nil then
+		-- the newer main bytes would be lost on the next write: keep a copy first (F64)
+		if main_exists then
+			keep_corrupt(abs, cap)
+		end
 		known_good[abs] = btext
 		return bval, nil
 	end
-	if bwhy == "newer" then
+	if bwhy == "newer" and not REGENERABLE[name] then
 		blocked[name] = "readonly"
 		return nil, "readonly"
 	end
 	-- both unusable: keep whatever bytes exist
 	if main_exists then
-		local okc, raw = pcall(function()
-			return (tern :: any).fs.read(abs, cap * 4)
-		end)
-		if okc and type(raw) == "string" then
-			pcall(function()
-				(tern :: any).fs.write(string.format("%s.corrupt-%d", abs, os.time()), raw)
-			end)
+		keep_corrupt(abs, cap)
+		if REGENERABLE[name] then
+			warn("store: regenerable file unusable, starting empty", name)
+			return nil, "missing"
 		end
 		blocked[name] = "damaged"
 		warn("store: damaged, not overwriting", name)
@@ -257,9 +289,24 @@ function store.save(name: string, tbl: any, cap: number): (boolean, string?)
 	return store.safe_write(name .. ".json", text :: string, cap)
 end
 
--- User chose "Start fresh": allow writes again for a damaged/read-only structured file.
+-- User chose "Start fresh": set the unusable files aside (.corrupt-<t>), delete them and allow writes again.
 function store.start_fresh(name: string)
+	local abs = store.path(name .. ".json")
+	if store.exists(abs) then
+		keep_corrupt(abs, const.CAP_JOBS)
+	end
+	store.remove(abs)
+	store.remove(abs .. ".bak")
 	blocked[name] = nil
 end
 
+-- Structured files currently blocked (damaged or read-only), sorted.
+function store.blocked_names(): { string }
+	local out: { string } = {}
+	for name in pairs(blocked) do
+		table.insert(out, name)
+	end
+	table.sort(out)
+	return out
+end
 return store

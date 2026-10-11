@@ -44,9 +44,20 @@ function A.duplicate(state: State, job_id: string)
 		return
 	end
 	local sched: any = job.schedule
-	local name: string = job.name .. " copy"
-	if (utf8.len(name) or #name) > const.NAME_MAX then
-		name = string.sub(name, 1, const.NAME_MAX)
+	-- Cut the base by characters (never mid-codepoint) so " copy NN" always fits, then make the name unique.
+	local base: string = job.name
+	if (utf8.len(base) or #base) > const.NAME_MAX - 8 then
+		base = string.sub(base, 1, (utf8.offset(base, const.NAME_MAX - 7) or (#base + 1)) - 1)
+	end
+	local taken: { [string]: boolean } = {}
+	for _, j in jobs.list() do
+		taken[string.lower((j :: any).name)] = true
+	end
+	local name = base .. " copy"
+	local n = 2
+	while taken[string.lower(name)] do
+		name = string.format("%s copy %d", base, n)
+		n += 1
 	end
 	F.open_new(state, {
 		name = name,
@@ -90,13 +101,30 @@ function A.toggle_pause(state: State, job_id: string)
 	runner.changed()
 	local js: any = jobs.state(job_id)
 	local nxt = if type(js) == "table" then js.next_run else nil
-	C.toast(state, "success", "Resumed " .. job.name, if type(nxt) == "number" then "next " .. C.abs(nxt) else "manual only")
+	C.toast(state, "success", "Resumed " .. job.name, if type(nxt) == "number" then "Next " .. C.abs(nxt) else "Manual only")
 end
 
--- First call arms, second deletes (stopping its running runs first). True when it deleted.
+-- First call arms, second deletes (stopping its running runs first). True when it deleted. A job that can't be read
+-- (Needs fixing) is removed from jobs.json the same way.
 function A.delete(state: State, job_id: string): boolean
 	local job = job_of(job_id)
 	if job == nil then
+		for _, bad in jobs.invalid() do
+			if bad.id == job_id then
+				if state.armed ~= job_id then
+					state.armed = job_id
+					return false
+				end
+				state.armed = nil
+				if jobs.delete_invalid(job_id) then
+					runner.changed()
+					C.toast(state, "success", "Removed " .. bad.name)
+					return true
+				end
+				C.notice(state, "Couldn't remove it. Check that the data folder is writable.")
+				return false
+			end
+		end
 		return false
 	end
 	if state.armed ~= job_id then
@@ -111,7 +139,8 @@ function A.delete(state: State, job_id: string): boolean
 		return false
 	end
 	runner.changed()
-	C.toast(state, "success", "Deleted " .. job.name, "press u to undo")
+	state.undo_until = tern.now() + const.UNDO_DELETE_S * 1000
+	C.toast(state, "success", "Deleted " .. job.name, "Press u to restore it.")
 	if state.mode == "detail" then
 		state.mode = "list"
 		state.detail = nil
@@ -122,8 +151,10 @@ end
 function A.undo(state: State): boolean
 	local job: any = jobs.undo_delete(C.now())
 	if job == nil then
+		state.undo_until = nil
 		return false
 	end
+	state.undo_until = nil
 	runner.changed()
 	state.sel = { sec = "upcoming", key = job.id }
 	C.toast(state, "success", "Restored " .. job.name)
@@ -135,7 +166,17 @@ function A.pause_all(state: State)
 	local on = s.paused_all ~= true
 	jobs.set_paused_all(on)
 	runner.changed()
-	C.toast(state, "info", if on then "All jobs paused" else "All jobs resumed", "running jobs keep going")
+	C.toast(state, "info", if on then "All jobs paused" else "All jobs resumed", if on then "Running jobs keep going." else nil)
+end
+
+-- "Start fresh" after damaged or read-only data: unblocks writes and reloads (EN §2.2.4).
+function A.start_fresh(state: State)
+	if jobs.start_fresh(C.now()) then
+		runner.changed()
+		C.toast(state, "success", "Started fresh", "Jobs are active again.")
+	else
+		C.notice(state, "Couldn't start fresh. Open the data folder to check it.")
+	end
 end
 
 -- Opens a run's terminal: focus when its pane lives, else resume its session in a new tab.

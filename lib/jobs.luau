@@ -25,6 +25,30 @@ local settings_tbl: { [string]: any } = {}
 local loaded = false
 local deleted: { job: Job, state: JobState?, prompt: string, at: number, trash: string }? = nil
 local spec_cache: { [string]: any } = {}
+-- raw state.json entries of jobs that aren't loaded; written back unchanged (F24)
+local kept_state: { [string]: any } = {}
+local SAVE_FAILED_COPY = "Agent Scheduler can't save right now. Check Setup."
+
+local function data_blocked(): boolean
+	local h = store.health()
+	return h == "damaged" or h == "readonly"
+end
+
+local function copy_table(t: { [string]: any }): { [string]: any }
+	return table.clone(t)
+end
+
+-- Puts every key of `from` back into `t` and drops keys added since.
+local function restore_table(t: { [string]: any }, from: { [string]: any })
+	for k in pairs(t) do
+		if from[k] == nil then
+			t[k] = nil
+		end
+	end
+	for k, v in pairs(from) do
+		t[k] = v
+	end
+end
 
 local function default_settings(): { [string]: any }
 	return {
@@ -134,10 +158,17 @@ local function save_jobs(): boolean
 end
 
 function jobs.save_state(): boolean
+	local merged: { [string]: any } = {}
+	for id, e in pairs(kept_state) do
+		merged[id] = e
+	end
+	for id, e in pairs(state_tbl) do
+		merged[id] = e
+	end
 	local ok = store.save("state", {
 		format = FORMAT,
 		saved_at = os.time(),
-		jobs = state_tbl,
+		jobs = merged,
 		inflight = array(inflight_ids),
 	}, const.CAP_STATE)
 	return ok
@@ -151,8 +182,8 @@ end
 
 local function materialize(job: Job, d: { [string]: any }, now: number)
 	if job.role == nil then job.role = d.role or "default" end
-	if job.placement == nil then job.placement = d.placement or { where = "session" } end
-	if job.focus == nil then job.focus = d.focus or "keep" end
+	job.placement = nil -- where runs appear and bring-to-front are global settings (F34)
+	job.focus = nil
 	if job.approval == nil then job.approval = d.approval or "yolo" end
 	if job.max_runtime_s == nil then job.max_runtime_s = d.max_runtime_s or const.MAXRUN_DEFAULT_S end
 	if job.overlap == nil then job.overlap = d.overlap or "skip" end
@@ -176,8 +207,13 @@ end
 
 -- Loads settings, jobs and state; returns store health ("ok"|"data_unwritable"|"readonly"|"damaged").
 function jobs.load(now: number): string
+	if deleted ~= nil then
+		local d = deleted
+		deleted = nil
+		ledger.remove_job(d.job.id)
+		store.remove("runs/" .. tostring(d.job.id))
+	end
 	job_list, invalid_list, state_tbl, inflight_ids, seq = {}, {}, {}, {}, 0
-	deleted = nil
 
 	local s = store.load("settings", const.CAP_SETTINGS)
 	settings_tbl = default_settings()
@@ -219,12 +255,25 @@ function jobs.load(now: number): string
 	end
 
 	local st = store.load("state", const.CAP_STATE)
+	kept_state = {}
 	if type(st) == "table" then
 		local sj = type(st.jobs) == "table" and st.jobs or {}
 		for _, j in ipairs(job_list) do
 			local e = sj[j.id]
 			if type(e) == "table" then
 				state_tbl[j.id] = e
+			end
+		end
+		-- Entries for jobs that aren't loaded (unreadable entries, or jobs.json damaged) are carried
+		-- through every state save so repairing the file doesn't lose cursors and history (F24).
+		local jobs_blocked = table.find(store.blocked_names(), "jobs") ~= nil
+		local invalid_ids: { [string]: boolean } = {}
+		for _, bad in ipairs(invalid_list) do
+			invalid_ids[bad.id] = true
+		end
+		for id, e in pairs(sj) do
+			if state_tbl[id] == nil and type(e) == "table" and (jobs_blocked or invalid_ids[id] == true) then
+				kept_state[id] = e
 			end
 		end
 		for _, id in ipairs(type(st.inflight) == "table" and st.inflight or {}) do
@@ -546,12 +595,16 @@ local function validation_ctx(self_id: string?, now: number, creating: boolean):
 	}
 end
 
-local function save_both()
-	save_jobs()
+local function save_both(): boolean
+	local ok = save_jobs()
 	jobs.save_state()
+	return ok
 end
 
 function jobs.create(input: validate.JobInput, prompt: string, created_by: string, now: number): (Job?, { [string]: string }?)
+	if data_blocked() then
+		return nil, { name = SAVE_FAILED_COPY }
+	end
 	if #job_list + #invalid_list >= (tonumber(settings_tbl.max_jobs) or const.MAX_JOBS) then
 		return nil, { name = string.format("You can have up to %d jobs. Delete one first.", tonumber(settings_tbl.max_jobs) or const.MAX_JOBS) }
 	end
@@ -575,11 +628,19 @@ function jobs.create(input: validate.JobInput, prompt: string, created_by: strin
 	if not wok then
 		return nil, { prompt = "Couldn't save the prompt. Check the data folder." }
 	end
+	local prev_seq = seq
 	seq += 1
 	table.insert(job_list, job)
 	state_tbl[id] = fresh_state(now)
 	arm(job, now)
-	save_both()
+	if not save_both() then
+		table.remove(job_list)
+		state_tbl[id] = nil
+		seq = prev_seq
+		store.remove(prompt_rel(id))
+		save_jobs() -- replaces the failed text queued for retry
+		return nil, { name = SAVE_FAILED_COPY }
+	end
 	return job, nil
 end
 
@@ -588,6 +649,9 @@ function jobs.update(id: string, input: validate.JobInput, prompt: string?, now:
 	local job = jobs.get(id)
 	if job == nil then
 		return nil, { name = "That job no longer exists." }
+	end
+	if data_blocked() then
+		return nil, { name = SAVE_FAILED_COPY }
 	end
 	local fields: { [string]: any } = {}
 	for k, v in pairs(input :: any) do
@@ -607,6 +671,15 @@ function jobs.update(id: string, input: validate.JobInput, prompt: string?, now:
 		end
 	end
 	local st = jobs.state(id)
+	local before_job = copy_table(job)
+	local before_state = copy_table(st)
+	local before_prompt: string? = if prompt ~= nil then jobs.prompt(id) else nil
+	if prompt ~= nil then
+		local wok = store.write_text(prompt_rel(id), prompt)
+		if not wok then
+			return nil, { prompt = "Couldn't save the prompt. Check the data folder." }
+		end
+	end
 	local rearm = false
 	if norm.schedule ~= nil then
 		local old, new = job.schedule, norm.schedule
@@ -643,21 +716,57 @@ function jobs.update(id: string, input: validate.JobInput, prompt: string?, now:
 	if not now_enabled then
 		st.next_run = nil
 	end
-	save_both()
+	if not save_both() then
+		restore_table(job, before_job)
+		restore_table(st, before_state)
+		if before_prompt ~= nil then
+			store.write_text(prompt_rel(id), before_prompt)
+		end
+		save_jobs() -- replaces the failed text queued for retry
+		return nil, { name = SAVE_FAILED_COPY }
+	end
 	return job, nil
 end
 
--- EN §2.5: prompt copy to trash/, then remove ledger, run dirs, prompt and state. Keeps the job for undo.
+local function purge_deleted_files(d: { job: Job, state: JobState?, prompt: string, at: number, trash: string })
+	local id = d.job.id :: string
+	ledger.remove_job(id)
+	store.remove("runs/" .. id)
+end
+
+-- Removes the ledger and run folders of a deleted job once its undo window has passed (F54).
+function jobs.purge_deleted(now: number)
+	local d = deleted
+	if d ~= nil and now - d.at > const.UNDO_DELETE_S then
+		deleted = nil
+		purge_deleted_files(d)
+	end
+end
+
+-- EN §2.5: prompt copy to trash/, then remove prompt and state. The ledger and run folders stay until the
+-- undo window ends so jobs.undo_delete restores the history too; keeps the job for undo.
 function jobs.delete(id: string, now: number): boolean
 	local i = find_index(id)
-	if i == nil then
+	if i == nil or data_blocked() then
 		return false
 	end
-	local job = table.remove(job_list, i) :: Job
+	local pending = deleted
+	if pending ~= nil then
+		deleted = nil
+		purge_deleted_files(pending) -- only one undo slot: the older delete is final
+	end
+	local job = job_list[i]
 	local prompt = jobs.prompt(id) or ""
 	-- The deletion time is in the name (tern.fs has no mtime) so housekeeping can age it out.
 	local trash = string.format("trash/%d-%s.md", now, id)
 	store.write_text(trash, prompt)
+	table.remove(job_list, i)
+	if not save_jobs() then
+		table.insert(job_list, i, job)
+		save_jobs()
+		store.remove(trash)
+		return false
+	end
 	deleted = { job = job, state = state_tbl[id], prompt = prompt, at = now, trash = trash }
 	state_tbl[id] = nil
 	for k = #inflight_ids, 1, -1 do
@@ -665,18 +774,28 @@ function jobs.delete(id: string, now: number): boolean
 			table.remove(inflight_ids, k)
 		end
 	end
-	ledger.remove_job(id)
-	store.remove("runs/" .. id)
+	ledger.hide_job(id)
 	store.remove(prompt_rel(id))
-	save_both()
+	jobs.save_state()
+	pcall(function()
+		(tern :: any).timer((const.UNDO_DELETE_S + 1) * 1000, function()
+			jobs.purge_deleted(os.time())
+		end)
+	end)
 	return true
 end
 
--- Restores the job deleted within UNDO_DELETE_S (definition, prompt; re-armed now). Run history is not restored.
+-- Restores the job deleted within UNDO_DELETE_S (definition, prompt, run history; re-armed now).
 function jobs.undo_delete(now: number): Job?
 	local d = deleted
 	if d == nil or now - d.at > const.UNDO_DELETE_S then
-		deleted = nil
+		if d ~= nil then
+			deleted = nil
+			purge_deleted_files(d)
+		end
+		return nil
+	end
+	if data_blocked() then
 		return nil
 	end
 	local job = d.job
@@ -689,41 +808,93 @@ function jobs.undo_delete(now: number): Job?
 	if find_index(job.id) ~= nil then
 		return nil
 	end
-	deleted = nil
 	store.write_text(prompt_rel(job.id), d.prompt)
-	store.remove(d.trash)
 	table.insert(job_list, job)
-	local st = d.state or fresh_state(now)
-	state_tbl[job.id] = st
+	if not save_jobs() then
+		table.remove(job_list)
+		save_jobs()
+		store.remove(prompt_rel(job.id))
+		return nil
+	end
+	deleted = nil
+	store.remove(d.trash)
+	state_tbl[job.id] = d.state or fresh_state(now)
 	arm(job, now)
-	save_both()
+	ledger.restore_job(job.id)
+	jobs.save_state()
 	return job
 end
 
-function jobs.pause(id: string, reason: string)
+-- Pausing always takes effect in memory (the safe direction); returns whether it reached disk.
+function jobs.pause(id: string, reason: string): boolean
 	local job = jobs.get(id)
 	if job == nil then
-		return
+		return false
 	end
 	job.enabled = false
 	local st = jobs.state(id)
 	st.paused_reason = reason
 	st.next_run = nil
-	save_both()
+	return save_both()
 end
 
-function jobs.resume(id: string, now: number)
+function jobs.resume(id: string, now: number): boolean
 	local job = jobs.get(id)
-	if job == nil then
-		return
+	if job == nil or data_blocked() then
+		return false
 	end
-	job.enabled = true
 	local st = jobs.state(id)
+	local before_state = copy_table(st)
+	local before_job = copy_table(job)
+	job.enabled = true
 	st.paused_reason = nil
 	st.failure_streak = 0
 	st.incident = nil
 	arm(job, now)
-	save_both()
+	if not save_both() then
+		restore_table(job, before_job)
+		restore_table(st, before_state)
+		save_jobs()
+		return false
+	end
+	return true
+end
+
+-- Removes an unreadable entry (Needs fixing) from jobs.json. Returns true if one was removed.
+function jobs.delete_invalid(id: string): boolean
+	if data_blocked() then
+		return false
+	end
+	for i, bad in ipairs(invalid_list) do
+		if bad.id == id then
+			table.remove(invalid_list, i)
+			if not save_jobs() then
+				table.insert(invalid_list, i, bad)
+				save_jobs()
+				return false
+			end
+			kept_state[id] = nil
+			-- a valid job may share the id (duplicate entry): never touch its data
+			if id ~= "" and find_index(id) == nil and id:match("^j_[a-z0-9]+$") then
+				state_tbl[id] = nil
+				ledger.remove_job(id)
+				store.remove("runs/" .. id)
+				store.remove(prompt_rel(id))
+				jobs.save_state()
+			end
+			return true
+		end
+	end
+	return false
+end
+
+-- Fresh start after damaged/read-only data (EN §2.2.4): the unusable files are set aside, then reload.
+function jobs.start_fresh(now: number): boolean
+	for _, name in ipairs(store.blocked_names()) do
+		store.start_fresh(name)
+	end
+	jobs.load(now)
+	return true
 end
 
 return jobs

@@ -15,8 +15,6 @@ export type JobInput = {
 	approval: string?,
 	max_runtime_s: number?,
 	enabled: boolean?,
-	placement: string?,
-	focus: string?,
 	catch_up: string?,
 	catch_up_window_s: number?,
 	pause_after_failures: number?,
@@ -110,6 +108,18 @@ local function when_error(text: string, hint: string): string
 	if hint:find("^hour:") then
 		return "Hour must be 0–23."
 	end
+	if hint:find("Maximum interval", 1, true) then
+		return "Repeats can be at most every 24h. For longer gaps use “daily 09:00”, “every monday 9am” or a cron."
+	end
+	if hint:find("That date does not exist", 1, true) then
+		return "That date doesn't exist."
+	end
+	if hint:find("never fires", 1, true) then
+		return "That schedule never fires: the day doesn't exist in the chosen months."
+	end
+	if hint:find("I can't read the time", 1, true) then
+		return "Couldn't read that time. Try 9am, 09:30 or noon."
+	end
 	if text:match("^[%d%*/,%-%s]+$") then
 		local n = count_words(text)
 		if n ~= 5 then
@@ -196,11 +206,11 @@ function validate.job(fields: JobInput, ctx: Ctx): (boolean, { [string]: string 
 		if
 			old ~= nil
 			and old.input == fields.when
-			and (old.kind == "cron" or old.kind == "interval" or old.kind == "manual")
+			and (old.kind == "cron" or old.kind == "interval" or old.kind == "manual" or old.kind == "once")
 		then
 			out.schedule = old
 		elseif text == "" then
-			errs.when = "Couldn't read “”. Try “weekdays 9am”, “every 2h”, or a cron like 0 9 * * 1-5."
+			errs.when = "Enter a schedule, e.g. “weekdays 9am”."
 		else
 			local rec, hint = schedule.parse(text, ctx.now)
 			if rec == nil then
@@ -324,21 +334,7 @@ function validate.job(fields: JobInput, ctx: Ctx): (boolean, { [string]: string 
 		end
 	end
 
-	-- placement / focus / enabled
-	if fields.placement ~= nil then
-		if fields.placement == "session" or fields.placement == "tab" then
-			out.placement = { where = fields.placement }
-		else
-			errs.placement = "Pick the Scheduled runs session or a background tab."
-		end
-	end
-	if fields.focus ~= nil then
-		if fields.focus == "keep" or fields.focus == "front" then
-			out.focus = fields.focus
-		else
-			errs.focus = "Pick keep or front."
-		end
-	end
+	-- enabled (placement and focus are global settings, not per-job fields)
 	if fields.enabled ~= nil then
 		out.enabled = fields.enabled == true
 	end

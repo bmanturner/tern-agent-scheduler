@@ -5,6 +5,7 @@
 local outbox = {}
 
 local INTENT_MAX_BYTES = 16384
+outbox.INTENT_MAX_BYTES = INTENT_MAX_BYTES
 local REPLY_MAX_BYTES = 65536
 local POLL_MS = 250
 
@@ -59,8 +60,8 @@ function outbox.next_name(): string
 	return string.format("%013.0f-%s-%04d.json", ms, window_id(), seq)
 end
 
--- Writes one intent `{format = 1, kind = kind, …payload}`. Returns the file name, or nil and why.
-function outbox.send(kind: string, payload: { [string]: any }?): (string?, string?)
+-- The JSON text of one intent `{format = 1, kind = kind, …payload}`, or nil and why.
+function outbox.encode(kind: string, payload: { [string]: any }?): (string?, string?)
 	local body: { [string]: any } = {}
 	if payload then
 		for k, v in payload do
@@ -72,6 +73,15 @@ function outbox.send(kind: string, payload: { [string]: any }?): (string?, strin
 	local okj, text = pcall(tern.json.encode, body)
 	if not okj then
 		return nil, "Couldn't encode the request."
+	end
+	return text, nil
+end
+
+-- Writes one intent. Returns the file name, or nil and why.
+function outbox.send(kind: string, payload: { [string]: any }?): (string?, string?)
+	local text, eerr = outbox.encode(kind, payload)
+	if text == nil then
+		return nil, eerr
 	end
 	if #text > INTENT_MAX_BYTES then
 		return nil, "That request is too large."

@@ -1,0 +1,9 @@
+PASS F4 missed.last is a real slot
+PASS F8 truncated scan finds the true latest slot
+PASS F2 Pause all skips a run waiting on the cap
+PASS F77 run_now copy
+PASS F34 placement read from settings
+PASS F6 slow tick survives the clock moving back
+PASS F5 orphan re-queue launches once and keeps its pane
+PASS F9 catch_up=always survives restore
+PASS no errors

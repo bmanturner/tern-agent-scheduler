@@ -3,7 +3,6 @@
 -- done by the host (`carly_create` intent + reply file); this half only pre-validates and relays.
 
 local commands = require("./commands")
-local const = require("./const")
 local outbox = require("./outbox")
 local schedule = require("./schedule")
 local status = require("./status")
@@ -14,6 +13,9 @@ local carly = {}
 local SPEC_MAX = 1024
 local ADD_WAIT_MS = 15000
 local REPLY_WAIT_MS = 12000
+-- Intents the host hasn't applied by then are dropped, because the caller has been told they failed.
+local EXPIRES_S = 20
+local MIN_PREFIX = 3
 
 -- Tern rejects an export whose sig or doc exceeds 1024 bytes, which would abort registration.
 local function fit(s: string): string
@@ -56,8 +58,8 @@ local function fail(call: ExportCall, message: string): ExportWait
 	return call:wait(1000)
 end
 
--- The job named `name` (case-insensitive exact, then unique prefix) or nil and an error naming the
--- candidates.
+-- The job named `name` (case-insensitive exact, then a unique prefix when `name` has at least
+-- MIN_PREFIX characters) or nil and an error naming the candidates.
 function carly.find_job(name: string): (any?, string?)
 	wsnap.poll()
 	local jobs = wsnap.jobs()
@@ -73,7 +75,7 @@ function carly.find_job(name: string): (any?, string?)
 		table.insert(names, tostring(j.name))
 		if n == want then
 			table.insert(exact, j)
-		elseif want ~= "" and string.sub(n, 1, #want) == want then
+		elseif #want >= MIN_PREFIX and string.sub(n, 1, #want) == want then
 			table.insert(prefix, j)
 		end
 	end
@@ -102,8 +104,12 @@ local function job_state(j: any): string
 	return "paused"
 end
 
-local function next_text(at: any): string
-	if type(at) == "number" then
+local function next_text(at: any, j: any, paused_all: boolean): string
+	if j.enabled ~= true then
+		return "paused"
+	elseif paused_all then
+		return "all jobs paused"
+	elseif type(at) == "number" then
 		return os.date("%a %d %b %H:%M", at)
 	end
 	return "manual only"
@@ -121,7 +127,7 @@ local function last_text(j: any): string
 	return text
 end
 
-local ADD_DOC = "Create and start a scheduled omp agent job right away (no review step). `when` accepts: `daily 09:00`, `weekdays 9am`, `mon,thu 18:30`, `every 2h`, `every 15m` (min 5m), `hourly`, `every friday 4pm`, `monthly on the 1st 9am`, `in 30m`, `tomorrow 8am`, `2026-10-14 15:00`, `manual`, or a 5-field cron like `0 9 * * 1-5`. `folder` is an existing local folder (default: the focused pane's). `role` is an omp model role such as `@default` (default) or `@smol`. Jobs run hands-off: commands run as the user. Returns the job's name, schedule and next run."
+local ADD_DOC = "Create and start a scheduled omp agent job right away (no review step). `when` accepts: `daily 09:00`, `weekdays 9am`, `mon,thu 18:30`, `every 2h`, `every 15m` (min 5m), `hourly`, `every friday 4pm`, `monthly on the 1st 9am`, `in 30m`, `tomorrow 8am`, `2026-10-14 15:00`, `manual`, or a 5-field cron like `0 9 * * 1-5`. `folder` is an existing local folder (default: the focused pane's). `role` is an omp model role such as `@default` (default) or `@smol`. Jobs use the default approval mode (Hands-off unless changed in settings); Hands-off runs commands as the user. Returns the job's name, schedule and next run."
 
 function carly.job_add(...: any): any
 	local a, cx, call = split_args(...)
@@ -133,9 +139,6 @@ function carly.job_add(...: any): any
 
 	if type(prompt) ~= "string" or str(prompt) == "" then
 		return fail(call, "Write what the agent should do.")
-	end
-	if #prompt > const.CARLY_PROMPT_MAX then
-		return fail(call, "That prompt is too long for Carly. Use the manager.")
 	end
 	if #name > 200 then
 		return fail(call, "Names can be up to 40 characters.")
@@ -159,19 +162,25 @@ function carly.job_add(...: any): any
 	end
 
 	local reply_id = outbox.reply_id()
-	local payload: { [string]: any } = { reply = reply_id, prompt = prompt, when = when, folder = folder }
+	local payload: { [string]: any } =
+		{ reply = reply_id, prompt = prompt, when = when, folder = folder, expires = os.time() + EXPIRES_S }
 	if name ~= "" then
 		payload.name = name
 	end
 	if role ~= "" then
 		payload.role = role
 	end
+	-- JSON escaping can double a prompt's size, so measure what will actually be written.
+	local encoded = outbox.encode("carly_create", payload)
+	if encoded ~= nil and #encoded > outbox.INTENT_MAX_BYTES then
+		return fail(call, "That prompt is too long for Carly. Use the manager.")
+	end
 	local sent, err = outbox.send("carly_create", payload)
 	if sent == nil then
 		return fail(call, tostring(err))
 	end
 
-	outbox.await_reply(reply_id, REPLY_WAIT_MS, function(reply, cx2)
+	outbox.await_reply(reply_id, REPLY_WAIT_MS, function(reply)
 		if call.cancelled then
 			return
 		end
@@ -183,14 +192,9 @@ function carly.job_add(...: any): any
 			call:fail(tostring(reply.error or "Agent Scheduler couldn't create the job."))
 			return
 		end
-		if type(reply.job_id) == "string" then
-			status.suppress_job_toast(reply.job_id)
-		end
+		-- The "Carly scheduled …" toast comes from the snapshot diff in status, once per window.
 		reply.format = nil
 		call:reply(reply)
-		if cx2 ~= nil then
-			cx2:toast("success", "Carly scheduled " .. tostring(reply.name), tostring(reply.when) .. " · next " .. tostring(reply.next))
-		end
 	end)
 	return call:wait(ADD_WAIT_MS)
 end
@@ -202,18 +206,20 @@ function carly.register()
 	}, function(): any
 		wsnap.poll()
 		local out: { any } = {}
+		local snap = wsnap.get()
+		local paused_all = snap ~= nil and snap.paused_all == true
 		for _, j in wsnap.jobs() do
 			table.insert(out, {
 				name = tostring(j.name),
 				when = tostring(j.when),
-				next = next_text(j.next_run),
+				next = next_text(j.next_run, j, paused_all),
 				role = "@" .. tostring(j.role),
 				folder = tostring(j.folder),
 				state = job_state(j),
 				last = last_text(j),
 			})
 		end
-		return out
+		return (tern :: any).json.array(out)
 	end)
 
 	tern.carly.export("job_add", {
@@ -223,7 +229,7 @@ function carly.register()
 
 	tern.carly.export("job_run", {
 		sig = "(name: string) -> string",
-		doc = fit("Runs a scheduled job now, with its saved settings. `name` is matched case-insensitively (a unique prefix works); an unknown or ambiguous name fails and lists the matches. Returns \"Queued\"; the run starts within a few seconds."),
+		doc = fit("Runs a scheduled job now, with its saved settings. `name` is matched case-insensitively (a unique prefix of 3+ characters works); an unknown or ambiguous name fails and lists the matches. Fails if the job is already running or needs fixing. Returns \"Queued\"; the run starts within a few seconds."),
 	}, function(...: any): any
 		local a, _cx, call = split_args(...)
 		local name = str(a[1])
@@ -238,7 +244,15 @@ function carly.register()
 		if snap ~= nil and snap.paused_all == true then
 			return fail(call, "Resume all jobs to run.")
 		end
-		local sent, serr = outbox.send("run_now", { job_id = tostring(job.id) })
+		if job.invalid ~= nil then
+			return fail(call, tostring(job.name) .. " needs fixing in the manager.")
+		end
+		for _, r in wsnap.inflight() do
+			if tostring(r.job_id) == tostring(job.id) then
+				return fail(call, tostring(job.name) .. " is already running.")
+			end
+		end
+		local sent, serr = outbox.send("run_now", { job_id = tostring(job.id), expires = os.time() + EXPIRES_S })
 		if sent == nil then
 			return fail(call, tostring(serr))
 		end
@@ -247,7 +261,7 @@ function carly.register()
 
 	tern.carly.export("job_pause", {
 		sig = "(name: string, paused: boolean) -> string",
-		doc = fit("Pauses (paused = true) or resumes (paused = false) one scheduled job. `name` is matched case-insensitively (a unique prefix works). A run already in progress keeps going. Returns what happened."),
+		doc = fit("Pauses (paused = true) or resumes (paused = false) one scheduled job. `name` is matched case-insensitively (a unique prefix of 3+ characters works). `paused` must be true or false. A run already in progress keeps going. Returns what happened."),
 	}, function(...: any): any
 		local a, _cx, call = split_args(...)
 		local name = str(a[1])
@@ -258,7 +272,10 @@ function carly.register()
 		if job == nil then
 			return fail(call, tostring(err))
 		end
-		local pause = a[2] ~= false
+		local pause = a[2]
+		if type(pause) ~= "boolean" then
+			return fail(call, "paused must be true or false.")
+		end
 		local sent, serr = outbox.send(if pause then "pause" else "resume", { job_id = tostring(job.id) })
 		if sent == nil then
 			return fail(call, tostring(serr))
@@ -271,7 +288,10 @@ function carly.register()
 		doc = fit("Pauses (paused = true) or resumes (paused = false) every scheduled job at once. Runs already in progress keep going. Returns what happened."),
 	}, function(...: any): any
 		local a, _cx, call = split_args(...)
-		local pause = a[1] ~= false
+		local pause = a[1]
+		if type(pause) ~= "boolean" then
+			return fail(call, "paused must be true or false.")
+		end
 		local sent, serr = outbox.send(if pause then "pause_all" else "resume_all", nil)
 		if sent == nil then
 			return fail(call, tostring(serr))

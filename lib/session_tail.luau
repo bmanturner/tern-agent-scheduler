@@ -54,12 +54,20 @@ function session_tail.summarize(message: string): (string, string?)
 	local result: string? = nil
 	for line in body:gmatch("[^\r\n]+") do
 		local r = line:match("^%s*[%*_`]*RESULT:[%*_`]*%s*(.-)%s*$")
+		if r ~= nil then
+			r = (r:gsub("[%*_`%s]+$", ""))
+		end
 		if r ~= nil and r ~= "" then
 			result = r
 		end
 	end
 	if result ~= nil then
-		local why = result:match("^FAILED%s*%-%s*(.+)$") or result:match("^FAILED%s*:?%s*(.*)$")
+		local why = result:match("^FAILED(.*)$")
+		if why ~= nil then
+			why = (why:gsub("^%s*[:%-]*%s*", ""))
+			why = (why:gsub("^\u{2013}%s*", "")) -- en dash
+			why = (why:gsub("^\u{2014}%s*", "")) -- em dash
+		end
 		if why ~= nil then
 			-- The run's state already says it failed; the summary is the reason alone.
 			why = if why ~= "" then why else "the agent reported failure"
@@ -123,6 +131,7 @@ function session_tail.parse(text: string, truncated: boolean, file: string): Fac
 	local first = true
 	local last_text: string? = nil
 	local last_is_final = false
+	local model_error: string? = nil
 	for line in text:gmatch("[^\n]+") do
 		if first then
 			first = false
@@ -154,8 +163,15 @@ function session_tail.parse(text: string, truncated: boolean, file: string): Fac
 					last_text = t
 				end
 				last_is_final = (not tool) and t ~= ""
+				model_error = nil
+				if msg.stopReason == "error" or (msg.stopReason == "aborted" and t == "") then
+					local why = type(msg.errorMessage) == "string" and trim(msg.errorMessage) or ""
+					model_error = clip(if why ~= "" then why else "the model request failed", const.SUMMARY_MAX)
+					last_is_final = false
+				end
 			else
 				last_is_final = false
+				model_error = nil
 			end
 		end
 	end
@@ -168,6 +184,12 @@ function session_tail.parse(text: string, truncated: boolean, file: string): Fac
 		local summary, failed = session_tail.summarize(last_text)
 		facts.summary = summary
 		facts.failed_reason = failed
+	end
+	if model_error ~= nil then
+		-- the model call itself failed; an earlier narration message is not the outcome
+		facts.failed_reason = model_error
+		facts.summary = model_error
+		facts.completed_turn = true
 	end
 	return facts
 end

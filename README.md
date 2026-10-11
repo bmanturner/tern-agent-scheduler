@@ -89,16 +89,17 @@ Press `enter` on a job for its details and run history: the model each run used,
 | `n` / `e` / `c` | New job / edit / duplicate |
 | `r` | Run now |
 | `space` | Pause or resume the job |
-| `d` `d` | Delete (any other key cancels); `u` undoes it for 10 s |
+| `d` `d` | Delete (any other key cancels); `u` restores the job and its run history within 10 s |
+| `h` | History |
 | `o` | Open the run: focus its tab, or resume its session in a new tab if the pane is gone |
 | `x` | Stop the running run |
 | `p` | Edit the prompt file |
 | `a` | Jump to a run that needs you |
-| `P` | Pause or resume every job |
+| `P` (shift+p) | Pause or resume every job |
 | `,` | Settings |
 | `?` | All keys |
 
-Every action also has a button in the bar under the list.
+Most actions also have a button in the bar under the list.
 
 ### Palette commands
 
@@ -113,7 +114,14 @@ Every action also has a button in the bar under the list.
 
 The status line shows the most important thing at the time, such as `scheduler stalled · last tick 4m ago`, `1 needs you · deps-audit`, `nightly-tests failed`, `daily-review · 4m` or `next: inbox-triage in 38m`. Clicking it opens the manager, or the run that needs you.
 
-Windows show toasts when a run needs you, fails, is blocked or gets paused after repeated failures. Tern sends a macOS notification for the same events, once per run, even with every window closed. Successful runs stay quiet.
+Windows show toasts when a run needs you, fails, is blocked or gets paused after repeated failures. Agent Scheduler itself posts a macOS banner through `osascript`, even with every window closed. If you don't see them, allow notifications in System Settings › Notifications. Banners are sent when:
+
+- a run needs you, with one reminder if it's still waiting 30 minutes later;
+- a run fails, times out or is blocked, once per streak of failures until a run succeeds;
+- a job is paused after repeated failures;
+- Carly creates a job.
+
+Successful runs stay quiet.
 
 ### Carly
 
@@ -130,7 +138,9 @@ Agent Scheduler gives Carly, Tern's assistant, five functions:
 Ask *"Schedule a job called standup-notes in ~/Dev/app every weekday at 9am that summarises yesterday's commits"* and Carly creates it with a toast: **Carly scheduled standup-notes**.
 
 > [!NOTE]
-> Carly-created jobs are active immediately and Hands-off by default. The toast and the `by Carly` mark in the manager are how you notice them.
+> Carly-created jobs are active immediately and use the default approval, Hands-off unless you changed `defaults.approval` in `settings.json`. Carly's reply states the approval the job actually got. Agent Scheduler shows a toast and a macOS notification, and the manager marks the job `by Carly`.
+
+`name` matches case-insensitively: an exact name first, then a unique prefix of 3 or more characters. `paused` must be `true` or `false`.
 
 ## How a run works
 
@@ -150,7 +160,7 @@ Jobs run while Tern's session service is running. It keeps running after you clo
 - With no window open, runs still start and finish. Agent Scheduler only notices a run waiting for your approval while a window is open.
 - If you have several Tern windows, runs go to the first window's **Scheduled runs** session.
 
-**Settings › Setup** checks all of this: the `tern` and `omp` binaries, the scheduler heartbeat, and whether anything is keeping the service alive.
+**Settings › Setup** checks all of this: the `tern` and `omp` binaries (with an **omp path** row if omp is somewhere unusual), the scheduler heartbeat, and whether anything is keeping the service alive.
 
 ## Settings
 
@@ -175,13 +185,25 @@ Everything lives in Tern's plugin data folder (**Settings › Setup › Open dat
 | `prompts/<job>.md` | Each job's prompt |
 | `ledger/<job>.jsonl` | Run history (the newest 50 runs per job, up to 90 days) |
 | `runs/<job>/<run>/` | The prompt, instructions and omp session of each run |
+| `cache.json` | Resolved `tern` and `omp` paths and each folder's omp roles. Safe to delete. |
+| `snapshot.json` | What the host publishes for the status line, toasts and Carly |
+| `events.jsonl` | A short log of the scheduler's own events, such as gaps while it wasn't running |
+| `intents/`, `replies/` | Short-lived messages between the windows and the clock |
+| `drafts/` | Prompt files opened with `ctrl+o` while writing a job |
+| `trash/` | The prompt of each deleted job, kept 30 days |
+| `*.corrupt-<time>` | A copy of a data file that couldn't be read |
+
+If `jobs.json`, `state.json` or `settings.json` is damaged and its `.bak` can't restore it, jobs pause and the manager offers **Start fresh** (sets the damaged files aside as `.corrupt-<time>` copies) or **Open data folder** to repair them by hand.
+
+> [!WARNING]
+> The data folder is trusted. Anything that can write files there can create jobs or change what an existing job runs, including Hands-off ones. Keep it private to your user.
 
 Agent Scheduler makes no network requests of its own. Your runs use omp and whatever your prompts ask for.
 
 ## Requirements
 
 - Tern 0.7.2 or later, on macOS.
-- omp. The Tern-managed omp is used first. Otherwise Agent Scheduler looks in `/opt/homebrew/bin`, your login shell's `PATH` and `~/.local/bin`, and checks each candidate with `--version`.
+- omp. Agent Scheduler checks each candidate with `--version`, in this order: the **omp path** set in Settings › Setup, the Tern-managed omp, `/opt/homebrew/bin`, your login shell's `PATH` (read as an interactive shell, so `.zshrc` and `.bashrc` count), `~/.local/bin`, `~/.bun/bin` and `/usr/local/bin`.
 
 ## Uninstall
 
@@ -192,6 +214,8 @@ tern plugin remove tern-agent-scheduler
 Your jobs and run history stay in the data folder above. Delete it to remove them.
 
 ## Develop
+
+Tests need [Bun](https://bun.sh).
 
 ```sh
 git clone https://github.com/bmanturner/tern-agent-scheduler

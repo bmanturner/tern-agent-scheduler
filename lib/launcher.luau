@@ -189,20 +189,29 @@ function launcher.preamble(req: LaunchRequest): string
 end
 
 -- LA §7.2: hands-off disables the ask tool; every other mode pins the exec tier to `prompt` so a repo's own
--- .omp/config.yml cannot widen "Ask before commands".
+-- .omp/config.yml cannot widen "Ask before commands"; "Ask for everything" also pins the write tier.
+-- Tool names come from `omp --help`'s tool list [SUSPECT: only `bash` was exercised by V31].
 function launcher.overlay(approval: string): string
 	if approval == "yolo" then
 		return "ask:\n  enabled: false\n"
 	end
-	return table.concat({
+	local lines = {
 		"tools:",
 		"  approval:",
 		"    bash: prompt",
 		"    eval: prompt",
 		"    task: prompt",
 		"    browser: prompt",
-		"",
-	}, "\n")
+		"    python: prompt",
+		"    computer: prompt",
+	}
+	if approval == "always_ask" then
+		table.insert(lines, "    edit: prompt")
+		table.insert(lines, "    write: prompt")
+		table.insert(lines, "    notebook: prompt")
+	end
+	table.insert(lines, "")
+	return table.concat(lines, "\n")
 end
 
 -- Writes prompt.md, preamble.md, omp.yml into the run dir. ok, err.
@@ -212,7 +221,8 @@ function launcher.write_files(req: LaunchRequest): (boolean, string?)
 		return false, "Tern's data folder path contains a character the launcher can't pass safely."
 	end
 	local cwd = tostring(field(req, "cwd") or "")
-	if cwd == "" or validate.unsafe_path(cwd) then
+	if cwd == "" or cwd:find("%c") ~= nil then
+		-- cwd is only ever a `--cwd` argv element (no shell); only the data root and omp path reach shell text
 		return false, "The folder name has characters Agent Scheduler can't pass safely."
 	end
 	local rel = launcher.run_dir_rel(req)
@@ -371,7 +381,9 @@ local function pump()
 			else
 				verb, placement = (s.session_ids[req.session_name] ~= nil) and "new_tab" or "new_session", "session"
 			end
+			local tried: { [string]: boolean } = {}
 			local function launch(v: string)
+				tried[v] = true
 				proc(launcher.argv(req, v), { timeout_ms = const.LAUNCH_TIMEOUT_MS }, function(res)
 					local text = tostring(res.stderr or "") .. tostring(res.stdout or "")
 					if res.status == 0 then
@@ -383,11 +395,12 @@ local function pump()
 						end
 						return failed(n, "launch_error", "tern new printed no block id")
 					end
-					if v == "new_tab" and text:find("there is no session", 1, true) then
+					-- each fallback verb is tried at most once, then the attempt fails normally (MAX_ATTEMPTS applies)
+					if v == "new_tab" and text:find("there is no session", 1, true) and not tried.new_session then
 						placement = "session"
 						return launch("new_session")
 					end
-					if v == "new_session" and text:find("already exists", 1, true) then
+					if v == "new_session" and text:find("already exists", 1, true) and not tried.new_tab then
 						return launch("new_tab")
 					end
 					failed(n, res.timed_out and "launch_timeout" or "launch_error", text:sub(1, 200))
@@ -411,7 +424,8 @@ function launcher.queued(): number
 end
 
 -- LA §10 "Open run" when the pane is gone: a new tab in the shown session resuming omp's session file.
--- cb(ok, err). The resumed pane is a user session; it carries no run marker.
+-- cb(ok, err). The resumed pane is a user session; its command has no `@…/prompt.md` attachment, which is
+-- what tern_state anchors the run marker on, so it is not mistaken for the run's pane.
 function launcher.resume(run: { [string]: any }, bins: Bins, cb: (boolean, string?) -> ())
 	local file = run.session_file
 	if type(file) ~= "string" or file == "" then

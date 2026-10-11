@@ -1,0 +1,7 @@
+PASS F19 corrupt cache.json does not pause jobs
+PASS F20 create fails cleanly when jobs.json is blocked
+PASS F22 start fresh recovers
+PASS F21 editing a one-shot without changing When keeps run_at
+PASS F54 undo restores run history
+PASS F54 purge after the undo window
+PASS no errors

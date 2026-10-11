@@ -11,6 +11,7 @@ local schedule = require("./schedule")
 local cron = require("./cron")
 local const = require("./const")
 local jobs = require("./jobs")
+local bins = require("./bins")
 local runner = require("./runner")
 
 local S = {}
@@ -49,7 +50,7 @@ local HELP_KEYS: { { string } } = {
 	{ "x", "Stop the running run" },
 	{ "p", "Edit the prompt file" },
 	{ "a", "Jump to a run that needs you" },
-	{ "P", "Pause all / resume all" },
+	{ "⇧P", "Pause all / resume all (shift+p)" },
 	{ ",", "Settings" },
 	{ "esc", "Back" },
 }
@@ -262,7 +263,7 @@ local function help_node(_state: State, _sheet: Sheet): Node
 	end
 	return dialog("Keys", "md", {
 		ui.kv(rows),
-		C.text({ ui.span("Mouse: every key has a badge in the bar under the list. esc closes this.", "muted") }, "foot"),
+		C.text({ ui.span("Most actions also have a button under the list. esc closes this.", "muted") }, "foot"),
 	})
 end
 
@@ -343,6 +344,10 @@ local function open_data_folder()
 	end)
 end
 
+function S.open_data_folder()
+	open_data_folder()
+end
+
 -- Settings ---------------------------------------------------------------------------------------------------
 
 local function settings_sections(state: State, sheet: Sheet): { P.Section }
@@ -372,6 +377,13 @@ local function settings_sections(state: State, sheet: Sheet): { P.Section }
 						label = "Availability",
 						hint = C.AVAILABILITY,
 						control = { k = "action", act = "details", label = "Details" },
+					},
+					{
+						id = "omp_path",
+						label = "omp path",
+						hint = "Where Agent Scheduler finds omp. Leave it empty to find omp automatically.",
+						warning = warn.omp_path,
+						control = { k = "text", value = if type(s.omp_path) == "string" then s.omp_path else "", placeholder = "Automatic", mono = true },
 					},
 					{
 						id = "data",
@@ -489,6 +501,8 @@ local function apply_setting(state: State, sheet: Sheet, id: string, value: any)
 		patch = { catchup_window_s = math.floor(tonumber(value) or 3) * 3600 }
 	elseif id == "session_name" then
 		patch = { session_name = C.trim(tostring(value)) }
+	elseif id == "omp_path" then
+		patch = { omp_path = C.trim(tostring(value)) }
 	else
 		patch = { [id] = math.floor(tonumber(value) or 0) }
 	end
@@ -498,6 +512,10 @@ local function apply_setting(state: State, sheet: Sheet, id: string, value: any)
 	if ok then
 		warnings[id] = nil
 		runner.changed()
+		if id == "omp_path" then
+			bins.invalidate()
+			run_setup_check(state, sheet)
+		end
 	else
 		warnings[id] = err or "That value isn't allowed."
 	end

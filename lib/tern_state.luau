@@ -5,6 +5,8 @@
 -- after a daemon restart a pane keeps its block id but becomes a bare login shell (args = {"-l"})
 -- while `command` still shows the old command line, so `command` is never used for ownership.
 
+local bins = require("./bins")
+
 export type Block = {
 	id: string,
 	session: string,
@@ -30,7 +32,9 @@ export type State = {
 
 local tern_state = {}
 
-local MARKER = "/runs/(j_[%w]+)/(r_[%w_]+)/"
+-- The marker is only in a launch argv: `@<run dir>/prompt.md` is the attached prompt. A resumed
+-- conversation (`--session-dir <run dir>/session --resume …`) mentions the run dir but never prompt.md.
+local MARKER = "@.-/runs/(j_[%w]+)/(r_[%w_]+)/prompt%.md"
 
 -- Run key ("<job>/<run>") a block belongs to, or nil.
 function tern_state.marker(b: any): string?
@@ -55,8 +59,23 @@ function tern_state.parse(stdout: string): State?
 		return nil
 	end
 	local st: State = { sessions = j.sessions, session_ids = {}, blocks = {}, by_run = {} }
+	-- sessions no window currently shows are listed apart (`detached`); they still hold our panes
+	local all: { any } = {}
 	for _, se in ipairs(j.sessions) do
-		if type(se.name) == "string" then
+		table.insert(all, se)
+	end
+	if type(j.detached) == "table" then
+		for _, se in ipairs(j.detached) do
+			if type(se) == "table" and type(se.tabs) == "table" then
+				if se.shown == nil then
+					se.shown = false
+				end
+				table.insert(all, se)
+			end
+		end
+	end
+	for _, se in ipairs(all) do
+		if type(se.name) == "string" and st.session_ids[se.name] == nil then
 			st.session_ids[se.name] = tostring(se.id)
 		end
 		for _, tab in ipairs(se.tabs or {}) do
@@ -88,6 +107,7 @@ function tern_state.snapshot(tern_bin: string, cb: (State?, any) -> ())
 		end)
 	end)
 	if not ok then
+		bins.invalidate() -- the tern binary is gone or moved: re-resolve on the next use
 		cb(nil, { status = -1, stdout = "", stderr = tostring(err), timed_out = false })
 	end
 end

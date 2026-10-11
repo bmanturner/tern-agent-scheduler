@@ -28,6 +28,7 @@ local fake = {
 	next_id = 18043157610500,
 	roles_json = '{"key":"modelRoles","value":{"default":"anthropic/claude-opus-5-5:medium","smol":"anthropic/claude-haiku-5-5:low","tiny":"anthropic/claude-haiku-5-5","judge":"x/y"},"type":"record"}',
 }
+fake.live_panes = {} -- pane ids (strings) reported by tern.pane.list()
 fake.installed = {
 	[fake.tern_bin] = "tern 0.7.2 (test)\n",
 	[fake.omp_bin] = "omp/18.9.1\n",
@@ -379,7 +380,7 @@ function fs.list(path)
 	return out
 end
 function fs.exists(path)
-	return fake.files[path] ~= nil or fake.dirs[path] == true
+	return fake.files[path] ~= nil or fake.dirs[path] == true or fake.installed[path] ~= nil
 end
 function fs.mkdir(path)
 	mkdirs(path)
@@ -696,7 +697,15 @@ tern = {
 			end)
 		end,
 	},
-	pane = { list = function() return {} end },
+	pane = {
+		list = function()
+			local out = {}
+			for _, id in ipairs(fake.live_panes) do
+				out[#out + 1] = { pane = tonumber(id) }
+			end
+			return out
+		end,
+	},
 }
 
 -- ---------- helpers for tests ----------

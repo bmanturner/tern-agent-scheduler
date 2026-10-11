@@ -85,22 +85,21 @@ local function when_text(job: any): string
 	return text
 end
 
-local function appears_text(job: any): string
+local function appears_text(): string
 	local settings = jobs.settings()
-	local p: any = job.placement
+	local d: any = settings.defaults
+	local p: any = if type(d) == "table" then d.placement else nil
 	local where = if type(p) == "table" and p.where == "tab"
 		then "Background tab in the current session"
 		else string.format("%s session, background tab", tostring(settings.session_name or "Scheduled runs"))
-	if job.focus == "front" then
+	if type(d) == "table" and d.focus == "front" then
 		where ..= " · brought to front when it starts"
 	end
 	return where
 end
 
 local function after_text(): string
-	local settings = jobs.settings()
-	local n = tonumber(settings.max_finished_panes) or 5
-	return string.format("Keeps the last %d finished run panes · notifies when it needs me or fails", n)
+	return "Notifies you if it needs you, fails or times out"
 end
 
 local function safety_text(job: any): string
@@ -291,7 +290,7 @@ function D.view(state: State): (Node, Node)
 				kv("Next", next_times(job, js, now)),
 				kv("Role", "@" .. tostring(job.role)),
 				kv("Folder", C.tilde(job.cwd)),
-				kv("Appears", appears_text(job)),
+				kv("Appears", appears_text()),
 				kv("Safety", safety_text(job)),
 				kv("After", after_text()),
 			}),
@@ -300,7 +299,7 @@ function D.view(state: State): (Node, Node)
 	)
 	local prompt = jobs.prompt(d.job_id) or ""
 	local shown = 0
-	table.insert(children, C.text({ ui.span("Prompt", "muted"), ui.span("   P edit file", "dim") }, "prompt-h"))
+	table.insert(children, C.text({ ui.span("Prompt", "muted"), ui.span("   "), ui.span("p", "key"), ui.span(" opens the file", "muted") }, "prompt-h"))
 	for line in string.gmatch(prompt, "[^\r\n]+") do
 		shown += 1
 		if shown > 3 then
@@ -309,7 +308,6 @@ function D.view(state: State): (Node, Node)
 		end
 		table.insert(children, C.text({ ui.span(clip(line, 110), "mono") }, "prompt" .. shown))
 	end
-	table.insert(children, C.text({ ui.span("The first message in the run is a fixed sentence; your prompt is attached to it.", "muted") }, "prompt-note"))
 	table.insert(children, ui.rule({ ui.span("RUNS  (last 20)", "dim") }))
 	local items: { Node } = {}
 	for _, r in runs do
@@ -338,13 +336,13 @@ function D.view(state: State): (Node, Node)
 	elseif state.notice ~= nil and tern.now() - state.notice_at < 6000 then
 		ctx = C.text({ ui.span(state.notice, "warning") }, "ctx")
 	elseif sel ~= nil and sel.block ~= nil and sel.pane_closed_at == nil then
-		ctx = C.text({ ui.span("Open run focuses the run's pane.", "muted") }, "ctx")
+		ctx = C.text({ ui.span("⏎", "key"), ui.span(" jumps to the run's tab.", "muted") }, "ctx")
 	elseif sel ~= nil and sel.session_file ~= nil then
-		ctx = C.text({ ui.span("Open run: pane is closed, resumes in a new tab.", "muted") }, "ctx")
+		ctx = C.text({ ui.span("⏎", "key"), ui.span(" reopens this run's session in a new tab.", "muted") }, "ctx")
 	elseif sel ~= nil and sel.block ~= nil then
-		ctx = C.text({ ui.span("This run's pane is closed and its session wasn't found.", "muted") }, "ctx")
+		ctx = C.text({ ui.span("This run's pane is closed and its session file is gone; only the summary is kept.", "muted") }, "ctx")
 	elseif sel ~= nil then
-		ctx = C.text({ ui.span("This run never started a terminal; Enter shows why.", "muted") }, "ctx")
+		ctx = C.text({ ui.span("This run never started a terminal. ", "muted"), ui.span("⏎", "key"), ui.span(" shows why.", "muted") }, "ctx")
 	else
 		ctx = C.text({ ui.span("No runs yet.", "muted") }, "ctx")
 	end
@@ -357,7 +355,8 @@ function D.view(state: State): (Node, Node)
 		end
 	end
 	if sel ~= nil then
-		add("Open run", "accent", "open_run", "open", sel.run_id)
+		local closed = sel.session_file ~= nil and not (sel.block ~= nil and sel.pane_closed_at == nil)
+		add(if closed then "Resume run" else "Open run", "accent", "open_run", "open", sel.run_id)
 	end
 	add("Run now", "neutral", "run", "run", job.id)
 	add("Edit", "neutral", "edit", "edit", job.id)
@@ -406,7 +405,7 @@ local function open_selected(state: State)
 	end
 end
 
-function D.key(state: State, k: Key): boolean?
+local function key_inner(state: State, k: Key): boolean?
 	local d = state.detail :: { job_id: string, sel: string?, expanded: string? }
 	local name = k.name
 	local id = d.job_id
@@ -468,6 +467,13 @@ function D.key(state: State, k: Key): boolean?
 		return false
 	end
 	return false
+end
+
+function D.key(state: State, k: Key): boolean?
+	-- A key that disarms a pending delete must redraw even when it does nothing else.
+	local disarmed = state.armed ~= nil and k.name ~= "d"
+	local handled = key_inner(state, k)
+	return handled or disarmed
 end
 
 function D.event(state: State, ev: UiEvent)

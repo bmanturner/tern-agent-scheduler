@@ -1,0 +1,11 @@
+PASS F1 marker only on launch argv
+PASS F14 detached sessions parsed
+roles (empty config): default,smol,task,plan,slow,commit,advisor,tiny,memory,vision
+roles (custom): default,smol,task,plan,slow,commit,advisor,tiny,memory,vision,zeta
+PASS F10 built-in roles merged
+PASS F11 provider error fails the run
+PASS F17 summaries cleaned
+PASS F18/F68 omp lookup
+PASS F15 found kept during re-resolve
+PASS F12 raised spawn invalidates bins
+PASS F65 notify.plain

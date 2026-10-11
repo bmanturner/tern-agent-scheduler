@@ -61,6 +61,7 @@ assert(jobs.settings().paused_all == false, "resume_all")
 send({ format = 1, kind = "run_now", job_id = base.id })
 settle(20000)
 assert(#fake.calls_of("new") == 1, "run_now launched through the normal pipeline")
+fake.live_panes[#fake.live_panes + 1] = "4242"
 runner.add_manager("4242")
 send({ format = 1, kind = "focus_manager" })
 settle()
@@ -132,7 +133,7 @@ end)
 settle(1000)
 assert(got and got[1] == "default" and got[2] == "smol", "roles read and sorted")
 local r9 = carly("iiiiiiiiiiii", { name = "badrole", prompt = "p", when = "daily 09:00", folder = "/home/u/proj", role = "@nope" })
-assert(r9 and r9.ok == false and r9.error == "No role @nope here. Roles: @default, @smol, @tiny", "role copy: " .. tostring(r9 and r9.error))
+assert(r9 and r9.ok == false and r9.error == "No role @nope here. Roles: @default, @smol, @task, @plan, @slow, @commit, @advisor, @tiny, @memory, @vision", "role copy: " .. tostring(r9 and r9.error))
 print("PASS carly_create cached role check")
 
 -- replies are pruned after REPLY_TTL_S

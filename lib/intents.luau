@@ -6,6 +6,7 @@
 -- `replies/<reply>.json`.
 local const = require("./const")
 local jobs = require("./jobs")
+local notify = require("./notify")
 local roles = require("./roles")
 local store = require("./store")
 local validate = require("./validate")
@@ -35,6 +36,16 @@ local function log_warn(...: any)
 		(tern :: any).log.warn(table.unpack(args, 1, args.n))
 	end)
 end
+
+local APPROVAL_LABEL: { [string]: string } = {
+	yolo = "Hands-off",
+	write = "Ask before commands",
+	always_ask = "Ask for everything",
+}
+
+-- Kinds with an `expires` stamp (unix seconds) are dropped once it has passed: the window told its
+-- caller they failed, so applying them later would duplicate or surprise.
+local EXPIRING: { [string]: boolean } = { carly_create = true, run_now = true }
 
 local function home(): string
 	return ((tern :: any).getenv("HOME") :: string?) or ""
@@ -176,15 +187,19 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 							nxt = d
 						end
 					end
+					local folder_label = validate.tilde(job.cwd, home())
+					local approval = APPROVAL_LABEL[tostring(job.approval)] or tostring(job.approval)
+					-- a banner works without any window open; the job is live and may run commands
+					pcall(notify.plain, "Agent Scheduler", string.format("Carly scheduled %s · %s · %s", tostring(job.name), approval, folder_label))
 					write_reply(reply, {
 						ok = true,
 						job_id = job.id,
 						name = job.name,
 						when = jobs.describe(job),
 						next = nxt,
-						folder = validate.tilde(job.cwd, home()),
+						folder = folder_label,
 						role = "@" .. tostring(job.role),
-						approval = "Hands-off",
+						approval = approval,
 					})
 				end)
 				if not cok then
@@ -346,6 +361,12 @@ function intents.drain(deadline_ms: number, h: Handlers): number
 					local kind = p.kind
 					if p.format ~= 1 or type(kind) ~= "string" or const.INTENT_KINDS[kind] ~= true then
 						log_warn("intents: dropping intent", name, tostring(kind))
+					elseif EXPIRING[kind] and type(p.expires) == "number" and p.expires < os.time() then
+						log_warn("intents: dropping expired intent", name, kind)
+						local reply = p.reply
+						if kind == "carly_create" and type(reply) == "string" and reply:match("^[a-z0-9]+$") and #reply == 12 then
+							pcall(reply_error, reply, "Timed out before Agent Scheduler could create it.")
+						end
 					else
 						local aok, aerr = pcall(apply, kind, p, h)
 						if not aok then

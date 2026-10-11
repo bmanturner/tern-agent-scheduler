@@ -38,7 +38,7 @@ table.insert(jobs.inflight(), run_lost.run_id)
 ledger.save(run_lost)
 jobs.save_state()
 local dir_lost = "/d/runs/" .. lost.id .. "/" .. run_lost.run_id
-tern.process.run({ fake.tern_bin, "new", "tab", "Scheduled runs", "--json", "--cwd", "/home/u/proj", "--keep-open", "--", fake.omp_bin, "--session-dir", dir_lost .. "/session" }, {}, function() end)
+tern.process.run({ fake.tern_bin, "new", "tab", "Scheduled runs", "--json", "--cwd", "/home/u/proj", "--keep-open", "--", fake.omp_bin, "--session-dir", dir_lost .. "/session", "@" .. dir_lost .. "/prompt.md" }, {}, function() end)
 fake.advance(10)
 
 -- a scheduled slot that never launched and is now far past its window

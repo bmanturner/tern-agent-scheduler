@@ -1,5 +1,8 @@
 # Architecture decision: Schedule (tern-schedule)
 
+> [!NOTE]
+> Historical design notes, written before the build under the working name `schedule`. The shipped plugin is `tern-agent-scheduler` ("Agent Scheduler"); where these notes disagree with the code or the [README](../../README.md), the code and README win. Links to `research/`, `review/` and `engine-src/` point at internal notes that aren't published; the engine now lives in `lib/` and its tests in `test/`.
+
 Status: decided 2026-10-11 from research + two runtime probes on Tern 0.7.2 / omp 18.9.1. Revision 2 applies `decisions.md` (R-ids cited inline) after three reviews.
 Evidence keys: `TP` = research/tern-platform.md, `PR1` = research/tern-probe.md, `PR2` = research/tern-probe2.md, `OC` = research/omp-capabilities.md, `LP` = research/local-patterns.md, `PA` = research/prior-art.md, `R<n>` = design/decisions.md.
 

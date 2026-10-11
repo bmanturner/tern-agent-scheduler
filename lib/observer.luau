@@ -47,6 +47,36 @@ local function sample_key(state: string, model: string?, msg: string?): string
 	return state .. "\0" .. (model or "") .. "\0" .. (msg or "")
 end
 
+-- Unknown optional AgentBlock fields arrive as `tern.json.null`, not nil.
+local function text_or_nil(v: any): string?
+	if type(v) == "string" then
+		return v
+	end
+	return nil
+end
+
+-- Sends the `obs` intent for one run's agent entry when it changed or the heartbeat is due.
+function observer.send_sample(block: string, entry: AgentBlock, now_ms: number)
+	local e: any = entry
+	local model = text_or_nil(e.model)
+	local msg = observer.clip(text_or_nil(e.last_message))
+	local key = sample_key(tostring(e.state), model, msg)
+	local prev = sent[block]
+	if prev == nil or prev.key ~= key or now_ms - prev.at >= const.OBS_HEARTBEAT_S * 1000 then
+		local name = outbox.send("obs", {
+			block = block,
+			state = e.state,
+			model = model,
+			last_message = msg,
+			delivery_error = text_or_nil(e.delivery_error),
+			seen_at = os.time(),
+		})
+		if name then
+			sent[block] = { key = key, at = now_ms }
+		end
+	end
+end
+
 -- One observation pass. `cx` is the timer's fresh window context.
 function observer.sample(cx: WindowCx, now_ms: number)
 	local runs = wsnap.inflight()
@@ -73,21 +103,10 @@ function observer.sample(cx: WindowCx, now_ms: number)
 			end)
 			local entry = if okr and win ~= nil then (entries :: { [number]: AgentBlock })[win] else nil
 			if entry then
-				local msg = observer.clip(entry.last_message)
-				local key = sample_key(entry.state, entry.model, msg)
-				local prev = sent[block]
-				if prev == nil or prev.key ~= key or now_ms - prev.at >= const.OBS_HEARTBEAT_S * 1000 then
-					local name = outbox.send("obs", {
-						block = block,
-						state = entry.state,
-						model = entry.model,
-						last_message = msg,
-						delivery_error = entry.delivery_error,
-						seen_at = os.time(),
-					})
-					if name then
-						sent[block] = { key = key, at = now_ms }
-					end
+				-- one run's bad sample must not stop the others
+				local oks, serr = pcall(observer.send_sample, block, entry, now_ms)
+				if not oks then
+					tern.log.warn("tern-agent-scheduler: observer sample", serr)
 				end
 			end
 		end

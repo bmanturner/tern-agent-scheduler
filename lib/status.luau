@@ -70,7 +70,8 @@ local function soonest(snap: { [string]: any }): (string?, number?)
 end
 
 -- Builds the whole view from a snapshot and hot value. Pure: `now` is unix seconds.
-function status.compute(snap: { [string]: any }?, hot: { [string]: any }?, now: number): View
+-- `skip_stall` leaves the stall watchdog out of this pass (the window itself was asleep or throttled).
+function status.compute(snap: { [string]: any }?, hot: { [string]: any }?, now: number, skip_stall: boolean?): View
 	local out: View = { seg = nil, stalled = false, stall_age = 0, setup_bad = false, needs = {}, context = nil }
 	if snap == nil then
 		return out
@@ -95,7 +96,7 @@ function status.compute(snap: { [string]: any }?, hot: { [string]: any }?, now: 
 	for _, r in inflight do
 		if r.state == "needs_input" then
 			table.insert(needs, r)
-		else
+		elseif r.state == "running" or r.state == "launching" then
 			table.insert(running, r)
 		end
 	end
@@ -129,7 +130,7 @@ function status.compute(snap: { [string]: any }?, hot: { [string]: any }?, now: 
 	if type(hb) ~= "number" then
 		hb = snap.hb
 	end
-	if active > 0 and type(hb) == "number" then
+	if active > 0 and type(hb) == "number" and skip_stall ~= true then
 		local limit = math.max(STALL_MIN_S, 3 * const.TICK_S)
 		if now - hb > limit then
 			out.stalled = true
@@ -180,9 +181,10 @@ function status.compute(snap: { [string]: any }?, hot: { [string]: any }?, now: 
 			end
 			seg = { text = text, icon = "x-circle", tone = "error", command = CMD_OPEN }
 		elseif #running == 1 then
-			local started = num(running[1].started)
+			local started: any = running[1].started
+			local elapsed = if type(started) == "number" then span(math.max(0, now - started)) else "starting"
 			seg = {
-				text = tostring(running[1].job_name) .. " · " .. span(math.max(0, now - started)),
+				text = tostring(running[1].job_name) .. " · " .. elapsed,
 				icon = "activity",
 				tone = "accent",
 				command = CMD_OPEN,
@@ -215,7 +217,7 @@ type Memo = {
 	needs_toasted: { [string]: boolean },
 	had_history: boolean,
 	setup_ok: boolean,
-	suppressed: { [string]: boolean },
+	carly_toasted: { [string]: boolean },
 }
 
 local memo: Memo = {
@@ -226,13 +228,8 @@ local memo: Memo = {
 	needs_toasted = {},
 	had_history = false,
 	setup_ok = true,
-	suppressed = {},
+	carly_toasted = {},
 }
-
--- Carly's export shows its own toast; the diff skips that job id.
-function status.suppress_job_toast(job_id: string)
-	memo.suppressed[job_id] = true
-end
 
 local function clip(s: string, max: number): string
 	if #s <= max then
@@ -264,6 +261,14 @@ function status.diff(snap: { [string]: any }, hot: { [string]: any }?, now: numb
 	local recent: { any } = if type(snap.recent) == "table" then snap.recent else {}
 	local setup_ok: any = if hot then hot.setup_ok else snap.setup_ok
 
+	-- Where runs open: the configured session name when the snapshot publishes it.
+	local where = "in the run session"
+	if snap.placement == "tab" then
+		where = "in a background tab"
+	elseif type(snap.session_name) == "string" and snap.session_name ~= "" then
+		where = "in the “" .. snap.session_name .. "” session"
+	end
+
 	local history = #recent > 0
 	for _, j in jobs do
 		if j.last ~= nil then
@@ -279,14 +284,14 @@ function status.diff(snap: { [string]: any }, hot: { [string]: any }?, now: numb
 				table.insert(out, {
 					level = "info",
 					text = tostring(r.job_name) .. " needs you",
-					sub = "Waiting for you. " .. NEEDS_CHORD .. " to open",
+					sub = "Waiting for you. Press " .. NEEDS_CHORD .. " to open it.",
 				})
 			end
 			if memo.runs[id] == nil and not memo.had_history then
 				table.insert(out, {
 					level = "info",
 					text = tostring(r.job_name) .. " started",
-					sub = "in the “Scheduled runs” session · later runs start quietly",
+					sub = "It runs " .. where .. ". Later runs start quietly.",
 				})
 			end
 		end
@@ -308,7 +313,8 @@ function status.diff(snap: { [string]: any }, hot: { [string]: any }?, now: numb
 			local id = tostring(j.id)
 			local before = memo.jobs[id]
 			if before == nil then
-				if j.created_by == "carly" and not memo.suppressed[id] then
+				if j.created_by == "carly" and not memo.carly_toasted[id] then
+					memo.carly_toasted[id] = true
 					table.insert(out, {
 						level = "success",
 						text = "Carly scheduled " .. tostring(j.name),
@@ -319,12 +325,12 @@ function status.diff(snap: { [string]: any }, hot: { [string]: any }?, now: numb
 				table.insert(out, {
 					level = "error",
 					text = tostring(j.name) .. " paused after failures",
-					sub = "fix the problem, then press space",
+					sub = "Fix the problem, then press space.",
 				})
 			end
 		end
 		if memo.setup_ok and setup_ok == false then
-			table.insert(out, { level = "error", text = "Agent Scheduler needs attention", sub = "Open the manager to check setup" })
+			table.insert(out, { level = "error", text = "Agent Scheduler needs attention", sub = "Open the manager to check setup." })
 		end
 	end
 
@@ -355,7 +361,7 @@ function status.reset()
 		needs_toasted = {},
 		had_history = false,
 		setup_ok = true,
-		suppressed = {},
+		carly_toasted = {},
 	}
 	view = { seg = nil, stalled = false, stall_age = 0, setup_bad = false, needs = {}, context = nil }
 end
@@ -392,6 +398,7 @@ local ready_shown = false
 local stall_toasted = false
 local last_key = ""
 local last_refresh = 0
+local last_update = 0
 
 local function seg_key(seg: StatusSegment?): string
 	if seg == nil then
@@ -405,7 +412,11 @@ end
 function status.update(cx: WindowCx?, now: number)
 	local snap = wsnap.get()
 	local hot = wsnap.hot()
-	local nv = status.compute(snap, hot, now)
+	-- A gap much longer than the refresh interval means this window was asleep or throttled; the host
+	-- heartbeat can't be judged until it has had a chance to run again.
+	local asleep = last_update > 0 and now - last_update > 3 * REFRESH_MS / 1000
+	last_update = now
+	local nv = status.compute(snap, hot, now, asleep)
 	view = nv
 
 	if cx ~= nil then
@@ -423,7 +434,7 @@ function status.update(cx: WindowCx?, now: number)
 			cx:toast(
 				"error",
 				"Agent Scheduler stopped ticking",
-				"last tick " .. span(nv.stall_age) .. " ago · run “Reload plugins” from the palette"
+				"Last tick " .. span(nv.stall_age) .. " ago. Run “Reload plugins” from the palette."
 			)
 		elseif not nv.stalled then
 			stall_toasted = false

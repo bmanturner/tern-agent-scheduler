@@ -581,8 +581,8 @@ local function process_liveness(st: tern_state.State, asked_at: number)
 					run.block = b.id
 					S.by_block[b.id] = tostring(run.run_id)
 					transition(run, "running", nil, { block = b.id, tab = b.tab, started = now })
-				elseif now - (tonumber(run.state_since) or now) >= const.ORPHAN_WAIT_S then
-					rt.stage = "relaunch"
+				elseif rt.stage == nil and now - (tonumber(run.state_since) or now) >= const.ORPHAN_WAIT_S then
+					rt.stage = "relaunch" -- only from a settled stage: a preflight in flight ("checking") must not be duplicated
 				end
 			end
 			continue
@@ -664,13 +664,10 @@ local function preflight(run: Run, job: { [string]: any }, done: (string?, PreRe
 	if jobs.get(job.id) == nil or job.approval == "read_only" then
 		return done("invalid_job", nil)
 	end
-	bins.resolve(settings, function(b, berr)
-		if b == nil then
-			return done(berr or "omp_missing", nil)
-		end
+	local function with_bins(b: any)
 		local cwd = tostring(job.cwd)
-		if validate.unsafe_path(cwd) then
-			return done("cwd_unsafe", nil)
+		if cwd:find("%c") ~= nil then
+			return done("cwd_unsafe", nil) -- cwd is only an argv element; only control characters are refused
 		end
 		local h = home():gsub("/+$", "")
 		if h ~= "" and cwd:gsub("/+$", "") == h and job.allow_home ~= true then
@@ -715,6 +712,22 @@ local function preflight(run: Run, job: { [string]: any }, done: (string?, PreRe
 				with_list(list)
 			end)
 		end)
+	end
+	bins.resolve(settings, function(b, berr)
+		if b == nil then
+			return done(berr or "omp_missing", nil)
+		end
+		if not T().fs.exists(b.omp) then
+			-- the cached path went stale (omp moved or removed): re-resolve once
+			bins.invalidate()
+			return bins.resolve(settings, function(b2, e2)
+				if b2 == nil or not T().fs.exists(b2.omp) then
+					return done(e2 or "omp_missing", nil)
+				end
+				with_bins(b2)
+			end, true)
+		end
+		with_bins(b)
 	end)
 end
 
@@ -755,7 +768,8 @@ function start_launch(run: Run, rt: RT)
 		return
 	end
 	local settings = jobs.settings()
-	local where = (type(job.placement) == "table" and job.placement.where) or "session"
+	local defaults = type(settings.defaults) == "table" and settings.defaults or {}
+	local where = (type(defaults.placement) == "table" and defaults.placement.where) or "session"
 	local req: launcher.LaunchRequest = {
 		run = run,
 		job = job,
@@ -763,7 +777,7 @@ function start_launch(run: Run, rt: RT)
 		bins = b,
 		session_name = tostring(settings.session_name or const.SESSION_NAME_DEFAULT),
 		where = tostring(where),
-		focus = tostring(run.focus_override or job.focus or "keep"),
+		focus = tostring(run.focus_override or defaults.focus or "keep"),
 		trigger = tostring(run.trigger),
 		slot_local = slot_local(tonumber(run.slot) or wall()),
 	}
@@ -781,9 +795,12 @@ function start_launch(run: Run, rt: RT)
 		end
 		if res ~= nil then
 			if run.state ~= "launching" then
-				local tb = tern_bin()
-				if tb ~= nil then
-					proc({ tb, "close", res.block }, { timeout_ms = 8000 }, function() end)
+				-- never close the run's own pane (a duplicate attempt may have adopted the same block)
+				if res.block ~= tostring(run.block) then
+					local tb = tern_bin()
+					if tb ~= nil then
+						proc({ tb, "close", res.block }, { timeout_ms = 8000 }, function() end)
+					end
 				end
 				return
 			end
@@ -888,6 +905,11 @@ local function advance_scheduled(now: number)
 			local job = jobs.get(tostring(run.job_id))
 			if job == nil then
 				-- handled by drop_deleted
+			elseif jobs.settings().paused_all == true then
+				-- EN §6.7: Pause all is an absolute kill switch, including for runs already claimed
+				transition(run, "skipped", "paused_all", {})
+			elseif job.enabled == false and run.trigger ~= "manual" then
+				transition(run, "cancelled", "user_stop", {})
 			elseif rt.stage == nil then
 				rt.stage = "checking"
 				preflight(run, job, function(code, pre)
@@ -964,7 +986,9 @@ local function claim(job: { [string]: any }, run_id: string, trigger: string, sl
 		S.runs[run_id] = nil
 		S.rt[run_id] = nil
 		remove_inflight(run_id)
-		ledger.transition(run, "blocked", "data_unwritable", nil, now)
+		-- never persisted: drop it from the ledger cache so the retried slot (same deterministic run id) isn't mistaken for handled
+		ledger.forget(run)
+		log_warn("runner: claim not persisted", run_id)
 		return nil
 	end
 	mark(run)
@@ -1150,6 +1174,7 @@ local function advance_runs(now: number)
 			and run.state == "running"
 			and run.observed == true
 			and run.busy_seen ~= true
+			and fresh -- stale samples prove nothing: leave unobserved runs to the tail and deadline tiers
 			and (rt.last_message == nil or rt.last_message == "")
 			and now - started >= const.NO_RESPONSE_S
 		then
@@ -1306,6 +1331,9 @@ local function detect_gap(now: number, mono: number): boolean
 		table.insert(S.gaps, { from = S.last_wall, to = now })
 		append_event({ ev = "gap", from = S.last_wall, to = now })
 	elseif dw < -5 then
+		-- the wall clock moved back: the slow-tick spacing is measured on it, so re-base or the tick stalls until it catches up
+		S.last_slow = now - const.TICK_S
+		S.last_house = now
 		append_event({ ev = "clock_back", from = S.last_wall, to = now })
 		for _, job in ipairs(jobs.list()) do
 			jobs.state(job.id).next_run = nil
@@ -1319,10 +1347,38 @@ local function detect_gap(now: number, mono: number): boolean
 	return gap
 end
 
+-- Drop manager blocks whose pane is gone (otherwise the list only shrinks through the manager's own on_change).
+local function prune_managers()
+	if #S.managers == 0 then
+		return
+	end
+	local okl, list = pcall(function()
+		return T().pane.list()
+	end)
+	if not okl or type(list) ~= "table" then
+		return
+	end
+	local live: { [string]: boolean } = {}
+	for _, info in list do
+		live[string.format("%.0f", info.pane)] = true
+	end
+	local removed = false
+	for i = #S.managers, 1, -1 do
+		if live[S.managers[i]] ~= true then
+			table.remove(S.managers, i)
+			removed = true
+		end
+	end
+	if removed then
+		S.pub_dirty = true
+	end
+end
+
 local handlers: intents.Handlers
 
 local function slow_tick(now: number, gap: boolean)
 	S.last_hb = now
+	prune_managers()
 	pcall(store.retry_dirty)
 	if S.ready then
 		due_scan(now)
@@ -1458,7 +1514,7 @@ end
 function runner.run_now(job_id: string, opts: { focus_override: string? }?): (boolean, string?)
 	local settings = jobs.settings()
 	if settings.paused_all == true then
-		return false, "Resume all jobs to run"
+		return false, "Resume all jobs to run."
 	end
 	if store.health() ~= "ok" then
 		return false, "Agent Scheduler can't use its data right now. Check Setup."
@@ -1470,7 +1526,7 @@ function runner.run_now(job_id: string, opts: { focus_override: string? }?): (bo
 	if job.overlap ~= "parallel" then
 		for _, r in pairs(S.runs) do
 			if r.job_id == job.id then
-				return false, "A run is already in progress"
+				return false, "A run is already in progress."
 			end
 		end
 	end
@@ -1561,6 +1617,7 @@ function runner.roles(cwd: string, cb: ({ string }?, string?) -> ())
 end
 
 function runner.focus_manager()
+	prune_managers()
 	local b = tern_bin()
 	local block = S.managers[#S.managers]
 	if b == nil or block == nil then
@@ -1753,7 +1810,12 @@ local function restore_runs(now: number)
 		if run.state == "scheduled" and job ~= nil and (run.trigger == "schedule" or run.trigger == "catchup") then
 			local window = tonumber(job.catch_up_window_s) or tonumber(settings.catchup_window_s) or const.CATCHUP_DEFAULT_S
 			local slot = tonumber(run.slot) or now
-			if now - slot > window then
+			-- same rule as policy.decide: always never expires, skip only tolerates ONTIME_S, within uses the window
+			local mode = job.catch_up or "within"
+			if mode == "skip" then
+				window = const.ONTIME_S
+			end
+			if mode ~= "always" and now - slot > window then
 				transition(run, "missed", "late", { count = 1, first = slot, last = slot, window_s = window, lateness_s = now - slot })
 			end
 		end

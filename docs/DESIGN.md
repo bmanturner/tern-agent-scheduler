@@ -1,5 +1,8 @@
 # Schedule (`tern-schedule`): design dossier
 
+> [!NOTE]
+> Historical design notes, written before the build under the working name `schedule`. The shipped plugin is `tern-agent-scheduler` ("Agent Scheduler"); where these notes disagree with the code or the [README](../README.md), the code and README win. Links to `research/`, `review/` and `engine-src/` point at internal notes that aren't published; the engine now lives in `lib/` and its tests in `test/`.
+
 Status: design proposal, 2026-10-11. Target: Tern 0.7.2, omp 18.9.1. Plugin id `schedule`. Nothing is implemented yet except the tested Luau engine prototypes in [`design/engine-src/`](design/engine-src/).
 
 Schedule is a Tern plugin that lets you create, edit, pause and delete scheduled omp agent jobs from a manager screen inside Tern: a cron-style or plain-language schedule, a prompt, an omp role (default `@default`), a working folder, and where the run's pane appears. When a job is due, the plugin starts a real omp agent in a Tern pane, tracks whether it is working, needs you, or finished, and tells you. It needs no omp extension and no external scheduler.
@@ -183,7 +186,7 @@ Job `daily-review` (`@default`, approval `write`, 30 min), session already exist
 
 ```lua
 local R = D.."/runs/j_k3x9a2bc/r_k3x9a2bc_1791727200"
-{ TERN, "new", "tab", "Scheduled runs", "--json", "--cwd", "/Users/bfturner/Dev/app", "--keep-open", "--",
+{ TERN, "new", "tab", "Scheduled runs", "--json", "--cwd", "~/Dev/app", "--keep-open", "--",
   OMP, "--model", "@default", "--approval-mode", "write", "--max-time", "1800",
   "--session-dir", R.."/session",
   "--append-system-prompt", R.."/preamble.md",

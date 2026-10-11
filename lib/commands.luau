@@ -10,6 +10,8 @@ local wsnap = require("./wsnap")
 local commands = {}
 
 local GROUP = "Agent Scheduler"
+-- A run_now intent the host hasn't applied by then is stale and dropped (the user was told it failed).
+local RUN_NOW_TTL_S = 20
 
 -- The focused pane's working directory ("" when unknown), plus a reason when that pane is on
 -- another machine.
@@ -46,11 +48,21 @@ local function open_manager(cx: WindowCx)
 	wsnap.poll()
 	local snap = wsnap.get()
 	local managers: any = if snap then snap.managers else nil
-	if type(managers) == "table" and #managers > 0 then
-		send(cx, "focus_manager", nil)
-		return
+	if type(managers) == "table" then
+		-- The snapshot can list a manager closed seconds ago (the host prunes on its slow tick), so
+		-- only ask the host to focus one this window can still see; otherwise open a new one.
+		for _, id in managers do
+			local ok, pane = pcall(function()
+				return cx.session:resolve(tostring(id))
+			end)
+			if ok and pane ~= nil then
+				send(cx, "focus_manager", nil)
+				return
+			end
+		end
 	end
-	cx:new_block(const.MANAGER_KIND, { "list" }, "tab")
+	local cwd = commands.focused_cwd(cx)
+	cx:new_block(const.MANAGER_KIND, { "list", cwd }, "tab")
 end
 
 local function new_job(cx: WindowCx)
@@ -80,6 +92,7 @@ function commands.run_items(jobs: { any }, inflight: { any }): { PickItem }
 		local run = running[tostring(j.id)]
 		local detail = if run ~= nil
 			then "Already running"
+			elseif j.invalid ~= nil then "Needs fixing in the manager"
 			else string.format("%s · %s · @%s", tostring(j.when), tostring(j.folder), tostring(j.role))
 		local group = job_group(j)
 		table.insert(buckets[group], {
@@ -87,6 +100,7 @@ function commands.run_items(jobs: { any }, inflight: { any }): { PickItem }
 			detail = detail,
 			group = group,
 			job_id = tostring(j.id),
+			invalid = j.invalid ~= nil,
 			run_id = if run ~= nil then tostring(run.run_id) else nil,
 		})
 	end
@@ -103,11 +117,11 @@ local function run_job_now(cx: WindowCx)
 	wsnap.poll()
 	local snap = wsnap.get()
 	if snap == nil or #wsnap.jobs() == 0 then
-		cx:toast("info", "No jobs yet", "Open the manager to add one")
+		cx:toast("info", "No jobs yet", "Open the manager to add one.")
 		return
 	end
 	if snap.paused_all == true then
-		cx:toast("info", "Resume all jobs to run.")
+		cx:toast("info", "All jobs are paused", "Resume all jobs to run.")
 		return
 	end
 	local items = commands.run_items(wsnap.jobs(), wsnap.inflight())
@@ -119,8 +133,10 @@ local function run_job_now(cx: WindowCx)
 			local run_id: any = item.run_id
 			if type(run_id) == "string" then
 				send(cx2, "focus_run", { run_id = run_id })
+			elseif item.invalid == true then
+				cx2:toast("info", tostring(item.label) .. " needs fixing", "Open the manager to fix it.")
 			else
-				if send(cx2, "run_now", { job_id = item.job_id }) then
+				if send(cx2, "run_now", { job_id = item.job_id, expires = os.time() + RUN_NOW_TTL_S }) then
 					cx2:toast("info", tostring(item.label) .. " queued")
 				end
 			end
@@ -172,7 +188,7 @@ function commands.register()
 	})
 	tern.command({
 		id = "go-to-needs-you",
-		title = "Go to run that needs me",
+		title = "Go to run that needs you",
 		icon = "bell",
 		group = GROUP,
 		keys = { "ctrl+alt+shift+a" },

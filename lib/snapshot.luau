@@ -154,6 +154,12 @@ function snapshot.publish(view: View, now: number)
 	end
 
 	local health = store.health()
+	local settings = jobs.settings()
+	local defaults: { [string]: any } = type(settings.defaults) == "table" and settings.defaults or {}
+	local placement_where = "session"
+	if type(defaults.placement) == "table" and (defaults.placement :: any).where == "tab" then
+		placement_where = "tab"
+	end
 	local snap: { [string]: any } = {
 		format = 1,
 		rev = rev,
@@ -166,6 +172,8 @@ function snapshot.publish(view: View, now: number)
 		inflight = array(inflight),
 		recent = array(recent),
 		managers = array(view.managers),
+		session_name = type(settings.session_name) == "string" and settings.session_name or const.SESSION_NAME_DEFAULT,
+		placement = placement_where,
 	}
 	local limit = math.floor(const.CAP_SNAPSHOT * const.WRITE_CAP_RATIO)
 	local text = (tern :: any).json.encode(snap)

@@ -73,13 +73,16 @@ local def: BlockDef<State> = {
 			notice_at = 0,
 			example_sel = 1,
 			cwd_hint = nil,
+			undo_until = nil,
 		}
 		if type(s.selected_id) == "string" then
 			state.sel = { sec = "upcoming", key = s.selected_id }
 		end
 		local cwd: string? = if args[2] ~= nil and args[2] ~= "" then args[2] else nil
 		state.cwd_hint = cwd
-		if saved == nil and args[1] == "new" then
+		if type(s.form) == "table" and F.restore(state, s.form) then
+			-- An open New/Edit form survives a plugin reload or restart.
+		elseif saved == nil and args[1] == "new" then
 			F.open_new(state, { cwd = cwd })
 		elseif s.mode == "detail" and type(s.selected_id) == "string" then
 			A.open_detail(state, s.selected_id)
@@ -167,6 +170,7 @@ local def: BlockDef<State> = {
 			mode = if state.mode == "detail" then "detail" else "list",
 			selected_id = selected,
 			folds = state.folds,
+			form = if state.mode == "form" and state.form ~= nil then F.snapshot(state.form) else nil,
 		}
 	end,
 }

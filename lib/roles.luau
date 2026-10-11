@@ -92,12 +92,18 @@ local function parse(r: any): ({ string }?, { [string]: string }?, string?)
 		return nil, nil, "omp printed no roles"
 	end
 	local map: { [string]: string } = {}
+	-- omp resolves every built-in chat role even when the config never sets it, so they are always listed
+	local names: { [string]: boolean } = {}
+	for _, role in ipairs(ORDER) do
+		names[role] = true
+	end
 	for role, sel in pairs(j.value :: any) do
 		if type(role) == "string" and type(sel) == "string" then
 			map[role] = sel
+			names[role] = true
 		end
 	end
-	return sorted(map), map, nil
+	return sorted(names), map, nil
 end
 
 -- Reads the roles for `cwd` through omp. cb(list) or cb(nil, why). `process.run` takes a `cwd`
@@ -106,6 +112,9 @@ function roles.list(omp: string, cwd: string, cb: ({ string }?, string?) -> ())
 	local function done(r: any)
 		if r.timed_out then
 			return cb(nil, "omp took too long")
+		end
+		if r.status == 127 then
+			bins.invalidate() -- omp moved or removed: re-resolve on the next use
 		end
 		local list, map, err = parse(r)
 		if list == nil or map == nil then
@@ -132,6 +141,7 @@ function roles.list(omp: string, cwd: string, cb: ({ string }?, string?) -> ())
 		}, { timeout_ms = 8000 }, done)
 	end)
 	if not okf then
+		bins.invalidate()
 		cb(nil, tostring(err))
 	end
 end

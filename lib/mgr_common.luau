@@ -52,8 +52,13 @@ export type Form = {
 	busy: boolean,
 	-- The job's own late limit, kept when editing (nil = the global setting).
 	catch_up_window_s: number?,
-	-- Draft file opened with ctrl+o; its text replaces the prompt on Save.
+	-- Draft file opened with ctrl+o and the text written to it then; a different file text means it was edited there.
 	draft_path: string?,
+	draft_seed: string?,
+	-- The job being edited is a finished one-shot: changing When re-activates it.
+	was_done: boolean?,
+	-- Job id whose Detail the form returns to on close (opened from Detail).
+	return_to: string?,
 }
 
 export type Sheet = {
@@ -92,6 +97,8 @@ export type State = {
 	example_sel: number,
 	-- Folder the manager was opened for (the focused pane's); default for new jobs.
 	cwd_hint: string?,
+	-- tern.now() (ms) until which the last delete can be undone.
+	undo_until: number?,
 }
 
 C.AVAILABILITY =
@@ -112,7 +119,7 @@ C.APPROVALS = {
 }
 
 C.CATCH_UPS = {
-	{ value = "within", label = "Run once when I'm back, if under 3h late" },
+	{ value = "within", label = "Run once when you're back, if under 3h late" },
 	{ value = "always", label = "Run once, however late" },
 	{ value = "skip", label = "Skip missed runs" },
 }
@@ -151,6 +158,7 @@ local SHORT_LABELS: { [string]: string } = {
 	["Run now"] = "Run",
 	["Confirm delete"] = "Del?",
 	History = "Hist",
+	["Resume run"] = "Resume",
 	Delete = "Del",
 	Settings = "Set",
 }
@@ -293,7 +301,7 @@ function C.catch_up_label(v: string?, window_s: number?): string
 	end
 	local w = window_s or 10800
 	local text = if w % 3600 == 0 then string.format("%dh", w // 3600) else string.format("%dm", w // 60)
-	return "Run once when I'm back, if under " .. text .. " late"
+	return "Run once when you're back, if under " .. text .. " late"
 end
 
 -- Width tiers of the main region (UX §3.3): 4 everything, 3 drops the folder, 2 drops role chip and cost, 1 name + value.

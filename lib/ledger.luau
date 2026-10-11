@@ -47,6 +47,8 @@ type File = { items: { Item }, index: { [string]: Run } }
 local files: { [string]: File } = {}
 -- in-flight runs by run id (includes runs created but not yet saved)
 local inflight_index: { [string]: Run } = {}
+-- deleted jobs (F23/F54): ledger reads and writes are suppressed for these ids
+local removed_jobs: { [string]: boolean } = {}
 
 local function home(): string
 	local ok, h = pcall(function()
@@ -86,6 +88,12 @@ local function parse_text(text: string): File
 			return (tern :: any).json.decode(line)
 		end)
 		if ok and type(v) == "table" and type(v.run_id) == "string" then
+			-- run_dir is derived from validated ids; a tampered value is never used as a path (F60)
+			if type(v.job_id) == "string" and v.job_id:match("^j_[a-z0-9]+$") and v.run_id:match("^r_[%w_]+$") then
+				v.run_dir = string.format("runs/%s/%s", v.job_id, v.run_id)
+			else
+				v.run_dir = nil
+			end
 			table.insert(f.items, { run = v })
 			f.index[v.run_id] = v
 		elseif i < #lines then
@@ -127,10 +135,11 @@ local function encode_line(item: Item): string
 	return (tern :: any).json.encode(item.run)
 end
 
+-- run_dir is rebuilt from validated ids, never trusted from disk (F60).
 local function remove_run_dir(run: Run)
-	local dir = run.run_dir
-	if type(dir) == "string" and dir:match("^runs/[^/]+/[^/]+$") then
-		store.remove(dir)
+	local job_id, run_id = run.job_id, run.run_id
+	if type(job_id) == "string" and type(run_id) == "string" and job_id:match("^j_[a-z0-9]+$") and run_id:match("^r_[%w_]+$") then
+		store.remove(string.format("runs/%s/%s", job_id, run_id))
 	end
 end
 
@@ -284,7 +293,7 @@ function ledger.reason_text(code: string?, run: Run): string
 	elseif c == "invalid_job" then
 		return "Blocked: this job's settings are invalid. Open it in Agent Scheduler to fix it."
 	elseif c == "omp_missing" then
-		return "Blocked: the omp command wasn't found."
+		return "Blocked: omp wasn't found. Install omp or set its path in Setup."
 	elseif c == "data_unwritable" then
 		return "Blocked: couldn't write run data."
 	elseif c == "tern_missing" then
@@ -352,6 +361,9 @@ end
 
 function ledger.save(run: Run): boolean
 	local job_id = tostring(run.job_id)
+	if removed_jobs[job_id] == true and files[job_id] == nil then
+		return true -- deleted job: don't recreate its file
+	end
 	local f = load_file(job_id)
 	local id = tostring(run.run_id)
 	if f.index[id] == nil then
@@ -440,7 +452,7 @@ function ledger.recent(job_id: string?, n: number): { Run }
 	else
 		for _, name in ipairs(store.list("ledger")) do
 			local id = name:match("^(.+)%.jsonl$")
-			if id ~= nil then
+			if id ~= nil and removed_jobs[id] ~= true then
 				collect(id)
 			end
 		end
@@ -513,7 +525,26 @@ function ledger.prune(job_id: string, settings: { [string]: any }, now: number):
 	return removed
 end
 
+-- Tombstone a deleted job (F23/F54): its file and caches stay on disk so an undo restores history, but
+-- nothing reads it (ledger.recent) or writes it (ledger.save) until restore_job or remove_job.
+function ledger.hide_job(job_id: string)
+	removed_jobs[job_id] = true
+end
+
+-- Undo of a delete: lift the tombstone and write whatever async callbacks changed meanwhile.
+function ledger.restore_job(job_id: string)
+	if removed_jobs[job_id] ~= true then
+		return
+	end
+	removed_jobs[job_id] = nil
+	local f = files[job_id]
+	if f ~= nil then
+		write_file(job_id, f)
+	end
+end
+
 function ledger.remove_job(job_id: string)
+	removed_jobs[job_id] = true
 	local f = files[job_id]
 	if f ~= nil then
 		for id in pairs(f.index) do
@@ -528,6 +559,24 @@ function ledger.remove_job(job_id: string)
 	end
 	store.remove(file_path(job_id))
 	store.remove(file_path(job_id) .. ".bak")
+end
+
+function ledger.forget(run: Run)
+	local id = tostring(run.run_id)
+	inflight_index[id] = nil
+	local f = files[tostring(run.job_id)]
+	if f == nil then
+		return
+	end
+	if f.index[id] ~= nil then
+		f.index[id] = nil
+		for i = #f.items, 1, -1 do
+			local item = f.items[i]
+			if item.run ~= nil and item.run.run_id == id then
+				table.remove(f.items, i)
+			end
+		end
+	end
 end
 
 return ledger
