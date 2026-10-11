@@ -5,6 +5,7 @@ local ui = tern.ui
 local C = require("./mgr_common")
 local A = require("./mgr_actions")
 local S = require("./mgr_sheets")
+local runner = require("./runner")
 local cron = require("./cron")
 local jobs = require("./jobs")
 local ledger = require("./ledger")
@@ -198,17 +199,58 @@ local function selected_run(state: State, runs: { any }): any
 	return first
 end
 
+-- Demotes Markdown headings to bold lines (outside fenced code) so they don't render as large headings.
+local function demote_headings(text: string): string
+	local out: { string } = {}
+	local fenced = false
+	for line in string.gmatch((string.gsub(text, "\r\n?", "\n")) .. "\n", "([^\n]*)\n") do
+		if string.match(line, "^%s*```") ~= nil or string.match(line, "^%s*~~~") ~= nil then
+			fenced = not fenced
+		elseif not fenced then
+			local h: string? = nil
+			local hashes, rest = string.match(line, "^(#+)%s+(.*)")
+			if hashes ~= nil and #hashes <= 6 then
+				h = rest
+			end
+			if h ~= nil then
+				line = "**" .. h .. "**"
+			end
+		end
+		table.insert(out, line)
+	end
+	return table.concat(out, "\n")
+end
+
+-- First `max` lines of `text` as Markdown source (an unclosed code fence is closed), and whether lines were dropped.
+local function md_head(text: string, max: number): (string, boolean)
+	local lines: { string } = {}
+	local cut = false
+	for line in string.gmatch((string.gsub(text, "\r\n?", "\n")) .. "\n", "([^\n]*)\n") do
+		if #lines >= max then
+			cut = true
+			break
+		end
+		table.insert(lines, clip(line, 240))
+	end
+	while #lines > 0 and string.match(lines[#lines] :: string, "^%s*$") ~= nil do
+		table.remove(lines)
+	end
+	local src = table.concat(lines, "\n")
+	local _, fences = string.gsub(src, "\n?%s*```", "")
+	if fences % 2 == 1 then
+		src ..= "\n```"
+	end
+	return src, cut
+end
+
 local function expanded_card(run: any): Node
 	local lines: { Node } = {}
 	local msg: any = run.last_message
 	if type(msg) == "string" and msg ~= "" then
-		local n = 0
-		for line in string.gmatch(msg, "[^\r\n]+") do
-			n += 1
-			if n > 12 then
-				break
-			end
-			table.insert(lines, ui.text({ ui.span(line, "mono") }))
+		local src, cut = md_head(msg, 14)
+		table.insert(lines, C.with(ui.md(src), { key = "result-md" }))
+		if cut then
+			table.insert(lines, C.text({ ui.span("…", "muted") }, "result-more"))
 		end
 	elseif type(run.reason) == "string" and run.reason ~= "" then
 		table.insert(lines, ui.text({ ui.span(run.reason) }))
@@ -225,6 +267,76 @@ local function expanded_card(run: any): Node
 	table.insert(facts, C.cost_text(run.cost))
 	table.insert(lines, ui.text({ ui.span(table.concat(facts, " · "), "muted") }))
 	return C.with(ui.card({ ui.span("Last message", "strong") }, lines), { key = "expanded" })
+end
+
+-- History chart ------------------------------------------------------------------------------------------------
+
+local FAILED: { [string]: boolean } = { failed = true, timed_out = true, blocked = true, missed = true, cancelled = true }
+local DONE: { [string]: boolean } = {
+	finished = true,
+	failed = true,
+	timed_out = true,
+	blocked = true,
+	missed = true,
+	cancelled = true,
+	skipped = true,
+}
+
+-- Nodes for the history chart: one `el` bar per run (oldest left, coloured by outcome via manager.css), and a summary
+-- line. Empty when fewer than two runs have ended.
+local function history_nodes(runs: { any }): { Node }
+	local done: { any } = {}
+	for i = #runs, 1, -1 do -- ledger is newest first
+		local r = runs[i]
+		if DONE[r.state] and #done < 20 then
+			table.insert(done, r)
+		end
+	end
+	if #done < 2 then
+		return {}
+	end
+	local bars: { Node } = {}
+	local failed, total = 0, 0
+	local durs: { number } = {}
+	local maxdur = 0
+	local entries: { { dur: number, bad: boolean, tip: string } } = {}
+	for _, r in done do
+		local dur = 0
+		if type(r.started) == "number" and type(r.ended) == "number" then
+			dur = math.max(0, r.ended - r.started)
+		end
+		if dur > 0 then
+			table.insert(durs, dur)
+			maxdur = math.max(maxdur, dur)
+		end
+		if type(r.cost) == "number" then
+			total += r.cost
+		end
+		local bad = FAILED[r.state] == true
+		if bad then
+			failed += 1
+		end
+		local t: number = r.started or r.created or r.slot or r.ended or 0
+		local tip = string.format("%s · %s · %s · %s", C.abs(t), if dur > 0 then C.duration_text(dur) else "didn't start", C.cost_text(r.cost), (string.gsub(r.state, "_", " ")))
+		table.insert(entries, { dur = dur, bad = bad, tip = tip })
+	end
+	for i, e in entries do
+		local bucket = if maxdur > 0 then math.floor(20 * e.dur / maxdur + 0.5) else 0
+		local outcome = if e.bad then "fail" elseif e.dur > 0 then "ok" else "none"
+		table.insert(bars, ui.el("div", { key = "hb" .. i, class = "tas-bar", title = e.tip, attrs = { ["data-h"] = bucket, ["data-o"] = outcome } }))
+	end
+	table.sort(durs)
+	local median = if #durs > 0 then (durs[(#durs + 1) // 2] + durs[#durs // 2 + 1]) / 2 else 0
+	local out: { Node } = {
+		ui.el("div", { key = "hist-chart", class = "tas-bars" }, bars),
+	}
+	local parts = { string.format("%d runs", #done), string.format("%d failed", failed) }
+	if median > 0 then
+		table.insert(parts, "median " .. C.duration_text(median))
+	end
+	table.insert(parts, C.cost_text(total) .. " total")
+	table.insert(out, C.text({ ui.span(table.concat(parts, " · "), "muted") }, "hist-sum"))
+	return out
 end
 
 -- View ---------------------------------------------------------------------------------------------------------
@@ -263,21 +375,72 @@ function D.view(state: State): (Node, Node)
 	local sel = selected_run(state, runs)
 
 	local status: string
+	local next_secs: number? = nil
 	if job.enabled == false then
 		status = if js.paused_reason == "failures" then "Paused after failures" elseif js.done == true then "Finished" else "Paused"
 	elseif type(js.next_run) == "number" then
-		status = "Active · next " .. C.in_text(js.next_run, now)
+		if js.next_run - now < 3600 and js.next_run - now > 0 then
+			status = "Active · next in"
+			next_secs = js.next_run - now
+		else
+			status = "Active · next " .. C.in_text(js.next_run, now)
+		end
 	else
 		status = "Active · manual only"
 	end
-	local children: { Node } = {
-		C.text({
-			ui.span("Agent Scheduler › ", "muted"),
-			ui.span(job.name, "strong"),
-			ui.span("  @" .. tostring(job.role), "muted"),
-			ui.span("   " .. status, if job.enabled == false then "warning" else "muted"),
-		}, "title"),
+	local title_spans: { Span | string } = {
+		ui.span("Agent Scheduler › ", "muted"),
+		ui.span(job.name, "strong"),
+		ui.span("  @" .. tostring(job.role), "muted"),
+		ui.span("   " .. status, if job.enabled == false then "warning" else "muted"),
 	}
+	local children: { Node } = {}
+	if next_secs ~= nil then
+		table.insert(
+			children,
+			ui.node("row", { key = "title", gap = "sm" }, {
+				ui.text(title_spans),
+				ui.node("elapsed", { key = "next-in", age = -math.floor(next_secs * 1000), format = "short" }),
+			})
+		)
+	else
+		table.insert(children, C.text(title_spans, "title"))
+	end
+	-- A run in flight: live timer plus what it is doing now.
+	local live_run: any = nil
+	for _, r in A.runs_of(job.id) do
+		if r.state == "running" or r.state == "needs_input" or r.state == "launching" then
+			live_run = r
+			break
+		end
+	end
+	if live_run ~= nil then
+		local t0: number = live_run.started or live_run.state_since or now
+		local lv: any = runner.live(live_run.run_id)
+		local label = if live_run.state == "needs_input" then "Needs you" elseif live_run.state == "launching" then "Starting" else "Running"
+		local bits: { Node } = {
+			ui.node("spinner", { key = "live-spin", style = "dots", tone = if live_run.state == "needs_input" then "warning" else "accent", label = label }),
+			ui.node("elapsed", { key = "live-elapsed", age = math.max(0, math.floor((now - t0) * 1000)) }),
+		}
+		local extra: { string } = {}
+		if lv ~= nil then
+			local tool: any = lv.tool
+			if type(tool) == "table" then
+				local d = if type(tool.detail) == "string" and tool.detail ~= "" then ": " .. clip(tool.detail, 70) else ""
+				table.insert(extra, tostring(tool.name) .. d)
+			end
+			if type(lv.tools) == "number" and lv.tools > 0 then
+				table.insert(extra, string.format("%d tool call%s", lv.tools, if lv.tools == 1 then "" else "s"))
+			end
+			if type(lv.cost) == "number" then
+				table.insert(extra, C.cost_text(lv.cost))
+			end
+		end
+		if #extra > 0 then
+			table.insert(bits, ui.text({ ui.span("· " .. table.concat(extra, " · "), "muted") }))
+		end
+		table.insert(children, ui.node("row", { key = "live", gap = "sm" }, bits))
+	end
 	if job.created_by == "carly" and type(job.created_at) == "number" then
 		table.insert(children, C.text({ ui.span("Added by Carly · " .. (string.gsub(os.date("%a %d %b", job.created_at), "^(%a+) 0", "%1 ")), "muted") }, "carly"))
 	end
@@ -298,17 +461,18 @@ function D.view(state: State): (Node, Node)
 		)
 	)
 	local prompt = jobs.prompt(d.job_id) or ""
-	local shown = 0
 	table.insert(children, C.text({ ui.span("Prompt", "muted"), ui.span("   "), ui.span("p", "key"), ui.span(" opens the file", "muted") }, "prompt-h"))
-	for line in string.gmatch(prompt, "[^\r\n]+") do
-		shown += 1
-		if shown > 3 then
+	if string.match(prompt, "%S") ~= nil then
+		local src, cut = md_head(demote_headings(prompt), 8)
+		table.insert(children, C.with(ui.md(src), { key = "prompt-md" }))
+		if cut then
 			table.insert(children, C.text({ ui.span("…", "muted") }, "prompt-more"))
-			break
 		end
-		table.insert(children, C.text({ ui.span(clip(line, 110), "mono") }, "prompt" .. shown))
 	end
 	table.insert(children, ui.rule({ ui.span("RUNS  (last 20)", "dim") }))
+	for _, n in history_nodes(runs) do
+		table.insert(children, n)
+	end
 	local items: { Node } = {}
 	for _, r in runs do
 		table.insert(items, run_item(r, now, tier))

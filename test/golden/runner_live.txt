@@ -1,0 +1,7 @@
+PASS live exists without a session file, no counts
+PASS tool in progress with single-line detail; cost/tools/requests
+PASS unchanged tail keeps since, no notification
+PASS tool replaced then cleared after toolResult
+PASS obs fields and immediate refresh on state change
+PASS live nil after finish
+PASS no errors

@@ -6,6 +6,7 @@ description = "Schedule omp agent runs: cron, presets, natural language and one-
 icon = "timer"
 host = "host.luau"
 window = "window.luau"
+styles = ["manager.css"]
 
 [[blocks]]
 id = "manager"

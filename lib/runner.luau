@@ -35,6 +35,11 @@ type RT = {
 	tail_since: number?,
 	exit_status: number?,
 	cap_marked: boolean?,
+	live_tail: { cost: number?, tools: number, requests: number, last_message: string? }?,
+	live_tool: { id: string?, name: string, detail: string?, since: number }?,
+	live_at: number?,
+	live_sig: string?,
+	live_updated: number?,
 }
 
 local runner = {}
@@ -1093,6 +1098,119 @@ local function due_scan(now: number)
 	end
 end
 
+-- ---------- live view (manager rows / detail) ----------
+
+local LIVE_MESSAGE_MAX = 500
+
+local function live_sig(live: { [string]: any }): string
+	local tool = live.tool
+	return table.concat({
+		tostring(live.obs),
+		tostring(live.model),
+		tostring(live.last_message),
+		tostring(live.cost),
+		tostring(live.tools),
+		tostring(live.requests),
+		if tool ~= nil then tostring(tool.name) .. "|" .. tostring(tool.detail) .. "|" .. tostring(tool.since) else "-",
+	}, "\31")
+end
+
+local function build_live(run_id: string): { [string]: any }?
+	local run = S.runs[run_id]
+	local rt = S.rt[run_id]
+	if run == nil or rt == nil or (run.state ~= "running" and run.state ~= "needs_input") then
+		return nil
+	end
+	local lt = rt.live_tail
+	local lm: string? = nil
+	local raw = rt.last_message
+	if raw ~= nil and raw ~= "" then
+		lm = raw
+	elseif lt ~= nil and lt.last_message ~= nil then
+		lm = lt.last_message
+	elseif type(run.last_message) == "string" then
+		lm = run.last_message :: string
+	end
+	if lm ~= nil then
+		lm = clip(session_tail.body(lm), LIVE_MESSAGE_MAX)
+		if lm == "" then
+			lm = nil
+		end
+	end
+	local tool = rt.live_tool
+	return {
+		obs = if rt.obs ~= nil then rt.obs.state else nil,
+		model = run.model,
+		last_message = lm,
+		cost = if lt ~= nil then lt.cost else nil,
+		tools = if lt ~= nil then lt.tools else nil,
+		requests = if lt ~= nil then lt.requests else nil,
+		tool = if tool ~= nil then { name = tool.name, detail = tool.detail, since = tool.since } else nil,
+		updated = rt.live_updated or wall(),
+	}
+end
+
+-- Marks subscribers dirty only when what the manager would draw changed.
+local function check_live(run: Run)
+	local id = tostring(run.run_id)
+	local rt = S.rt[id]
+	local live = build_live(id)
+	if rt == nil or live == nil then
+		return
+	end
+	local sig = live_sig(live)
+	if rt.live_sig ~= sig then
+		rt.live_sig = sig
+		S.sub_dirty = true
+	end
+end
+
+local function apply_live_facts(rt: RT, facts: session_tail.Facts)
+	rt.live_tail = { cost = facts.cost, tools = facts.tools, requests = facts.requests, last_message = facts.last_message }
+	local t = facts.tool
+	if t == nil then
+		rt.live_tool = nil
+	else
+		local cur = rt.live_tool
+		local same = cur ~= nil and cur.name == t.name and cur.detail == t.detail and cur.id == t.id
+		if not same then
+			rt.live_tool = { id = t.id, name = t.name, detail = t.detail, since = wall() }
+		end
+	end
+	rt.live_updated = wall()
+end
+
+-- One tail per run at a time; no session file yet => read_facts reports nil and nothing is spawned.
+local function refresh_live_one(run: Run, now: number)
+	local rt = rt_of(run)
+	if rt.tail_busy or rt.finishing then
+		return
+	end
+	rt.live_at = now
+	rt.tail_busy = true
+	read_facts(run, function(facts)
+		rt.tail_busy = false
+		if S.runs[tostring(run.run_id)] == nil or (run.state ~= "running" and run.state ~= "needs_input") then
+			return
+		end
+		if facts ~= nil then
+			apply_live_facts(rt, facts)
+		end
+		check_live(run)
+	end)
+end
+
+local function refresh_live(now: number)
+	for _, run in ipairs(sorted_runs()) do
+		if run.state == "running" or run.state == "needs_input" then
+			local rt = rt_of(run)
+			if now - (rt.live_at or 0) >= const.LIVE_TAIL_S then
+				refresh_live_one(run, now)
+			end
+		end
+	end
+end
+
 -- ---------- window samples (R9: raw in, host decides) ----------
 
 local function on_obs(p: { [string]: any })
@@ -1106,6 +1224,9 @@ local function on_obs(p: { [string]: any })
 	local prev = rt.obs
 	if prev == nil or prev.state ~= p.state then
 		rt.obs = { state = tostring(p.state), since = now, seen_at = now }
+		if prev ~= nil then
+			refresh_live_one(run, now) -- state change: refresh the tail now
+		end
 	else
 		prev.seen_at = now
 	end
@@ -1138,6 +1259,9 @@ local function on_obs(p: { [string]: any })
 		if run.state == "needs_input" then
 			transition(run, "running", nil, {})
 		end
+	end
+	if S.runs[tostring(run.run_id)] ~= nil then
+		check_live(run)
 	end
 end
 
@@ -1432,6 +1556,7 @@ function pump()
 			relaunch_orphans()
 		end
 		advance_runs(now)
+		refresh_live(now)
 		for id in pairs(S.dirty_runs) do
 			local run = S.runs[id]
 			if run ~= nil then
@@ -1493,6 +1618,11 @@ end
 
 function runner.inflight(): { Run }
 	return sorted_runs()
+end
+
+-- Live detail of an in-flight (running / needs_input) run for the manager; nil otherwise. See build_live.
+function runner.live(run_id: string): { [string]: any }?
+	return build_live(run_id)
 end
 
 -- After any job/settings mutation by the manager: re-arm missing next runs, publish, notify subscribers.

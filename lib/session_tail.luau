@@ -13,6 +13,9 @@ export type Facts = {
 	cost: number?,
 	cost_approx: boolean,
 	completed_turn: boolean,
+	tools: number,
+	requests: number,
+	tool: { id: string?, name: string, detail: string? }?, -- last toolCall with no later toolResult
 }
 
 local session_tail = {}
@@ -102,6 +105,53 @@ local function newest_session_file(dir: string): string?
 	return best
 end
 
+local DETAIL_KEYS: { [string]: { string } } = {
+	bash = { "command" },
+	read = { "path", "file_path" },
+	edit = { "path", "file_path" },
+	write = { "path", "file_path" },
+	grep = { "pattern" },
+	glob = { "pattern" },
+	web_search = { "query" },
+}
+
+-- Short single-line human text for a tool call's arguments (<= 120 bytes).
+local function tool_detail(name: string, args: any): string?
+	if type(args) ~= "table" then
+		return nil
+	end
+	local found: string? = nil
+	local keys = DETAIL_KEYS[string.lower(name)]
+	if keys ~= nil then
+		for _, k in ipairs(keys) do
+			if type(args[k]) == "string" and args[k] ~= "" then
+				found = args[k]
+				break
+			end
+		end
+	end
+	if found == nil then
+		local names: { string } = {}
+		for k, v in pairs(args) do
+			if type(k) == "string" and type(v) == "string" and v ~= "" then
+				table.insert(names, k)
+			end
+		end
+		table.sort(names)
+		if names[1] ~= nil then
+			found = args[names[1]]
+		end
+	end
+	if found == nil then
+		return nil
+	end
+	local one = trim((found:gsub("%s+", " ")))
+	if one == "" then
+		return nil
+	end
+	return clip(one, 120)
+end
+
 local function text_of(content: any): (string, boolean)
 	local parts: { string } = {}
 	local tool = false
@@ -124,7 +174,8 @@ end
 
 -- Parses the tail text (pure; exposed for tests).
 function session_tail.parse(text: string, truncated: boolean, file: string): Facts
-	local facts: Facts = { session_file = file, cost_approx = truncated, completed_turn = false }
+	local facts: Facts = { session_file = file, cost_approx = truncated, completed_turn = false, tools = 0, requests = 0 }
+	local pending: { { id: string?, name: string, detail: string? } } = {}
 	local name = file:match("([^/]+)$") or file
 	facts.session_id = name:match("_([^_]+)%.jsonl$")
 	local cost, any_cost = 0, false
@@ -153,6 +204,23 @@ function session_tail.parse(text: string, truncated: boolean, file: string): Fac
 		elseif m.type == "message" and type(m.message) == "table" then
 			local msg = m.message
 			if msg.role == "assistant" then
+				facts.requests += 1
+				if type(msg.content) == "table" then
+					for _, c in ipairs(msg.content) do
+						if type(c) == "table" and c.type == "toolCall" then
+							facts.tools += 1
+							local tname = if type(c.name) == "string" then c.name else "tool"
+							-- omp records a human-readable `intent` ("Reading model role settings") on each
+							-- call; it reads better than raw arguments, which stay the fallback.
+							local intent = if type(c.intent) == "string" then tool_detail(tname, { intent = c.intent }) else nil
+							table.insert(pending, {
+								id = if type(c.id) == "string" then c.id else nil,
+								name = tname,
+								detail = intent or tool_detail(tname, c.arguments),
+							})
+						end
+					end
+				end
 				local t, tool = text_of(msg.content)
 				local c = type(msg.usage) == "table" and type(msg.usage.cost) == "table" and msg.usage.cost.total or nil
 				if type(c) == "number" then
@@ -170,11 +238,22 @@ function session_tail.parse(text: string, truncated: boolean, file: string): Fac
 					last_is_final = false
 				end
 			else
+				if msg.role == "toolResult" then
+					local rid = if type(msg.toolCallId) == "string" then msg.toolCallId else nil
+					local rname = if type(msg.toolName) == "string" then msg.toolName else nil
+					for i, p in ipairs(pending) do
+						if (rid ~= nil and p.id == rid) or (rid == nil and (rname == nil or p.name == rname)) then
+							table.remove(pending, i)
+							break
+						end
+					end
+				end
 				last_is_final = false
 				model_error = nil
 			end
 		end
 	end
+	facts.tool = pending[#pending]
 	if any_cost then
 		facts.cost = cost
 	end

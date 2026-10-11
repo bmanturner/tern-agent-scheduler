@@ -41,6 +41,18 @@ local function span(secs: number): string
 end
 status.span = span
 
+-- Live running time with seconds: "42s", "4m 05s", "2h 03m". The segment only takes plain text, so
+-- the 5 s refresh timer (status.update) is what makes it tick.
+local function live(secs: number): string
+	secs = math.max(0, math.floor(secs))
+	if secs < 60 then
+		return string.format("%ds", secs)
+	elseif secs < 3600 then
+		return string.format("%dm %02ds", secs // 60, secs % 60)
+	end
+	return string.format("%dh %02dm", secs // 3600, (secs % 3600) // 60)
+end
+
 local function num(v: any): number
 	if type(v) == "number" then
 		return v
@@ -149,7 +161,7 @@ function status.compute(snap: { [string]: any }?, hot: { [string]: any }?, now: 
 			command = CMD_OPEN,
 		}
 	elseif out.setup_bad then
-		seg = { text = "setup needed", icon = "warn", tone = "warn", command = CMD_OPEN }
+		seg = { text = "setup needed", icon = "warn", tone = "warning", command = CMD_OPEN }
 	elseif #needs > 0 then
 		local text: string
 		if #running > 0 then
@@ -159,10 +171,14 @@ function status.compute(snap: { [string]: any }?, hot: { [string]: any }?, now: 
 			end
 		elseif #needs == 1 then
 			text = "1 needs you · " .. tostring(needs[1].job_name)
+			local since: any = needs[1].since
+			if type(since) == "number" then
+				text ..= " · " .. span(math.max(0, now - since))
+			end
 		else
 			text = string.format("%d need you", #needs)
 		end
-		seg = { text = text, icon = "bell", tone = "warn", command = CMD_NEEDS }
+		seg = { text = text, icon = "bell", tone = "warning", command = CMD_NEEDS }
 	else
 		local failed = math.floor(num(h.failed_unseen))
 		if failed > 0 then
@@ -182,11 +198,11 @@ function status.compute(snap: { [string]: any }?, hot: { [string]: any }?, now: 
 			seg = { text = text, icon = "x-circle", tone = "error", command = CMD_OPEN }
 		elseif #running == 1 then
 			local started: any = running[1].started
-			local elapsed = if type(started) == "number" then span(math.max(0, now - started)) else "starting"
+			local elapsed = if type(started) == "number" then live(now - started) else "starting"
 			seg = {
 				text = tostring(running[1].job_name) .. " · " .. elapsed,
 				icon = "activity",
-				tone = "accent",
+				tone = "pending",
 				command = CMD_OPEN,
 			}
 		elseif #running > 1 then

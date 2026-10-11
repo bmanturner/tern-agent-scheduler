@@ -8,6 +8,7 @@ local A = require("./mgr_actions")
 local F = require("./mgr_form")
 local S = require("./mgr_sheets")
 local jobs = require("./jobs")
+local Live = require("./mgr_live")
 local runner = require("./runner")
 local store = require("./store")
 
@@ -638,6 +639,19 @@ end
 
 -- View --------------------------------------------------------------------------------------------------------
 
+-- The detail text of an upcoming job row (schedule, last run, folder by width tier).
+local function upcoming_detail(row: Row, now: number, tier: number): string
+	local parts: { string } = {}
+	if tier >= 2 then
+		table.insert(parts, jobs.describe(row.job))
+		table.insert(parts, last_text((row.js :: any).last_run, now))
+	end
+	if tier >= 4 then
+		table.insert(parts, C.tilde((row.job :: any).cwd))
+	end
+	return table.concat(parts, " · ")
+end
+
 function L.view(state: State): (Node, Node)
 	local model = L.model(state)
 	if model.total == 0 then
@@ -650,15 +664,28 @@ function L.view(state: State): (Node, Node)
 	for _, sec in model.sections do
 		table.insert(children, section_header(sec))
 		if not sec.collapsed then
-			local items: { Node } = {}
 			local selected: string? = nil
-			for _, r in sec.rows do
-				table.insert(items, item_node(r, now, tier))
-				if row ~= nil and r == row then
-					selected = r.id
+			if sec.id == "needs" or sec.id == "running" then
+				-- In-flight runs are `agent` nodes, which a `list` can't select: keep them in a col.
+				local nodes: { Node } = {}
+				for _, r in sec.rows do
+					table.insert(nodes, Live.agent_row(r, now, tier, row ~= nil and r == row))
 				end
+				table.insert(children, ui.node("col", { key = sec.id, gap = "xs" }, nodes))
+			else
+				local items: { Node } = {}
+				for _, r in sec.rows do
+					if Live.counts_down(r, now) then
+						table.insert(items, Live.countdown_row(r, now, tier, row ~= nil and r == row, job_label(r.job, tier), upcoming_detail(r, now, tier)))
+					else
+						table.insert(items, item_node(r, now, tier))
+					end
+					if row ~= nil and r == row then
+						selected = r.id
+					end
+				end
+				table.insert(children, ui.node("list", { key = sec.id, selected = selected }, items))
 			end
-			table.insert(children, ui.node("list", { key = sec.id, selected = selected }, items))
 		end
 	end
 	local dock = ui.col({
@@ -881,6 +908,13 @@ function L.event(state: State, ev: UiEvent)
 	elseif kind == "action" then
 		local act = ev.act
 		local value: any = ev.value
+		if act == "pick" or act == "open" then
+			local row = if type(value) == "string" then select_item(state, value) else nil
+			if row ~= nil and act == "open" then
+				enter(state, row)
+			end
+			return
+		end
 		if act == "fold" and type(value) == "string" then
 			state.folds[value] = not collapsed(state, value)
 		elseif act == "start_fresh" then

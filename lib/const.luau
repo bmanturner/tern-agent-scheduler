@@ -13,6 +13,7 @@ local const = {
 	-- clock and loops
 	PUMP_MS = 2000,
 	TICK_S = 15,
+	LIVE_TAIL_S = 15, -- session-tail refresh cadence for the manager's live run rows
 	OBS_POLL_S = 3,
 	OBS_HEARTBEAT_S = 30,
 	OBS_STALE_S = 45,
