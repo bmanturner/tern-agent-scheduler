@@ -4,6 +4,7 @@
 local C = require("./mgr_common")
 local F = require("./mgr_form")
 local S = require("./mgr_sheets")
+local R = require("./mgr_run")
 local const = require("./const")
 local jobs = require("./jobs")
 local runner = require("./runner")
@@ -70,20 +71,16 @@ function A.duplicate(state: State, job_id: string)
 		approval = job.approval,
 		stop_s = job.max_runtime_s,
 		window_s = job.catch_up_window_s,
+		only_if = if type(job.only_if) == "string" then job.only_if else nil,
+		quiet_ok = job.quiet_ok == true,
 	})
 end
 
 function A.run_now(state: State, job_id: string)
-	local job = job_of(job_id)
-	if job == nil then
+	if job_of(job_id) == nil then
 		return
 	end
-	local ok, err = runner.run_now(job_id)
-	if ok then
-		C.toast(state, "info", job.name .. " started", "@" .. job.role .. " · " .. C.tilde(job.cwd))
-	else
-		C.notice(state, err or "Couldn't start the run.")
-	end
+	R.run_now(state, job_id, { override = nil, toast = true })
 end
 
 function A.toggle_pause(state: State, job_id: string)

@@ -29,11 +29,13 @@ export type Form = {
 	name: textfield.Field,
 	prompt: textfield.Field,
 	when: textfield.Field,
+	only_if: textfield.Field,
 	folder: textfield.Field,
 	role: string,
 	catch_up: string,
 	approval: string,
 	stop_s: number,
+	quiet_ok: boolean,
 	enabled: boolean,
 	focus: string?,
 	-- Text row being edited (name, prompt, when, folder) and its text when editing began.
@@ -63,7 +65,7 @@ export type Form = {
 }
 
 export type Sheet = {
-	kind: string, -- roles | presets | setup | settings | help | first_run | confirm_stop
+	kind: string, -- roles | presets | setup | settings | help | first_run | confirm_stop | run_anyway | conditions | only_if_presets
 	-- picker
 	query: textfield.Field?,
 	sel: string?,
@@ -77,6 +79,11 @@ export type Sheet = {
 	field: textfield.Field?,
 	warnings: { [string]: string }?,
 	checking: boolean?,
+	text: string?,
+	code: string?,
+	override: string?,
+	verdict: any?,
+	draft: any?,
 }
 
 export type State = {

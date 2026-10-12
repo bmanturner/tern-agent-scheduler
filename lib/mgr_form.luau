@@ -14,6 +14,9 @@ local jobs = require("./jobs")
 local runner = require("./runner")
 local ids = require("./ids")
 local platform = require("./platform")
+local conditions = require("./conditions")
+local cond_eval = require("./cond_eval")
+local R = require("./mgr_run")
 
 local F = {}
 
@@ -31,9 +34,11 @@ export type Seed = {
 	approval: string?,
 	stop_s: number?,
 	window_s: number?,
+	only_if: string?,
+	quiet_ok: boolean?,
 }
 
-local ROW_ORDER = { "name", "prompt", "when", "catch_up", "folder", "role", "approval", "stop", "active" }
+local ROW_ORDER = { "name", "prompt", "when", "only_if", "catch_up", "folder", "role", "approval", "stop", "active", "quiet" }
 local ROW_LABEL: { [string]: string } = {
 	name = "Name",
 	prompt = "Prompt",
@@ -44,8 +49,10 @@ local ROW_LABEL: { [string]: string } = {
 	approval = "Approval",
 	stop = "Stop after",
 	active = "Active",
+	only_if = "Only if",
+	quiet = "Quiet when nothing to report",
 }
-local TEXT_ROWS: { [string]: boolean } = { name = true, prompt = true, when = true, folder = true }
+local TEXT_ROWS: { [string]: boolean } = { name = true, prompt = true, when = true, only_if = true, folder = true }
 local MENU_ROWS: { [string]: boolean } = { catch_up = true, approval = true, stop = true }
 local EDITOR_ID = "main.prefs.pe.text"
 
@@ -83,6 +90,8 @@ local function snapshot_of(form: Form): { [string]: any }
 		approval = form.approval,
 		stop_s = form.stop_s,
 		enabled = form.enabled,
+		only_if = form.only_if.text,
+		quiet_ok = form.quiet_ok,
 	}
 end
 
@@ -125,6 +134,8 @@ function F.new(seed: Seed, id: string?, title: string): Form
 		approval = seed.approval or (type(d.approval) == "string" and d.approval) or "yolo",
 		stop_s = seed.stop_s or (type(d.max_runtime_s) == "number" and d.max_runtime_s) or const.MAXRUN_DEFAULT_S,
 		enabled = seed.enabled ~= false,
+		only_if = textfield.new(seed.only_if),
+		quiet_ok = seed.quiet_ok == true,
 		focus = if seed.name == nil or seed.name == "" then "name" else "prompt",
 		editing = nil,
 		menu = nil,
@@ -250,6 +261,8 @@ function F.input(form: Form): validate.JobInput
 		approval = form.approval,
 		max_runtime_s = form.stop_s,
 		enabled = form.enabled,
+		only_if = form.only_if.text,
+		quiet_ok = form.quiet_ok,
 		catch_up = form.catch_up,
 		catch_up_window_s = form.catch_up_window_s,
 		allow_home = home ~= "" and cwd == validate.strip_slashes(home),
@@ -368,6 +381,32 @@ function F.preview(form: Form): string
 	return string.format("%s · %s · %s", lead, next_pair(ups, now), tz)
 end
 
+-- The hint under the Only if row: how the conditions read. Empty when the input doesn't parse.
+function F.only_if_preview(form: Form): string
+	local text = C.trim(form.only_if.text)
+	if text == "" then
+		return "Always runs when due. For example: new commits on main, weekdays 9-18, max 3 runs a day, ./scripts/has-work.sh."
+	end
+	local list = conditions.parse(text)
+	if list == nil then
+		return ""
+	end
+	if #list == 0 then
+		return "Always runs when due."
+	end
+	local out = string.format("Reads as: %s. Skipped runs are listed in history with the reason; Run now asks before it overrides.", conditions.describe(list))
+	local has_window = false
+	for _, c in list do
+		if c.type == "window" then
+			has_window = true
+		end
+	end
+	if has_window and form.catch_up ~= "skip" then
+		out ..= " A run caught up outside the window is skipped."
+	end
+	return out
+end
+
 -- Rows -------------------------------------------------------------------------------------------
 
 local function summary_line(text: string): string
@@ -468,6 +507,13 @@ function F.sections(state: State, errs: { [string]: string }?): { P.Section }
 			control = { k = "text", value = form.when.text, placeholder = "weekdays 9am", mono = true },
 		},
 		{
+			id = "only_if",
+			label = ROW_LABEL.only_if,
+			hint = (if light then "" else F.only_if_preview(form)) .. " · ctrl+p presets · ctrl+t checks now",
+			warning = warn("only_if"),
+			control = { k = "text", value = form.only_if.text, placeholder = "Always", mono = true },
+		},
+		{
 			id = "catch_up",
 			label = ROW_LABEL.catch_up,
 			hint = "Missed means Tern wasn't running or your " .. platform.machine() .. " was asleep. Several misses count as one.",
@@ -522,6 +568,14 @@ function F.sections(state: State, errs: { [string]: string }?): { P.Section }
 			defaultLabel = "On",
 			control = { k = "switch", on = form.enabled },
 		},
+		{
+			id = "quiet",
+			label = ROW_LABEL.quiet,
+			hint = "The agent may end with RESULT: [quiet]; those runs show as ✓ quiet with nothing to read.",
+			changed = form.quiet_ok,
+			defaultLabel = "Off",
+			control = { k = "switch", on = form.quiet_ok },
+		},
 	}
 	return {
 		{ id = "job", title = "Job", rows = job_rows },
@@ -539,6 +593,8 @@ local function field_of(form: Form, row: string): textfield.Field?
 		return form.prompt
 	elseif row == "when" then
 		return form.when
+	elseif row == "only_if" then
+		return form.only_if
 	elseif row == "folder" then
 		return form.folder
 	end
@@ -640,6 +696,8 @@ local function reset_row(state: State, row: string)
 		apply_choice(state, row, tostring(default_for(form, row)))
 	elseif row == "active" then
 		form.enabled = true
+	elseif row == "quiet" then
+		form.quiet_ok = false
 	end
 end
 
@@ -665,6 +723,25 @@ function F.set_when(state: State, phrase: string)
 		form.enabled = true
 	end
 	form.focus = "when"
+end
+
+function F.set_only_if(state: State, phrase: string)
+	local form = state.form
+	if form == nil then
+		return
+	end
+	textfield.set(form.only_if, phrase)
+	form.touched.only_if = true
+	form.extra.only_if = nil
+	form.focus = "only_if"
+end
+
+-- Focuses a text row and starts editing it (the Custom preset).
+function F.edit_row(state: State, row: string)
+	if state.form == nil then
+		return
+	end
+	start_edit(state, row)
 end
 
 -- Save -------------------------------------------------------------------------------------------------
@@ -721,8 +798,82 @@ local function next_text(job_id: string): string
 	return "Manual only"
 end
 
-local function commit(state: State, form: Form, run_now: boolean)
+-- Dry-runs the form's unsaved conditions and shows the result in the Conditions sheet.
+local function check_now(state: State)
+	local form = state.form
+	if form == nil then
+		return
+	end
+	local list = conditions.parse(C.trim(form.only_if.text))
+	if list == nil then
+		form.touched.only_if = true
+		return
+	end
+	local draft = {
+		id = form.id or "_draft",
+		name = form.name.text,
+		cwd = expand(form.folder.text),
+		conditions = list,
+		pause_after_failures = 3,
+	}
+	local sheet: C.Sheet = { kind = "conditions", job_id = nil, draft = draft, verdict = nil, checking = true }
+	state.sheet = sheet
+	runner.check_draft(draft, function(v: any)
+		if state.sheet ~= sheet then
+			return
+		end
+		sheet.checking = false
+		sheet.verdict = v
+		C.render(state)
+	end)
+end
+
+-- Reads each script check of the form and pins its hash, so a later edit of the script blocks runs until re-saved.
+local function pin_checks(state: State, form: Form, cb: ({ [string]: string }) -> ())
+	local acks: { [string]: string } = {}
+	local checks: { any } = {}
+	for _, c in conditions.parse(C.trim(form.only_if.text)) or {} do
+		if c.type == "check" then
+			table.insert(checks, c)
+		end
+	end
+	if #checks == 0 then
+		cb(acks)
+		return
+	end
+	local cwd = expand(form.folder.text)
+	local function step(i: number)
+		if state.form ~= form then
+			return
+		end
+		local c = checks[i]
+		if c == nil then
+			cb(acks)
+			return
+		end
+		cond_eval.read_script(conditions.script_path(c.path, cwd, C.home()), function(text: string?, err_text: string?)
+			if state.form ~= form then
+				return
+			end
+			if text == nil then
+				local msg = err_text or "couldn't read your check"
+				form.busy = false
+				form.submitted = true
+				form.extra.only_if = string.upper(string.sub(msg, 1, 1)) .. string.sub(msg, 2) .. "."
+				set_focus(state, "only_if")
+				C.render(state)
+				return
+			end
+			acks[c.path] = "ck1:" .. ids.fnv64(text)
+			step(i + 1)
+		end)
+	end
+	step(1)
+end
+
+local function commit(state: State, form: Form, run_now: boolean, acks: { [string]: string })
 	local input = F.input(form)
+	input.check_acks = acks
 	local prompt = form.prompt.text
 	local now = C.now()
 	local was_empty = #jobs.list() == 0
@@ -769,10 +920,7 @@ local function commit(state: State, form: Form, run_now: boolean)
 		C.toast(state, "success", "Saved " .. job.name, next_text(id))
 	end
 	if run_now then
-		local ok, err = runner.run_now(id, { focus_override = "front" })
-		if not ok then
-			C.notice(state, err or "Couldn't start the run.")
-		end
+		R.run_now(state, id, { override = "front", toast = false })
 	elseif was_empty and not editing and job.enabled ~= false then
 		state.sheet = { kind = "first_run", job_id = id }
 	end
@@ -807,7 +955,9 @@ function F.save(state: State, run_now: boolean)
 			set_focus(state, "folder")
 			return
 		end
-		commit(state, fm, run_now)
+		pin_checks(state, fm, function(acks)
+			commit(state, fm, run_now, acks)
+		end)
 	end)
 end
 
@@ -845,6 +995,8 @@ function F.open_edit(state: State, job_id: string)
 		cwd = job.cwd,
 		role = job.role,
 		enabled = job.enabled ~= false,
+		only_if = if type(job.only_if) == "string" then job.only_if else nil,
+		quiet_ok = job.quiet_ok == true,
 	}
 	seed.catch_up = job.catch_up
 	seed.approval = job.approval
@@ -871,6 +1023,8 @@ function F.snapshot(form: Form): { [string]: any }
 		approval = form.approval,
 		stop_s = form.stop_s,
 		enabled = form.enabled,
+		only_if = form.only_if.text,
+		quiet_ok = form.quiet_ok,
 		window_s = form.catch_up_window_s,
 		draft_path = form.draft_path,
 		draft_seed = form.draft_seed,
@@ -900,6 +1054,8 @@ function F.restore(state: State, saved: any): boolean
 		cwd = str(s.folder),
 		role = str(s.role),
 		enabled = if type(s.enabled) == "boolean" then s.enabled else nil,
+		only_if = str(s.only_if),
+		quiet_ok = if type(s.quiet_ok) == "boolean" then s.quiet_ok else nil,
 		catch_up = str(s.catch_up),
 		approval = str(s.approval),
 		stop_s = if type(s.stop_s) == "number" then s.stop_s else nil,
@@ -928,7 +1084,7 @@ end
 
 -- View -------------------------------------------------------------------------------------------------------
 
-function F.hints(cols: number, editing: string?): string
+local function base_hints(cols: number, editing: string?): string
 	if editing == "prompt" then
 		return if cols < 56 then "^⏎ done · esc revert" else "⏎ newline · ^⏎ done · esc revert"
 	elseif editing ~= nil then
@@ -937,6 +1093,14 @@ function F.hints(cols: number, editing: string?): string
 		return "^⏎ save · esc cancel"
 	end
 	return "↑↓ move · ←→ change · ⏎ edit · ^⏎ save · esc cancel"
+end
+
+function F.hints(cols: number, editing: string?, focus: string?): string
+	local text = base_hints(cols, editing)
+	if (editing or focus) == "only_if" then
+		text ..= " · ctrl+t check"
+	end
+	return text
 end
 
 function F.view(state: State): (Node, Node)
@@ -1011,7 +1175,7 @@ function F.view(state: State): (Node, Node)
 	local dock = ui.col({
 		C.text(status, "status"),
 		C.with(ui.row(acts), { key = "acts" }),
-		C.text({ ui.span(F.hints(cx.cols, if e ~= nil then e.row else nil), "muted") }, "hints"),
+		C.text({ ui.span(F.hints(cx.cols, if e ~= nil then e.row else nil, form.focus), "muted") }, "hints"),
 	})
 	return main, dock
 end
@@ -1059,9 +1223,13 @@ local function key_text(state: State, k: Key): boolean
 		stop_edit(state, false)
 		set_focus(state, P.move(F.sections(state), e.row, if k.shift then -1 else 1) or e.row)
 		return true
-	elseif name == "p" and k.ctrl and e.row == "when" then
+	elseif name == "p" and k.ctrl and (e.row == "when" or e.row == "only_if") then
 		stop_edit(state, false)
-		state.sheet = { kind = "presets", sel = nil }
+		state.sheet = { kind = if e.row == "only_if" then "only_if_presets" else "presets", sel = nil }
+		return true
+	elseif name == "t" and k.ctrl and e.row == "only_if" then
+		stop_edit(state, false)
+		check_now(state)
 		return true
 	end
 	local changed = textfield.key(f, k, multi)
@@ -1111,6 +1279,9 @@ local function activate(state: State, row: string): boolean
 		return true
 	elseif row == "active" then
 		form.enabled = not form.enabled
+		return true
+	elseif row == "quiet" then
+		form.quiet_ok = not form.quiet_ok
 		return true
 	end
 	return false
@@ -1167,7 +1338,10 @@ local function key_inner(state: State, k: Key): boolean?
 		open_file(state)
 		return true
 	elseif name == "p" and k.ctrl then
-		state.sheet = { kind = "presets", sel = nil }
+		state.sheet = { kind = if form.focus == "only_if" then "only_if_presets" else "presets", sel = nil }
+		return true
+	elseif name == "t" and k.ctrl then
+		check_now(state)
 		return true
 	elseif name == "up" or name == "down" or name == "tab" then
 		local delta = if name == "up" or (name == "tab" and k.shift) then -1 else 1
@@ -1202,6 +1376,13 @@ local function key_inner(state: State, k: Key): boolean?
 				return false
 			end
 			form.enabled = want
+			return true
+		elseif row == "quiet" then
+			local want = name == "right"
+			if form.quiet_ok == want then
+				return false
+			end
+			form.quiet_ok = want
 			return true
 		end
 		return false
@@ -1257,6 +1438,8 @@ function F.event(state: State, ev: UiEvent)
 			reset_row(state, item)
 		elseif item == "active" and type(ev.value) == "boolean" then
 			form.enabled = ev.value
+		elseif item == "quiet" and type(ev.value) == "boolean" then
+			form.quiet_ok = ev.value
 		elseif MENU_ROWS[item] and type(ev.value) == "string" then
 			apply_choice(state, item, ev.value)
 		end

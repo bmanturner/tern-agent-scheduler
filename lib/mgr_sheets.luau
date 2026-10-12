@@ -14,6 +14,9 @@ local jobs = require("./jobs")
 local bins = require("./bins")
 local runner = require("./runner")
 local platform = require("./platform")
+local conditions = require("./conditions")
+local cond_eval = require("./cond_eval")
+local R = require("./mgr_run")
 
 local S = {}
 
@@ -25,7 +28,9 @@ local INFO_ROWS: { [string]: boolean } = { roles = true, keepalive = true, notif
 
 local FALLBACK_ROLES = { "default", "smol", "task", "plan", "slow" }
 
-local PRESETS = {
+type Preset = { id: string, label: string, phrase: string? }
+
+local PRESETS: { Preset } = {
 	{ id = "hourly", label = "Hourly", phrase = "hourly" },
 	{ id = "daily", label = "Daily", phrase = "daily 09:00" },
 	{ id = "weekdays", label = "Weekdays", phrase = "weekdays 09:00" },
@@ -36,12 +41,26 @@ local PRESETS = {
 	{ id = "manual", label = "Manual only", phrase = "manual" },
 }
 
+local ONLY_IF_PRESETS: { Preset } = {
+	{ id = "always", label = "Always", phrase = "always" },
+	{ id = "commits", label = "New commits (on this branch)", phrase = "new commits" },
+	{ id = "hours", label = "Weekdays, working hours", phrase = "weekdays 9-18" },
+	{ id = "max", label = "Max runs a day", phrase = "max 3 runs a day" },
+	{ id = "script", label = "When a script says so…", phrase = "./scripts/has-work.sh" },
+	{ id = "custom", label = "Custom", phrase = nil },
+}
+
+local function preset_list(kind: string): { Preset }
+	return if kind == "only_if_presets" then ONLY_IF_PRESETS else PRESETS
+end
+
 local HELP_KEYS: { { string } } = {
 	{ "j k ↑ ↓", "Move the selection (g / G first / last)" },
 	{ "enter", "Open the job (a run that needs you: open its terminal)" },
 	{ "n", "New job" },
 	{ "e", "Edit the job" },
 	{ "r", "Run now" },
+	{ "i", "Check a job's conditions now" },
 	{ "space", "Pause or resume the job" },
 	{ "d d", "Delete the job (any other key cancels)" },
 	{ "u", "Undo the last delete (10 s)" },
@@ -86,7 +105,13 @@ local function role_list(state: State): ({ string }, string?)
 	return FALLBACK_ROLES, nil
 end
 
-local function preset_detail(phrase: string): string
+local function preset_detail(kind: string, phrase: string?): string
+	if phrase == nil then
+		return ""
+	end
+	if kind == "only_if_presets" then
+		return conditions.describe((conditions.parse(phrase)))
+	end
 	local now = C.now()
 	local rec = schedule.parse(phrase, now)
 	if rec == nil then
@@ -121,9 +146,14 @@ local function picker_node(state: State, sheet: Sheet): Node
 			current = { form.role }
 		end
 	else
-		for _, p in PRESETS do
+		for _, p in preset_list(sheet.kind) do
 			if query == "" or string.find(string.lower(p.label), string.lower(C.trim(query)), 1, true) ~= nil then
-				table.insert(items, { id = p.id, label = p.label, detail = preset_detail(p.phrase), icon = "clock" })
+				table.insert(items, {
+					id = p.id,
+					label = p.label,
+					detail = preset_detail(sheet.kind, p.phrase),
+					icon = if sheet.kind == "only_if_presets" then "check" else "clock",
+				})
 				table.insert(order, p.id)
 			end
 		end
@@ -131,8 +161,11 @@ local function picker_node(state: State, sheet: Sheet): Node
 	local props: { [string]: any } = {
 		key = "picker",
 		size = "md",
-		title = if sheet.kind == "roles" then "Role" else "When",
-		subtitle = if sheet.kind == "roles" then message else "Pick a starting point, then adjust the time.",
+		title = if sheet.kind == "roles" then "Role" elseif sheet.kind == "only_if_presets" then "Only if" else "When",
+		subtitle = if sheet.kind == "roles"
+			then message
+			elseif sheet.kind == "only_if_presets" then "Pick a starting point, then edit it."
+			else "Pick a starting point, then adjust the time.",
 		noun = if sheet.kind == "roles" then "roles" else "presets",
 		placeholder = if sheet.kind == "roles" then "Search roles…" else "Search presets…",
 		query = query,
@@ -155,7 +188,7 @@ local function picker_ids(state: State, sheet: Sheet): { string }
 			table.insert(out, name)
 		end
 	else
-		for _, p in PRESETS do
+		for _, p in preset_list(sheet.kind) do
 			if query == "" or string.find(string.lower(p.label), string.lower(C.trim(query)), 1, true) ~= nil then
 				table.insert(out, p.id)
 			end
@@ -168,9 +201,17 @@ local function choose(state: State, sheet: Sheet, id: string)
 	if sheet.kind == "roles" then
 		F.set_role(state, id)
 	else
-		for _, p in PRESETS do
+		for _, p in preset_list(sheet.kind) do
 			if p.id == id then
-				F.set_when(state, p.phrase)
+				if sheet.kind == "only_if_presets" then
+					if p.phrase ~= nil then
+						F.set_only_if(state, p.phrase)
+					else
+						F.edit_row(state, "only_if")
+					end
+				elseif p.phrase ~= nil then
+					F.set_when(state, p.phrase)
+				end
 			end
 		end
 	end
@@ -255,6 +296,71 @@ local function first_run_node(_state: State, _sheet: Sheet): Node
 			C.badge("Not now  esc", "neutral", "first_no", "no"),
 		}), { key = "acts" }),
 	})
+end
+
+local function run_anyway_node(_state: State, sheet: Sheet): Node
+	return dialog("Run anyway?", "md", {
+		C.text({ ui.span("Not running: " .. tostring(sheet.text or "a condition said no") .. ".") }, "body"),
+		C.text({ ui.span("Run anyway runs it once now without checking its conditions.", "muted") }, "note"),
+		C.with(ui.row({
+			C.badge("Run anyway  ⏎", "accent", "anyway_yes", "yes"),
+			C.badge("Cancel  esc", "neutral", "anyway_no", "no"),
+		}), { key = "acts" }),
+	})
+end
+
+local RESULT_GLYPH: { [string]: { string } } = {
+	pass = { "✓", "success" },
+	fail = { "✗", "error" },
+	error = { "⚠", "warning" },
+	skip = { "·", "muted" },
+}
+
+local function conditions_job(sheet: Sheet): any
+	return if sheet.job_id ~= nil then jobs.get(sheet.job_id) else nil
+end
+
+local function conditions_node(_state: State, sheet: Sheet): Node
+	local job: any = conditions_job(sheet)
+	local draft: any = sheet.draft
+	local name = "new job"
+	if job ~= nil then
+		name = job.name
+	elseif type(draft) == "table" and type(draft.name) == "string" and draft.name ~= "" then
+		name = draft.name
+	end
+	local body: { Node } = {}
+	local v: any = sheet.verdict
+	if sheet.checking == true or v == nil then
+		table.insert(body, C.text({ ui.span("Checking…", "muted") }, "wait"))
+	else
+		for i, r in v.results do
+			local g = RESULT_GLYPH[r.result] or RESULT_GLYPH.skip
+			table.insert(body, C.text({ ui.span(g[1] .. " ", g[2]), ui.span(tostring(r.label), "strong"), ui.span(" — " .. tostring(r.text), "muted") }, "res" .. i))
+			if type(r.context) == "string" and r.context ~= "" then
+				local n = 0
+				for line in string.gmatch(r.context, "[^\r\n]+") do
+					n += 1
+					if n > 6 then
+						break
+					end
+					table.insert(body, C.text({ ui.span("    " .. line, "muted") }, string.format("ctx%d_%d", i, n)))
+				end
+			end
+		end
+		table.insert(body, C.text({ ui.span(if v.ok == true then "A run would start now." else "A run would not start now.", "strong") }, "summary"))
+	end
+	local seen: { string } = if job ~= nil then cond_eval.seen_lines(job) else {}
+	for i, line in seen do
+		table.insert(body, C.text({ ui.span(line, "muted") }, "seen" .. i))
+	end
+	local acts: { Node } = {}
+	if sheet.job_id ~= nil and #seen > 0 then
+		table.insert(acts, C.badge("Forget what it has seen  f", "neutral", "cond_forget", "forget"))
+	end
+	table.insert(acts, C.badge("Close  esc", "neutral", "cond_close", "close"))
+	table.insert(body, C.with(ui.row(acts), { key = "acts" }))
+	return dialog("Conditions · " .. name, "md", body)
 end
 
 local function help_node(_state: State, _sheet: Sheet): Node
@@ -708,6 +814,20 @@ function S.confirm_stop(state: State, run_id: string)
 	state.sheet = { kind = "confirm_stop", run_id = run_id }
 end
 
+-- Opens the Conditions sheet for a saved job and runs a dry check.
+function S.check_conditions(state: State, job_id: string)
+	local sheet: Sheet = { kind = "conditions", job_id = job_id, checking = true }
+	state.sheet = sheet
+	runner.check_conditions(job_id, function(v: any)
+		if state.sheet ~= sheet then
+			return
+		end
+		sheet.verdict = v
+		sheet.checking = false
+		C.render(state)
+	end)
+end
+
 -- The layer content for the open sheet, or nil.
 function S.layer(state: State): Node?
 	local sheet = state.sheet
@@ -715,12 +835,16 @@ function S.layer(state: State): Node?
 		return nil
 	end
 	local kind = sheet.kind
-	if kind == "roles" or kind == "presets" then
+	if kind == "roles" or kind == "presets" or kind == "only_if_presets" then
 		return picker_node(state, sheet)
 	elseif kind == "confirm_stop" then
 		return confirm_stop_node(state, sheet)
 	elseif kind == "first_run" then
 		return first_run_node(state, sheet)
+	elseif kind == "run_anyway" then
+		return run_anyway_node(state, sheet)
+	elseif kind == "conditions" then
+		return conditions_node(state, sheet)
 	elseif kind == "help" then
 		return help_node(state, sheet)
 	elseif kind == "setup" then
@@ -747,11 +871,32 @@ local function do_first_run(state: State, sheet: Sheet)
 	local job_id = sheet.job_id
 	state.sheet = nil
 	if job_id ~= nil then
-		local ok, err = runner.run_now(job_id, { focus_override = "front" })
-		if not ok then
-			C.notice(state, err or "Couldn't start the run.")
-		end
+		R.run_now(state, job_id, { override = "front", toast = false })
 	end
+end
+
+local function do_run_anyway(state: State, sheet: Sheet)
+	local job_id = sheet.job_id
+	state.sheet = nil
+	if job_id == nil then
+		return
+	end
+	local ok, err = runner.run_now(job_id, { focus_override = sheet.override, bypass = sheet.code or "cond" })
+	if ok then
+		C.toast(state, "info", job_name(job_id) .. " started", "Ran without checking its conditions.")
+	else
+		C.notice(state, err or "Couldn't start the run.")
+	end
+end
+
+local function do_forget(state: State, sheet: Sheet)
+	local id = sheet.job_id
+	if id == nil then
+		return
+	end
+	runner.forget_conditions(id)
+	state.sheet = nil
+	C.toast(state, "success", "Forgot what " .. job_name(id) .. " has seen", "The next run notes where things are and waits for something new.")
 end
 
 -- Keys while a sheet is open. `true` / `nil` re-render; `false` means nothing changed.
@@ -759,7 +904,7 @@ function S.key(state: State, k: Key): boolean?
 	local sheet = state.sheet :: Sheet
 	local kind = sheet.kind
 	local name = k.name
-	if kind == "roles" or kind == "presets" then
+	if kind == "roles" or kind == "presets" or kind == "only_if_presets" then
 		return key_picker(state, sheet, k)
 	elseif kind == "settings" then
 		return key_settings(state, sheet, k)
@@ -778,6 +923,24 @@ function S.key(state: State, k: Key): boolean?
 			return true
 		elseif name == "escape" or name == "n" then
 			state.sheet = nil
+			return true
+		end
+		return false
+	elseif kind == "run_anyway" then
+		if name == "y" or name == "enter" then
+			do_run_anyway(state, sheet)
+			return true
+		elseif name == "escape" or name == "n" then
+			state.sheet = nil
+			return true
+		end
+		return false
+	elseif kind == "conditions" then
+		if name == "escape" or name == "enter" or name == "q" then
+			state.sheet = nil
+			return true
+		elseif name == "f" and sheet.job_id ~= nil then
+			do_forget(state, sheet)
 			return true
 		end
 		return false
@@ -812,7 +975,7 @@ function S.event(state: State, ev: UiEvent)
 		return
 	end
 	local act = ev.act
-	if kind == "roles" or kind == "presets" then
+	if kind == "roles" or kind == "presets" or kind == "only_if_presets" then
 		if ev.ev == "select" and type(ev.item) == "string" then
 			sheet.sel = ev.item
 		elseif ev.ev == "activate" and type(ev.item) == "string" then
@@ -825,7 +988,11 @@ function S.event(state: State, ev: UiEvent)
 			do_stop(state, sheet)
 		elseif act == "first_yes" then
 			do_first_run(state, sheet)
-		elseif act == "stop_no" or act == "first_no" or act == "close_sheet" then
+		elseif act == "anyway_yes" then
+			do_run_anyway(state, sheet)
+		elseif act == "cond_forget" then
+			do_forget(state, sheet)
+		elseif act == "stop_no" or act == "first_no" or act == "anyway_no" or act == "cond_close" or act == "close_sheet" then
 			state.sheet = nil
 		elseif act == "setup_check" then
 			run_setup_check(state, sheet)
