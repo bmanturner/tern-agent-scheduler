@@ -1,4 +1,4 @@
--- Job conditions ("Only if"): commits baseline/skip folding/launch with trigger.md/watermark commit, window,
+-- Job conditions ("Only when"): commits baseline/skip folding/launch with trigger.md/watermark commit, window,
 -- budget, script checks (say no, errors alert once and pause, changed script), Run now and Run anyway, the dry
 -- run, jobs without conditions, quiet results, and Carly's check_conditions intent.
 local jobs, runner, ledger, ids = __mods.jobs, __mods.runner, __mods.ledger, __mods.ids
@@ -86,7 +86,7 @@ local function watermark(job)
 end
 
 -- 1. first slot: records where the branch is and waits (no launch)
-local cj = jobs.create({ name = "on-commits", prompt = "x", when = "every 5m", cwd = "/home/u/proj", only_if = "new commits" }, "summarise", "user", os.time())
+local cj = jobs.create({ name = "on-commits", prompt = "x", when = "every 5m", cwd = "/home/u/proj", only_when = { commits = {} } }, "summarise", "user", os.time())
 assert(cj and cj.conditions and #cj.conditions == 1, "job with one condition")
 settle_until(function()
 	return newest(cj) ~= nil and newest(cj).state == "skipped"
@@ -165,7 +165,7 @@ session_text = "Done.\nRESULT: ok"
 print("PASS failed run keeps the watermark")
 
 -- 6. window
-local wj = jobs.create({ name = "weekend-only", prompt = "x", when = "manual", cwd = "/home/u/proj", only_if = "weekends" }, "x", "user", os.time())
+local wj = jobs.create({ name = "weekend-only", prompt = "x", when = "manual", cwd = "/home/u/proj", only_when = { window = { days = { 0, 6 }, from = 0, to = 1440 } } }, "x", "user", os.time())
 local launches6 = #fake.calls_of("new")
 assert(runner.run_now(wj.id))
 settle_until(function()
@@ -177,7 +177,7 @@ assert(#fake.calls_of("new") == launches6, "no launch")
 print("PASS window outside => skipped")
 
 -- 7. budget: one run a day
-local bj = jobs.create({ name = "budgeted", prompt = "x", when = "manual", cwd = "/home/u/proj", only_if = "max 1 run a day" }, "x", "user", os.time())
+local bj = jobs.create({ name = "budgeted", prompt = "x", when = "manual", cwd = "/home/u/proj", only_when = { limits = { runs = 1 } } }, "x", "user", os.time())
 assert(runner.run_now(bj.id))
 settle_until(function()
 	return newest(bj) ~= nil and newest(bj).state == "finished"
@@ -192,7 +192,7 @@ print("PASS budget reached => skipped")
 
 -- 8. a script check says no
 local acks = { ["./scripts/has-work.sh"] = "ck1:" .. ids.fnv64(SCRIPT) }
-local kj = jobs.create({ name = "scripted", prompt = "x", when = "manual", cwd = "/home/u/proj", only_if = "./scripts/has-work.sh", check_acks = acks }, "x", "user", os.time())
+local kj = jobs.create({ name = "scripted", prompt = "x", when = "manual", cwd = "/home/u/proj", only_when = { check = { path = "./scripts/has-work.sh" } }, check_acks = acks }, "x", "user", os.time())
 assert(kj and kj.conditions[1].ack == acks["./scripts/has-work.sh"], "check pinned at save")
 assert(runner.run_now(kj.id))
 settle_until(function()

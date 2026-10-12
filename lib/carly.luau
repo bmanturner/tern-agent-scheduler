@@ -140,7 +140,7 @@ local function last_text(j: any): string
 	return text
 end
 
-local ADD_DOC = "Create and start a scheduled omp agent job right away (no review step). `when` accepts: `daily 09:00`, `weekdays 9am`, `mon,thu 18:30`, `every 2h`, `every 15m` (min 5m), `hourly`, `every friday 4pm`, `monthly on the 1st 9am`, `in 30m`, `tomorrow 8am`, `2026-10-14 15:00`, `manual`, or a 5-field cron like `0 9 * * 1-5`. `folder` is an existing local folder (default: the focused pane's). `role` is an omp model role such as `@default` (default) or `@smol`. Jobs use the default approval mode (Hands-off unless changed in settings); Hands-off runs commands as the user. Returns the job's name, schedule and next run. `only_if` (optional) limits when due runs start: `new commits on main`, `weekdays 9-18`, `not 22:00-07:00`, `max 3 runs a day`, joined with `and`; a run that doesn't qualify is skipped and noted. Script checks are added in the manager only."
+local ADD_DOC = "Create and start a scheduled omp agent job right away (no review step). `when` accepts: `daily 09:00`, `weekdays 9am`, `mon,thu 18:30`, `every 2h`, `every 15m` (min 5m), `hourly`, `every friday 4pm`, `monthly on the 1st 9am`, `in 30m`, `tomorrow 8am`, `2026-10-14 15:00`, `manual`, or a 5-field cron like `0 9 * * 1-5`. `folder` is an existing local folder (default: the focused pane's). `role` is an omp model role such as `@default` (default) or `@smol`. Jobs use the default approval mode (Hands-off unless changed in settings); Hands-off runs commands as the user. Returns the job's name, schedule and next run. `only_when` (optional) limits when due runs start, e.g. {new_commits=true, branch=\"main\"}, {days=\"weekdays\", from=\"09:00\", to=\"18:00\"}, {from=\"22:00\", to=\"07:00\", quiet_hours=true}, {max_runs=3, per=\"day\"}; a run that doesn't qualify is skipped and noted. Script checks are set in the manager only."
 carly.ADD_DOC = ADD_DOC
 
 function carly.job_add(...: any): any
@@ -148,14 +148,17 @@ function carly.job_add(...: any): any
 	-- Carly sometimes passes one table of named fields instead of positional arguments.
 	local named: any = if #a == 1 and type(a[1]) == "table" then a[1] else nil
 	if named ~= nil then
-		a = { named.name, named.prompt, named.when, named.folder, named.role, named.only_if }
+		a = { named.name, named.prompt, named.when, named.folder, named.role, named.only_when }
 	end
 	local name = str(a[1]) or ""
 	local prompt = a[2]
 	local when = str(a[3])
 	local folder = str(a[4]) or ""
 	local role = str(a[5]) or ""
-	local only_if = str(a[6]) or ""
+	local only_when: any = a[6]
+	if only_when ~= nil and type(only_when) ~= "table" then
+		return fail(call, "only_when must be a table of fields.")
+	end
 
 	if type(prompt) ~= "string" or str(prompt) == "" then
 		return fail(call, "Write what the agent should do.")
@@ -170,15 +173,20 @@ function carly.job_add(...: any): any
 	if spec == nil then
 		return fail(call, tostring(hint or ("Couldn't read “" .. when .. "”.")))
 	end
-	if only_if ~= "" then
-		local list, perr = conditions.parse(only_if)
-		if list == nil then
-			return fail(call, tostring(perr))
+	if only_when ~= nil then
+		local input, ierr = conditions.from_fields(only_when)
+		if input == nil then
+			return fail(call, tostring(ierr))
 		end
-		for _, c in list do
-			if c.type == "check" then
-				return fail(call, "Carly can't add script checks. Add them in the manager.")
+		local list, cerrs = conditions.build(input)
+		if list == nil then
+			local first: string? = nil
+			for _, k in { "branch", "folders", "days", "hours", "limits" } do
+				if first == nil and cerrs ~= nil and cerrs[k] ~= nil then
+					first = cerrs[k]
+				end
 			end
+			return fail(call, first or "Those conditions can't be used.")
 		end
 	end
 	if folder == "" then
@@ -201,8 +209,8 @@ function carly.job_add(...: any): any
 	if role ~= "" then
 		payload.role = role
 	end
-	if only_if ~= "" then
-		payload.only_if = only_if
+	if only_when ~= nil then
+		payload.only_when = only_when
 	end
 	-- JSON escaping can double a prompt's size, so measure what will actually be written.
 	local encoded = outbox.encode("carly_create", payload)
@@ -235,7 +243,7 @@ end
 
 function carly.register()
 	tern.carly.export("jobs_list", {
-		sig = "() -> {{name: string, when: string, only_if: string, next: string, role: string, folder: string, state: string, last: string}}",
+		sig = "() -> {{name: string, when: string, only_when: string, next: string, role: string, folder: string, state: string, last: string}}",
 		doc = fit("Lists the scheduled agent jobs: name, schedule text, next run, role, folder, state (\"active\", \"paused\" or \"needs fixing\") and the last run's outcome. Read-only and instant."),
 	}, function(): any
 		carly.fresh()
@@ -246,7 +254,7 @@ function carly.register()
 			table.insert(out, {
 				name = tostring(j.name),
 				when = tostring(j.when),
-				only_if = tostring(j.only_if or "always"),
+				only_when = tostring(j.only_when or "always"),
 				next = next_text(j.next_run, j, paused_all),
 				role = "@" .. tostring(j.role),
 				folder = tostring(j.folder),
@@ -258,7 +266,7 @@ function carly.register()
 	end)
 
 	tern.carly.export("job_add", {
-		sig = "(name: string, prompt: string, when: string, folder: string?, role: string?, only_if: string?) -> {name: string, when: string, next: string, folder: string, role: string, approval: string, only_if: string}",
+		sig = "(name: string, prompt: string, when: string, folder: string?, role: string?, only_when: {new_commits: boolean?, branch: string?, folders: {string}?, days: string?, from: string?, to: string?, quiet_hours: boolean?, max_runs: number?, max_usd: number?, per: string?}?) -> {name: string, when: string, next: string, folder: string, role: string, approval: string, only_when: string}",
 		doc = fit(ADD_DOC),
 	}, carly.job_add)
 
@@ -296,7 +304,7 @@ function carly.register()
 
 	tern.carly.export("job_check", {
 		sig = "(name: string) -> {pass: boolean, conditions: {{condition: string, result: string, text: string}}}",
-		doc = fit("Checks one job's \"Only if\" conditions now without running it or changing anything. name is matched like job_run. Returns pass (true when a run would start now) and each condition's result: pass, fail, error, or skip (not checked after an earlier one said no)."),
+		doc = fit("Checks one job's \"Only when\" conditions now without running it or changing anything. name is matched like job_run. Returns pass (true when a run would start now) and each condition's result: pass, fail, error, or skip (not checked after an earlier one said no)."),
 	}, function(...: any): any
 		local a, _cx, call = split_args(...)
 		local name = str(a[1])

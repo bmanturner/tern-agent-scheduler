@@ -1,5 +1,5 @@
 --!strict
--- lib/conditions.luau : the "Only if" condition language (pure): parse, describe, sig, stored-shape check. Loaded by both halves.
+-- lib/conditions.luau : job conditions (pure): structured build, describe, sig, stored-shape check. Loaded by both halves.
 local schedule = require("./schedule")
 local ids = require("./ids")
 
@@ -9,11 +9,12 @@ export type Cond = { [string]: any }
 -- {id="commits", type="commits", ref: string ("HEAD" default), paths: {string}}
 -- {id="window",  type="window", days: {number} (0=Sun..6=Sat), from: number, to: number (minutes 0..1440), negate: boolean}
 -- {id="budget",  type="budget", per: "day"|"week", max_runs: number?, max_usd: number?}
--- {id="check1"|"check2", type="check", path: string, ack: string?}
+-- {id="check",   type="check", path: string, ack: string?}
 
 local DAY_NAMES = { [0] = "sun", "mon", "tue", "wed", "thu", "fri", "sat" }
 local NAME_PATTERN = "^[%w._/@%-]+$"
 local MAX_PATHS = 8
+local ORDER: { [string]: number } = { window = 1, budget = 2, commits = 3, check = 4 }
 
 local function has_dotdot(s: string): boolean
 	for seg in s:gmatch("[^/]+") do
@@ -25,7 +26,7 @@ local function has_dotdot(s: string): boolean
 end
 
 local function bad_path_text(p: string): string
-	return string.format("“%s” isn't a folder path Agent Scheduler can check (no spaces, .. or leading -).", p)
+	return string.format("“%s” isn't a folder Agent Scheduler can check (no spaces, .. or leading -).", p)
 end
 
 local function ref_ok(r: string): boolean
@@ -36,18 +37,10 @@ local function path_ok(p: string): boolean
 	return p:match(NAME_PATTERN) ~= nil and p:sub(1, 1) ~= "-" and p:sub(1, 1) ~= ":" and not has_dotdot(p) and #p <= 200
 end
 
-local function not_understood(first: string): string
-	return string.format(
-		"Not understood: “%s”. Try “new commits on main”, “weekdays 9-18”, “max 3 runs a day” or “./scripts/has-work.sh”.",
-		first
-	)
-end
-
-local BUDGET_TRY = "Try “max 3 runs a day” or “max $2 a day”."
-
 local function hhmm(m: number): string
 	return string.format("%02d:%02d", m // 60, m % 60)
 end
+conditions.hhmm = hhmm
 
 local function all_days(): { number }
 	return { 0, 1, 2, 3, 4, 5, 6 }
@@ -65,49 +58,26 @@ local function days_equal(days: { number }, want: { number }): boolean
 	return true
 end
 
--- One token "A-B" -> minutes, minutes.
-local function parse_range(tok: string): (number?, number?)
-	local a, b = tok:lower():match("^([^%-]+)%-([^%-]+)$")
-	if a == nil or b == nil then
-		return nil, nil
-	end
-	local ah, am = schedule.time_of_day(a)
-	if ah == nil then
-		return nil, nil
-	end
-	local to: number
-	if b == "24" or b == "24:00" then
-		to = 1440
-	else
-		local bh, bm = schedule.time_of_day(b)
-		if bh == nil then
-			return nil, nil
-		end
-		to = (bh :: number) * 60 + (bm :: number)
-	end
-	return (ah :: number) * 60 + (am :: number), to
+export type Input = {
+	commits: { branch: string?, folders: { string }? }?,
+	window: { days: { number }, from: number, to: number, outside: boolean? }?,
+	limits: { runs: number?, usd: number?, per: string? }?,
+	check: { path: string }?,
+}
+
+local function is_int(v: any, lo: number, hi: number): boolean
+	return type(v) == "number" and v == math.floor(v) and v >= lo and v <= hi
 end
 
-local function parse_days(text: string): { number }?
-	if text == "weekdays" then
-		return { 1, 2, 3, 4, 5 }
-	elseif text == "weekends" then
-		return { 0, 6 }
-	elseif text == "daily" or text == "every day" then
-		return all_days()
-	end
+local function trim(s: string): string
+	return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- Sorted, deduplicated copy of a day list (assumes values already validated).
+local function sorted_days(days: { number }): { number }
 	local seen: { [number]: boolean } = {}
-	local any = false
-	for tok in text:gmatch("[^,%s]+") do
-		local d = (schedule.DOW :: any)[tok]
-		if d == nil then
-			return nil
-		end
+	for _, d in days do
 		seen[d] = true
-		any = true
-	end
-	if not any then
-		return nil
 	end
 	local out = {}
 	for d = 0, 6 do
@@ -118,263 +88,288 @@ local function parse_days(text: string): { number }?
 	return out
 end
 
--- Each clause parser returns (cond?, err?) and a nil cond with nil err means "not this kind".
-local function parse_commits(toks: { string }): (Cond?, string?)
-	local first, second = (toks[1] :: string):lower(), (toks[2] or ""):lower()
-	if first ~= "new" or (second ~= "commits" and second ~= "commit") then
-		return nil, nil
+-- Structured input -> ordered condition list (window, budget, commits, check), or nil + errors keyed by field.
+function conditions.build(input: Input?): ({ Cond }?, { [string]: string }?)
+	local out: { Cond } = {}
+	if input == nil then
+		return out, nil
 	end
-	local ref = "HEAD"
-	local paths: { string } = {}
-	local i = 3
-	while i <= #toks do
-		local kw = (toks[i] :: string):lower()
-		if kw == "on" then
-			local r = toks[i + 1]
-			if r == nil or r:lower() == "in" then
-				return nil, "Say which branch after “on”, e.g. new commits on main."
+	local errs: { [string]: string } = {}
+
+	local w = input.window
+	if w ~= nil then
+		local days_ok = type(w.days) == "table" and #w.days > 0
+		if days_ok then
+			for _, d in w.days do
+				if not is_int(d, 0, 6) then
+					days_ok = false
+					break
+				end
 			end
-			if not ref_ok(r) then
-				return nil, string.format("“%s” isn't a branch name Agent Scheduler can check.", r)
+		end
+		if not days_ok then
+			errs.days = "Pick at least one day."
+		end
+		if not is_int(w.from, 0, 1439) or not is_int(w.to, 0, 1440) then
+			errs.hours = "Pick a time between 00:00 and 24:00."
+		elseif w.from == w.to then
+			errs.hours = "Pick two different times."
+		end
+		if errs.days == nil and errs.hours == nil then
+			table.insert(out, {
+				id = "window",
+				type = "window",
+				days = sorted_days(w.days),
+				from = w.from,
+				to = w.to,
+				negate = w.outside == true,
+			})
+		end
+	end
+
+	local l = input.limits
+	if l ~= nil then
+		local msg: string? = nil
+		if l.runs == nil and l.usd == nil then
+			msg = "Set a number of runs, an amount, or both."
+		elseif l.runs ~= nil and not is_int(l.runs, 1, 100) then
+			msg = "Runs must be 1 to 100."
+		elseif l.usd ~= nil and not (type(l.usd) == "number" and l.usd >= 0.01 and l.usd <= 1000) then
+			msg = "Spend must be $0.01 to $1,000."
+		elseif l.per ~= nil and l.per ~= "day" and l.per ~= "week" then
+			msg = "Per must be a day or a week."
+		end
+		if msg ~= nil then
+			errs.limits = msg
+		else
+			table.insert(out, { id = "budget", type = "budget", per = l.per or "day", max_runs = l.runs, max_usd = l.usd })
+		end
+	end
+
+	local c = input.commits
+	if c ~= nil then
+		local ok = true
+		local ref = "HEAD"
+		if c.branch ~= nil and c.branch ~= "" then
+			if ref_ok(c.branch) then
+				ref = c.branch
+			else
+				errs.branch = string.format("“%s” isn't a branch name Agent Scheduler can check.", c.branch)
+				ok = false
 			end
-			ref = r
-			i += 2
-		elseif kw == "in" then
-			paths = {}
-			i += 1
-			while i <= #toks and (toks[i] :: string):lower() ~= "on" do
-				local p = toks[i] :: string
+		end
+		local paths: { string } = {}
+		local folders = c.folders or {}
+		if #folders > MAX_PATHS then
+			errs.folders = string.format("Pick at most %d folders.", MAX_PATHS)
+			ok = false
+		else
+			for _, f in folders do
+				local p = tostring(f):gsub("^%./", ""):gsub("/+$", "")
 				if not path_ok(p) then
-					return nil, bad_path_text(p)
+					errs.folders = bad_path_text(tostring(f))
+					ok = false
+					break
 				end
 				table.insert(paths, p)
-				i += 1
 			end
-			if #paths == 0 then
-				return nil, "Say which folder after “in”, e.g. new commits in src/."
-			end
-			if #paths > MAX_PATHS then
-				return nil, string.format("Use at most %d folders.", MAX_PATHS)
-			end
+		end
+		if ok then
+			table.insert(out, { id = "commits", type = "commits", ref = ref, paths = paths })
+		end
+	end
+
+	local k = input.check
+	if k ~= nil then
+		local p = trim(tostring(k.path or ""))
+		local msg: string? = nil
+		if p == "" then
+			msg = "Enter the script's path, e.g. ./scripts/has-work.sh."
+		elseif not (p:sub(1, 2) == "./" or p:sub(1, 2) == "~/" or p:sub(1, 1) == "/") then
+			msg = "Start the path with ./ (the job's folder), ~/ or /."
+		elseif has_dotdot(p) or p:find("['\"\\%$`!%c%s]") ~= nil or #p > 512 then
+			msg = string.format("“%s” can't be used as a script path (no spaces, quotes, $ or ..).", p)
+		end
+		if msg ~= nil then
+			errs.script = msg
 		else
-			return nil, not_understood(toks[i] :: string)
-		end
-	end
-	return { id = "commits", type = "commits", ref = ref, paths = paths }, nil
-end
-
-local function parse_check(toks: { string }): (Cond?, string?)
-	local t = toks[1] :: string
-	if not (t:sub(1, 2) == "./" or t:sub(1, 1) == "/" or t:sub(1, 2) == "~/") then
-		return nil, nil
-	end
-	if #toks ~= 1 then
-		return nil, "Script paths can't contain spaces."
-	end
-	if has_dotdot(t) or t:find("['\"\\%$`!%c]") ~= nil or #t > 512 then
-		return nil, string.format("“%s” can't be used as a script path.", t)
-	end
-	return { id = "check", type = "check", path = t }, nil
-end
-
--- A budget clause may omit its period when another clause supplies it ("max 3 runs and max $2 a day").
-local function parse_budget(toks: { string }): (Cond?, string?)
-	if (toks[1] :: string):lower() ~= "max" then
-		return nil, nil
-	end
-	local c: Cond = { id = "budget", type = "budget" }
-	local i = 2
-	local amount = (toks[2] or ""):lower()
-	if amount:sub(1, 1) == "$" then
-		local x = amount:sub(2)
-		local n = if x:match("^%d+%.?%d*$") or x:match("^%d*%.%d+$") then tonumber(x) else nil
-		if n == nil or n < 0.01 or n > 1000 then
-			return nil, BUDGET_TRY
-		end
-		c.max_usd = n
-		i = 3
-	else
-		local n = if amount:match("^%d+$") then tonumber(amount) else nil
-		local unit = (toks[3] or ""):lower()
-		if n == nil or n < 1 or n > 100 or (unit ~= "runs" and unit ~= "run") then
-			return nil, BUDGET_TRY
-		end
-		c.max_runs = n
-		i = 4
-	end
-	if i <= #toks then
-		local join = (toks[i] or ""):lower()
-		local per = (toks[i + 1] or ""):lower()
-		if (join ~= "a" and join ~= "per") or (per ~= "day" and per ~= "week") or i + 1 ~= #toks then
-			return nil, BUDGET_TRY
-		end
-		c.per = per
-	end
-	return c, nil
-end
-
-local function parse_window(toks: { string }): (Cond?, string?)
-	local list = table.clone(toks)
-	local negate = false
-	local head = (list[1] :: string):lower()
-	if head == "not" or head == "outside" then
-		negate = true
-		table.remove(list, 1)
-	end
-	if #list == 0 then
-		return nil, nil
-	end
-	local from, to = 0, 1440
-	local have_range = false
-	local f, t = parse_range(list[#list] :: string)
-	if f ~= nil and t ~= nil then
-		from, to = f, t
-		have_range = true
-		table.remove(list)
-	end
-	local days: { number }? = nil
-	if #list > 0 then
-		days = parse_days(table.concat(list, " "):lower())
-		if days == nil then
-			return nil, nil
-		end
-	end
-	if days == nil and not have_range then
-		return nil, nil
-	end
-	if from == to then
-		return nil, "The time range is empty."
-	end
-	return { id = "window", type = "window", days = days or all_days(), from = from, to = to, negate = negate }, nil
-end
-
-local ORDER = { window = 1, budget = 2, commits = 3, check = 4 }
-
--- Text -> ordered condition list, or nil + a plain sentence.
-function conditions.parse(text: string): ({ Cond }?, string?)
-	local trimmed = text:gsub("^%s+", ""):gsub("%s+$", "")
-	if trimmed == "" or trimmed:lower() == "always" then
-		return {}, nil
-	end
-	local clauses: { { string } } = { {} }
-	for tok in trimmed:gmatch("%S+") do
-		if tok:lower() == "and" then
-			table.insert(clauses, {})
-		else
-			table.insert(clauses[#clauses] :: { string }, tok)
+			table.insert(out, { id = "check", type = "check", path = p })
 		end
 	end
 
-	local commits: Cond? = nil
-	local window: Cond? = nil
-	local budgets: { Cond } = {}
-	local checks: { Cond } = {}
-
-	for _, toks in clauses do
-		local c = table.clone(toks)
-		if c[1] ~= nil and c[1]:lower() == "only" then
-			table.remove(c, 1)
-			if c[1] ~= nil and c[1]:lower() == "if" then
-				table.remove(c, 1)
-			end
-		elseif c[1] ~= nil and c[1]:lower() == "if" then
-			table.remove(c, 1)
-		end
-		if #c == 0 then
-			return nil, not_understood(toks[1] or "and")
-		end
-
-		local cond, err = parse_commits(c)
-		if cond == nil and err == nil then
-			cond, err = parse_check(c)
-		end
-		if cond == nil and err == nil then
-			cond, err = parse_budget(c)
-		end
-		if cond == nil and err == nil then
-			cond, err = parse_window(c)
-		end
-		if err ~= nil then
-			return nil, err
-		end
-		if cond == nil then
-			return nil, not_understood(c[1] :: string)
-		end
-
-		if cond.type == "commits" then
-			if commits ~= nil then
-				return nil, "Only one “new commits” condition."
-			end
-			commits = cond
-		elseif cond.type == "window" then
-			if window ~= nil then
-				return nil, "Only one time window."
-			end
-			window = cond
-		elseif cond.type == "budget" then
-			table.insert(budgets, cond)
-		else
-			table.insert(checks, cond)
-		end
-	end
-
-	if #checks > 2 then
-		return nil, "Use at most 2 script checks."
-	end
-	for i, c in checks do
-		c.id = "check" .. i
-	end
-
-	local budget: Cond? = nil
-	if #budgets > 0 then
-		local per: string? = nil
-		local merged: Cond = { id = "budget", type = "budget" }
-		local mixed = false
-		for _, b in budgets do
-			if b.per ~= nil then
-				if per ~= nil and per ~= b.per then
-					mixed = true
-				end
-				per = b.per
-			end
-			for _, k in { "max_runs", "max_usd" } do
-				if b[k] ~= nil then
-					if merged[k] ~= nil then
-						mixed = true
-					end
-					merged[k] = b[k]
-				end
-			end
-		end
-		if mixed then
-			return nil, "Use one period for limits, e.g. max 3 runs and max $2 a day."
-		end
-		if per == nil then
-			return nil, BUDGET_TRY
-		end
-		merged.per = per
-		budget = merged
-	end
-
-	local out: { Cond } = {}
-	if window ~= nil then
-		table.insert(out, window)
-	end
-	if budget ~= nil then
-		table.insert(out, budget)
-	end
-	if commits ~= nil then
-		table.insert(out, commits)
-	end
-	for _, c in checks do
-		table.insert(out, c)
-	end
-	if #out > 3 then
-		return nil, "Use at most 3 conditions."
+	if next(errs) ~= nil then
+		return nil, errs
 	end
 	table.sort(out, function(a, b)
 		return ORDER[a.type] < ORDER[b.type]
 	end)
+	return out, nil
+end
+
+-- Inverse of build, for seeding forms and echoing to Carly.
+function conditions.to_input(list: { Cond }?): Input
+	local out: Input = {}
+	for _, c in list or {} do
+		if c.type == "commits" then
+			out.commits = { branch = if c.ref ~= "HEAD" then c.ref else nil, folders = table.clone(c.paths or {}) }
+		elseif c.type == "window" then
+			out.window = { days = table.clone(c.days), from = c.from, to = c.to, outside = c.negate == true }
+		elseif c.type == "budget" then
+			out.limits = { runs = c.max_runs, usd = c.max_usd, per = c.per }
+		elseif c.type == "check" then
+			out.check = { path = c.path }
+		end
+	end
+	return out
+end
+
+-- "Every day" | "Weekdays" | "Weekends" | "Mon, Wed" (Monday-first).
+function conditions.days_label(days: { number }): string
+	local d = sorted_days(days)
+	if #d == 7 then
+		return "Every day"
+	elseif days_equal(d, { 1, 2, 3, 4, 5 }) then
+		return "Weekdays"
+	elseif days_equal(d, { 0, 6 }) then
+		return "Weekends"
+	end
+	local names = {}
+	for _, n in { 1, 2, 3, 4, 5, 6, 0 } do
+		if table.find(d, n) ~= nil then
+			local s = DAY_NAMES[n] :: string
+			table.insert(names, s:sub(1, 1):upper() .. s:sub(2))
+		end
+	end
+	return table.concat(names, ", ")
+end
+
+local FIELD_KEYS = {
+	"new_commits", "branch", "folders", "days", "from", "to", "quiet_hours", "max_runs", "max_usd", "per",
+}
+
+local function parse_clock(s: string): number?
+	local l = trim(s):lower()
+	if l == "24" or l == "24:00" then
+		return 1440
+	end
+	local h, m = schedule.time_of_day(l)
+	if h == nil then
+		return nil
+	end
+	return (h :: number) * 60 + (m :: number)
+end
+
+local function parse_day_names(text: string): { number }?
+	local l = trim(text):lower()
+	if l == "weekdays" then
+		return { 1, 2, 3, 4, 5 }
+	elseif l == "weekends" then
+		return { 0, 6 }
+	elseif l == "daily" or l == "every day" then
+		return all_days()
+	end
+	local found: { number } = {}
+	for tok in l:gmatch("[^,%s]+") do
+		local d = (schedule.DOW :: any)[tok]
+		if d == nil then
+			return nil
+		end
+		table.insert(found, d)
+	end
+	if #found == 0 then
+		return nil
+	end
+	return sorted_days(found)
+end
+
+-- Carly's flat table -> Input. Range checks are left to build.
+function conditions.from_fields(t: any): (Input?, string?)
+	if type(t) ~= "table" then
+		return nil, "only_when must be a table of fields."
+	end
+	local known: { [string]: boolean } = {}
+	for _, k in FIELD_KEYS do
+		known[k] = true
+	end
+	local keys = {}
+	for k in t do
+		table.insert(keys, tostring(k))
+	end
+	table.sort(keys)
+	for _, k in keys do
+		if not known[k] then
+			return nil, string.format("Unknown field “%s” in only_when.", k)
+		end
+	end
+	local function wrong(k: string): string
+		return string.format("%s in only_when has the wrong type.", k)
+	end
+	for _, k in { "new_commits", "quiet_hours" } do
+		if t[k] ~= nil and type(t[k]) ~= "boolean" then
+			return nil, wrong(k)
+		end
+	end
+	for _, k in { "branch", "days", "from", "to", "per" } do
+		if t[k] ~= nil and type(t[k]) ~= "string" then
+			return nil, wrong(k)
+		end
+	end
+	for _, k in { "max_runs", "max_usd" } do
+		if t[k] ~= nil and type(t[k]) ~= "number" then
+			return nil, wrong(k)
+		end
+	end
+
+	local out: Input = {}
+
+	local folders: { string }? = nil
+	if t.folders ~= nil then
+		folders = {}
+		if type(t.folders) == "string" then
+			for tok in (t.folders :: string):gmatch("[^%s,]+") do
+				table.insert(folders :: { string }, tok)
+			end
+		elseif type(t.folders) == "table" then
+			for _, f in t.folders do
+				if type(f) ~= "string" then
+					return nil, wrong("folders")
+				end
+				table.insert(folders :: { string }, f)
+			end
+		else
+			return nil, wrong("folders")
+		end
+	end
+	if t.new_commits ~= false and (t.new_commits ~= nil or t.branch ~= nil or folders ~= nil) then
+		out.commits = { branch = t.branch, folders = folders }
+	end
+
+	if t.days ~= nil or t.from ~= nil or t.to ~= nil or t.quiet_hours == true then
+		local days = all_days()
+		if t.days ~= nil then
+			local d = parse_day_names(t.days)
+			if d == nil then
+				return nil, "days: use “weekdays”, “weekends”, “every day” or names like “mon,wed”."
+			end
+			days = d
+		end
+		local from, to = 0, 1440
+		if (t.from == nil) ~= (t.to == nil) then
+			return nil, "Give both from and to."
+		end
+		if t.from ~= nil then
+			local f, e = parse_clock(t.from), parse_clock(t.to)
+			if f == nil or e == nil then
+				return nil, "from/to: use times like 09:00 or 6pm."
+			end
+			from, to = f, e
+		end
+		out.window = { days = days, from = from, to = to, outside = t.quiet_hours == true }
+	end
+
+	if t.max_runs ~= nil or t.max_usd ~= nil or t.per ~= nil then
+		out.limits = { runs = t.max_runs, usd = t.max_usd, per = t.per or "day" }
+	end
 	return out, nil
 end
 
@@ -391,18 +386,14 @@ function conditions.describe_one(c: Cond): string
 		return s
 	elseif t == "window" then
 		local days = c.days :: { number }
-		local s = if c.negate == true then "not " else ""
+		local s = if c.negate == true then "quiet hours " else ""
 		local dtext = ""
 		if days_equal(days, { 1, 2, 3, 4, 5 }) then
 			dtext = "weekdays"
 		elseif days_equal(days, { 0, 6 }) then
 			dtext = "weekends"
 		elseif #days < 7 then
-			local names = {}
-			for _, d in days do
-				table.insert(names, DAY_NAMES[d] or "?")
-			end
-			dtext = table.concat(names, ",")
+			dtext = conditions.days_label(days)
 		end
 		s ..= dtext
 		if not (c.from == 0 and c.to == 1440) then
@@ -453,7 +444,7 @@ end
 -- Structural check of stored conditions (load time). Returns an error sentence or nil.
 function conditions.check_stored(list: any): string?
 	local BAD = "Its conditions can't be read."
-	if type(list) ~= "table" or #list > 6 then
+	if type(list) ~= "table" or #list > 4 then
 		return BAD
 	end
 	local n = 0
@@ -463,10 +454,15 @@ function conditions.check_stored(list: any): string?
 	if n ~= #list then
 		return BAD
 	end
+	local seen: { [string]: boolean } = {}
 	for _, c in list do
 		if type(c) ~= "table" then
 			return BAD
 		end
+		if type(c.type) ~= "string" or seen[c.type] then
+			return BAD
+		end
+		seen[c.type] = true
 		local t, id = c.type, c.id
 		if t == "commits" then
 			if id ~= "commits" or type(c.ref) ~= "string" or type(c.paths) ~= "table" then
@@ -503,7 +499,7 @@ function conditions.check_stored(list: any): string?
 				return BAD
 			end
 		elseif t == "check" then
-			if (id ~= "check1" and id ~= "check2") or type(c.path) ~= "string" then
+			if id ~= "check" or type(c.path) ~= "string" then
 				return BAD
 			end
 			if c.ack ~= nil and (type(c.ack) ~= "string" or c.ack:match("^ck1:%x+$") == nil) then

@@ -1,5 +1,5 @@
 --!strict
--- lib/cond_eval.luau : evaluates a job's "Only if" conditions (git, window, budget, script check), keeps the
+-- lib/cond_eval.luau : evaluates a job's "Only when" conditions (git, window, budget, script check), keeps the
 -- per-job watermarks in state.json (`watch.conditions`), never requires runner. Host only.
 local ids = require("./ids")
 local jobs = require("./jobs")

@@ -11,7 +11,7 @@ export type JobInput = {
 	name: string?,
 	prompt: string?,
 	when: string?,
-	only_if: string?,
+	only_when: conditions.Input?,
 	check_acks: { [string]: string }?,
 	quiet_ok: boolean?,
 	role: string?,
@@ -248,28 +248,24 @@ function validate.job(fields: JobInput, ctx: Ctx): (boolean, { [string]: string 
 		end
 	end
 
-	-- only_if
-	if fields.only_if ~= nil then
-		local text = trim(fields.only_if)
-		if #text > 300 then
-			errs.only_if = "Keep conditions under 300 characters."
+	-- only_when
+	if fields.only_when ~= nil then
+		local list, cerrs = conditions.build(fields.only_when)
+		if list == nil then
+			for k, msg in (cerrs or {}) do
+				errs["only_when." .. k] = msg
+			end
 		else
-			local list, err = conditions.parse(text)
-			if list == nil then
-				errs.only_if = err
-			else
-				for _, c in list do
-					if c.type == "check" and fields.check_acks ~= nil then
-						c.ack = fields.check_acks[c.path]
-						if c.ack == nil then
-							errs.only_if = string.format("Couldn't read %s to approve it.", c.path)
-						end
+			for _, c in list do
+				if c.type == "check" and fields.check_acks ~= nil then
+					c.ack = fields.check_acks[c.path]
+					if c.ack == nil then
+						errs["only_when.script"] = string.format("Couldn't read %s to approve it.", c.path)
 					end
 				end
-				if errs.only_if == nil then
-					out.only_if = text
-					out.conditions = list
-				end
+			end
+			if errs["only_when.script"] == nil then
+				out.conditions = list
 			end
 		end
 	end
@@ -432,9 +428,6 @@ function validate.stored(job: any): string?
 				return "Its script check isn't approved."
 			end
 		end
-	end
-	if job.only_if ~= nil and (type(job.only_if) ~= "string" or #job.only_if > 300) then
-		return "Its conditions can't be read."
 	end
 	if job.quiet_ok ~= nil and type(job.quiet_ok) ~= "boolean" then
 		return "Invalid quiet setting."

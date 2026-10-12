@@ -8,6 +8,7 @@ local R = require("./mgr_run")
 local const = require("./const")
 local jobs = require("./jobs")
 local runner = require("./runner")
+local conditions = require("./conditions")
 
 local A = {}
 
@@ -71,7 +72,7 @@ function A.duplicate(state: State, job_id: string)
 		approval = job.approval,
 		stop_s = job.max_runtime_s,
 		window_s = job.catch_up_window_s,
-		only_if = if type(job.only_if) == "string" then job.only_if else nil,
+		only_when = conditions.to_input(job.conditions),
 		quiet_ok = job.quiet_ok == true,
 	})
 end

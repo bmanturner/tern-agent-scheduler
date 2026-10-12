@@ -31,7 +31,11 @@ local intents = {}
 local first_failed: { [string]: number } = {}
 
 local OBS_STATES: { [string]: boolean } = { working = true, idle = true, waiting_input = true, exited = true }
-local FIELD_ORDER = { "name", "prompt", "when", "only_if", "role", "cwd", "approval", "max_runtime_s", "catch_up" }
+local FIELD_ORDER = {
+	"name", "prompt", "when",
+	"only_when.branch", "only_when.folders", "only_when.days", "only_when.hours", "only_when.limits", "only_when.script",
+	"role", "cwd", "approval", "max_runtime_s", "catch_up",
+}
 local function log_warn(...: any)
 	local args = table.pack(...)
 	pcall(function()
@@ -140,9 +144,12 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 		local when = str(p.when, 200) or ""
 		local now = os.time()
 		local input: { [string]: any } = { name = name, prompt = prompt, when = when, role = role, cwd = folder }
-		local only_if = str(p.only_if, 300)
-		if only_if ~= nil then
-			input.only_if = only_if
+		if p.only_when ~= nil then
+			local ow, owerr = conditions.from_fields(p.only_when)
+			if ow == nil then
+				return reply_error(reply, owerr or "only_when must be a table of fields.")
+			end
+			input.only_when = ow
 		end
 		local vok, errs, norm = validate.job(input, {
 			jobs = jobs.list(),
@@ -153,11 +160,6 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 		})
 		if not vok or norm == nil then
 			return reply_error(reply, first_error(errs))
-		end
-		for _, c in ipairs((norm.conditions or {}) :: { any }) do
-			if c.type == "check" then
-				return reply_error(reply, "Carly can't add script checks. Add them in the manager.")
-			end
 		end
 		local cwd = norm.cwd :: string
 		-- the folder, checked asynchronously (user-controlled path)
@@ -211,7 +213,7 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 						folder = folder_label,
 						role = "@" .. tostring(job.role),
 						approval = approval,
-						only_if = if #conditions.describe(job.conditions) > 0 then conditions.describe(job.conditions) else "always",
+						only_when = if #conditions.describe(job.conditions) > 0 then conditions.describe(job.conditions) else "always",
 					})
 				end)
 				if not cok then

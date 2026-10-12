@@ -476,7 +476,7 @@ function D.view(state: State): (Node, Node)
 		kv("When", when_text(job)),
 	}
 	if has_conditions then
-		table.insert(facts, kv("Only if", conditions.describe(job.conditions)))
+		table.insert(facts, kv("Only when", conditions.describe(job.conditions)))
 	end
 	for _, row in {
 		kv("If asleep", C.catch_up_label(job.catch_up, job.catch_up_window_s or tonumber(jobs.settings().catchup_window_s))),
@@ -520,7 +520,7 @@ function D.view(state: State): (Node, Node)
 				children,
 				C.text({
 					ui.span(
-						string.format("Quiet %d of the last 10 runs (%s spent). Add “only if new commits”? Press e.", quiet_n, C.cost_text(quiet_sum)),
+						string.format("Quiet %d of the last 10 runs (%s spent). Turn on “Only when: new commits”? Press e.", quiet_n, C.cost_text(quiet_sum)),
 						"muted"
 					),
 				}, "nudge")
@@ -684,7 +684,7 @@ local function key_inner(state: State, k: Key): boolean?
 		if job ~= nil and type(job.conditions) == "table" and #job.conditions > 0 then
 			S.check_conditions(state, id)
 		else
-			C.notice(state, "This job has no conditions. Press e and fill in Only if.")
+			C.notice(state, "This job has no conditions. Press e and open Only when.")
 		end
 		return true
 	elseif name == "space" then

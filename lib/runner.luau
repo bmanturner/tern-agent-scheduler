@@ -1987,6 +1987,33 @@ function runner.roles(cwd: string, cb: ({ string }?, string?) -> ())
 	roles.list(omp, cwd, cb)
 end
 
+-- cb(list) or cb(nil, why): local branch names of the git repo in cwd.
+function runner.branches(cwd: string, cb: ({ string }?, string?) -> ())
+	proc(
+		{ "git", "-C", cwd, "--no-optional-locks", "for-each-ref", "--format=%(refname:short)", "refs/heads" },
+		{ timeout_ms = 5000 },
+		function(r)
+			local status = tonumber(r.status) or -1
+			local stderr = tostring(r.stderr or "")
+			if r.timed_out ~= true and (status == 128 or stderr:find("not a git repository", 1, true) ~= nil) then
+				return cb(nil, "This folder isn't a git repository.")
+			end
+			if r.timed_out == true or r.raised == true or status ~= 0 then
+				return cb(nil, "Couldn't list this folder's branches.")
+			end
+			local list: { string } = {}
+			for line in tostring(r.stdout or ""):gmatch("[^\r\n]+") do
+				table.insert(list, line)
+			end
+			table.sort(list)
+			while #list > 200 do
+				table.remove(list)
+			end
+			cb(list, nil)
+		end
+	)
+end
+
 function runner.focus_manager()
 	prune_managers()
 	local b = tern_bin()

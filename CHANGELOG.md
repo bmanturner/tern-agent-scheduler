@@ -8,12 +8,12 @@ Built and tested on Tern 0.8.3.
 
 ### Added
 
-- **Only if** in the job form: conditions a due run must meet, such as `new commits on main`, `weekdays 9-18`, `not 22:00-07:00`, `max 3 runs a day`, `max $2 a week`, or your own script (`./scripts/has-work.sh`). Join up to three with `and`. Runs that don't qualify are listed as skipped with the reason, repeats fold into one row, and nothing notifies you. A `new commits` job gives the agent the new commits in an attached `trigger.md`.
-- Script checks are approved when you save the job; a script changed afterwards blocks runs until you save the job again
+- **Only when**, a second page in the job form: conditions a due run must meet, each with its own section and switch. Runs can wait for new commits on a branch (optionally in some folders), stay within days and hours or outside quiet hours, stop at a number of runs or an amount spent per day or week, or ask a script of yours. Runs that don't qualify are listed as skipped with the reason, repeats fold into one row, and nothing notifies you. A new-commits job gives the agent the new commits in an attached `trigger.md`.
+- Your own check is approved when you save the job; a script changed afterwards blocks runs until you save the job again
 - **Run now** checks a job's conditions first and asks **Run anyway?** when one says no
-- **Check conditions** (`i`, or `ctrl+t` in the form) shows what each condition says right now without running anything, and **Forget what it has seen** resets a `new commits` job
+- **Check now** on the Only when page, and `i` in a job's details, show what each condition says right now without running anything; **Forget what it has seen** resets a new-commits job
 - **Quiet when nothing to report**: the agent may end with `RESULT: [quiet]`, and the run is marked quiet instead of showing a summary
-- Carly can set conditions when it creates a job (`only_if`, except script checks) and check a job's conditions (`job_check`)
+- Carly can set conditions when it creates a job (`only_when`, except your own check) and check a job's conditions (`job_check`)
 
 ### Changed
 

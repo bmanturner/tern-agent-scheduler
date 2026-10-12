@@ -296,10 +296,10 @@ local function job_label(job: any, tier: number): Spans
 	return spans
 end
 
--- "only if <conditions>" for a job row, or nil when the job has none.
-local function only_if_part(job: any): string?
+-- "only when <conditions>" for a job row, or nil when the job has none.
+local function only_when_part(job: any): string?
 	if type(job.conditions) == "table" and #job.conditions > 0 then
-		return "only if " .. conditions.describe(job.conditions)
+		return "only when " .. conditions.describe(job.conditions)
 	end
 	return nil
 end
@@ -355,7 +355,7 @@ local function item_node(row: Row, now: number, tier: number): Node
 		local js: any = row.js or {}
 		if tier >= 2 then
 			table.insert(detail_parts, jobs.describe(job))
-			local cond = only_if_part(job)
+			local cond = only_when_part(job)
 			if cond ~= nil then
 				table.insert(detail_parts, cond)
 				if tier >= 3 then
@@ -682,7 +682,7 @@ local function upcoming_detail(row: Row, now: number, tier: number): string
 	local parts: { string } = {}
 	if tier >= 2 then
 		table.insert(parts, jobs.describe(row.job))
-		local cond = only_if_part(row.job)
+		local cond = only_when_part(row.job)
 		if cond ~= nil then
 			table.insert(parts, cond)
 		end
@@ -877,7 +877,7 @@ local function key_inner(state: State, k: Key): boolean?
 		if job ~= nil and type(job.conditions) == "table" and #job.conditions > 0 then
 			S.check_conditions(state, jid)
 		else
-			C.notice(state, "This job has no conditions. Press e and fill in Only if.")
+			C.notice(state, "This job has no conditions. Press e and open Only when.")
 		end
 		return true
 	elseif name == "space" then

@@ -70,7 +70,7 @@ local function job_entries(paused_all: boolean, home: string): ({ any }, { id: s
 			folder = validate.tilde(tostring(j.cwd), home),
 			enabled = enabled,
 			paused_reason = (not enabled) and st.paused_reason or nil,
-			only_if = if type(j.conditions) == "table" and #j.conditions > 0 then conditions.describe(j.conditions) else nil,
+			only_when = if type(j.conditions) == "table" and #j.conditions > 0 then conditions.describe(j.conditions) else nil,
 			created_by = j.created_by or "user",
 			last = last_of(st),
 		})

@@ -26,7 +26,7 @@ Press `n` in the manager, or `ctrl+alt+shift+j` anywhere. The folder starts as t
 | --- | --- |
 | Prompt | What the agent should do, in Markdown. `ctrl+o` opens it in an editor. Images it links to are attached to every run. |
 | When | The schedule, with a preview of the next three runs. `ctrl+p` picks a preset. |
-| Only if | Conditions a due run must meet, or it's skipped (see below). Empty means always. `ctrl+p` picks a preset, `ctrl+t` checks them now. |
+| Only when | Conditions a due run must meet, or it's skipped. **Change…** opens the Only when page (see below). |
 | If your computer was asleep | Run once when you're back if under 3 h late (default), always catch up, or skip. |
 | Folder | Where every run starts. |
 | Role | An omp model role such as `@default` or `@smol`, including your project's roles. |
@@ -55,18 +55,22 @@ Times are local, and daylight-saving changes are handled.
 
 Each run is told it is unattended and to end with a `RESULT:` line, which becomes the run's summary in the manager.
 
-### Only if
+### Only when
 
-| You type | A due run starts only when |
+The form's second page, **Only when**, has one section per kind of condition. Each is off until you turn it on, and a due run starts only if every condition that's on says yes:
+
+| Section | A due run starts only when |
 | --- | --- |
-| `new commits`, `new commits on main in src/ docs/` | The branch (this folder's, or the one named) has commits since the last successful run, optionally touching those folders |
-| `weekdays 9-18`, `mon,wed 9am-5pm`, `not 22:00-07:00` | It's inside that window (or, with `not`, outside it) |
-| `max 3 runs a day`, `max $2 a week` | The job is under that many runs or that much spend today or this week |
-| `./scripts/has-work.sh` | Your script exits 0 (1 means no, anything else is an error) |
+| New commits | The branch you pick (or the folder's current one) has commits since the last successful run, optionally only in some folders. The agent gets the new commits in an attached `trigger.md`. |
+| Time | It's on the days and between the times you pick, or, as quiet hours, outside them. |
+| Limits | The job is under that many runs or that much spend today, or this week. |
+| Your own check | Your script says yes. |
 
-Join up to three with `and`. A run that doesn't qualify is listed in the job's history as **skipped** with the reason, repeats fold into one row, and nothing notifies you. The first run of a `new commits` job notes where the branch is and waits for something new; the agent gets the new commits in an attached `trigger.md`. If a condition can't be checked (not a git folder, a script that fails), the run is blocked and you're told once; after three in a row the job pauses.
+**Check now** at the top of the page shows what each condition says right now, without starting anything.
 
-A script check runs in the job's folder with a 30 s limit and gets a JSON file describing the run as its argument. It can print `REASON: …` (shown in history), `CONTEXT: …` lines (passed to the agent) and `CURSOR: …` (handed back to it next time). Saving the job approves the script as it is then; if it changes, runs are blocked until you open the job and save again. Carly can set every condition except script checks.
+A run that doesn't qualify is listed in the job's history as **skipped** with the reason; repeats fold into one row, and nothing notifies you. The first run of a new-commits job notes where the branch is and waits for something new. If a condition can't be checked (not a git folder, a script that fails), the run is blocked and you're told once; after three in a row the job pauses.
+
+Your own check runs in the job's folder with a 30 s limit and gets a JSON file describing the run as its argument. Exit 0 runs, 1 skips, anything else blocks the run. It can print `REASON: …` (shown in history), `CONTEXT: …` lines (passed to the agent) and `CURSOR: …` (handed back to it next time). Saving the job approves the script as it is then; if it changes, runs are blocked until you open the job and save again. Carly can set every condition except your own check.
 
 **Run now** checks the conditions first and asks **Run anyway?** when one says no. `i` checks them without running anything.
 
