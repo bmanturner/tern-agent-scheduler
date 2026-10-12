@@ -343,7 +343,7 @@ local function eval_commits(job: Job, c: { [string]: any }, base: Mark?, opts: {
 					result = "fail",
 					code = "cond_baseline",
 					text = string.format(
-						"no record yet of where %s was; the first scheduled run records it and waits for something new",
+						"no record yet of where %s was; the first run records it and waits for something new",
 						ref_name(c)
 					),
 				})

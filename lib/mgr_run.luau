@@ -39,6 +39,7 @@ function R.run_now(state: State, job_id: string, opts: { override: string?, toas
 			C.render(state)
 			return
 		end
+		state.notice = nil
 		state.sheet = { kind = "run_anyway", job_id = job_id, text = v.text, code = v.code, override = opts.override }
 		C.render(state)
 	end)
