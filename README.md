@@ -26,11 +26,13 @@ Press `n` in the manager, or `ctrl+alt+shift+j` anywhere. The folder starts as t
 | --- | --- |
 | Prompt | What the agent should do, in Markdown. `ctrl+o` opens it in an editor. Images it links to are attached to every run. |
 | When | The schedule, with a preview of the next three runs. `ctrl+p` picks a preset. |
+| Only if | Conditions a due run must meet, or it's skipped (see below). Empty means always. `ctrl+p` picks a preset, `ctrl+t` checks them now. |
 | If your computer was asleep | Run once when you're back if under 3 h late (default), always catch up, or skip. |
 | Folder | Where every run starts. |
 | Role | An omp model role such as `@default` or `@smol`, including your project's roles. |
 | Approval | **Hands-off** (default), **Ask before commands** or **Ask for everything**. |
 | Stop after | The time limit for one run, 5 minutes to 8 hours (default 30 minutes). |
+| Quiet when nothing to report | Lets the agent end with `RESULT: [quiet]` when there's nothing worth reading; those runs are marked quiet in the history. |
 
 `ctrl+enter` saves. `ctrl+shift+enter` saves and runs it once in front of you, so you can watch the first run.
 
@@ -53,6 +55,21 @@ Times are local, and daylight-saving changes are handled.
 
 Each run is told it is unattended and to end with a `RESULT:` line, which becomes the run's summary in the manager.
 
+### Only if
+
+| You type | A due run starts only when |
+| --- | --- |
+| `new commits`, `new commits on main in src/ docs/` | The branch (this folder's, or the one named) has commits since the last successful run, optionally touching those folders |
+| `weekdays 9-18`, `mon,wed 9am-5pm`, `not 22:00-07:00` | It's inside that window (or, with `not`, outside it) |
+| `max 3 runs a day`, `max $2 a week` | The job is under that many runs or that much spend today or this week |
+| `./scripts/has-work.sh` | Your script exits 0 (1 means no, anything else is an error) |
+
+Join up to three with `and`. A run that doesn't qualify is listed in the job's history as **skipped** with the reason, repeats fold into one row, and nothing notifies you. The first run of a `new commits` job notes where the branch is and waits for something new; the agent gets the new commits in an attached `trigger.md`. If a condition can't be checked (not a git folder, a script that fails), the run is blocked and you're told once; after three in a row the job pauses.
+
+A script check runs in the job's folder with a 30 s limit and gets a JSON file describing the run as its argument. It can print `REASON: …` (shown in history), `CONTEXT: …` lines (passed to the agent) and `CURSOR: …` (handed back to it next time). Saving the job approves the script as it is then; if it changes, runs are blocked until you open the job and save again. Carly can set every condition except script checks.
+
+**Run now** checks the conditions first and asks **Run anyway?** when one says no. `i` checks them without running anything.
+
 ## The manager
 
 Jobs are grouped into **Needs you**, **Needs fixing**, **Running**, **Upcoming** and **Paused & finished**. A run in progress shows its model, tool calls, cost and running time, with what it is doing now underneath.
@@ -66,6 +83,7 @@ Press `enter` on a job for its details: the prompt, a bar per recent run (red fo
 | `enter` | Open the job, or the tab of a run that needs you |
 | `n` / `e` / `c` | New / edit / duplicate |
 | `r` | Run now |
+| `i` | Check the job's conditions now |
 | `o` | Open the run's tab, or resume its session if the tab is gone |
 | `space` | Pause or resume |
 | `d` `d` | Delete (`u` undoes it for 10 s) |

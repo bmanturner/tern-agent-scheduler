@@ -2,6 +2,23 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.3.0 (2026-10-12)
+
+Built and tested on Tern 0.8.3.
+
+### Added
+
+- **Only if** in the job form: conditions a due run must meet, such as `new commits on main`, `weekdays 9-18`, `not 22:00-07:00`, `max 3 runs a day`, `max $2 a week`, or your own script (`./scripts/has-work.sh`). Join up to three with `and`. Runs that don't qualify are listed as skipped with the reason, repeats fold into one row, and nothing notifies you. A `new commits` job gives the agent the new commits in an attached `trigger.md`.
+- Script checks are approved when you save the job; a script changed afterwards blocks runs until you save the job again
+- **Run now** checks a job's conditions first and asks **Run anyway?** when one says no
+- **Check conditions** (`i`, or `ctrl+t` in the form) shows what each condition says right now without running anything, and **Forget what it has seen** resets a `new commits` job
+- **Quiet when nothing to report**: the agent may end with `RESULT: [quiet]`, and the run is marked quiet instead of showing a summary
+- Carly can set conditions when it creates a job (`only_if`, except script checks) and check a job's conditions (`job_check`)
+
+### Changed
+
+- A condition that can't be checked (not a git folder, a failing script) blocks the run and notifies you once; after three in a row the job pauses itself
+
 ## 0.2.3 (2026-10-12)
 
 Built and tested on Tern 0.8.3 (macOS, and a Linux remote host).
