@@ -5,19 +5,22 @@ local ids = {}
 local ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
 local seeded = false
 
+-- math.randomseed keeps only seeds in the 32-bit range: every larger seed gives the same sequence
+-- (Tern's Luau and luau-web alike), so a millisecond timestamp would make every VM draw the same
+-- ids. The seed is the time in microseconds folded into 31 bits.
 local function seed()
 	if seeded then
 		return
 	end
 	seeded = true
-	local n = os.time()
+	local n = os.time() * 1000000
 	local ok, ms = pcall(function()
 		return (tern :: any).now()
 	end)
 	if ok and type(ms) == "number" then
-		n = n * 1000 + math.floor(ms) % 1000
+		n += math.floor(ms * 1000) % 1000000
 	end
-	math.randomseed(n)
+	math.randomseed(n % 2147483647)
 end
 
 local function rand(n: number): string

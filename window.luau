@@ -18,6 +18,7 @@ local MODULES = {
 	"./lib/cron",
 	"./lib/schedule",
 	"./lib/fmt",
+	"./lib/ids",
 	"./lib/outbox",
 	"./lib/wsnap",
 	"./lib/platform",

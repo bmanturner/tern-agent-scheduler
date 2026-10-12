@@ -1,0 +1,1 @@
+PASS Open manager and New job follow the window's current host

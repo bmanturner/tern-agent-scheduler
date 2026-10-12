@@ -59,3 +59,16 @@ Run on 2026-10-12 on the same headless server: the host half against an isolated
 | Window half | `tern serve` pins the clock, so timer callbacks never run and the staged loader in `window.luau` never starts. A throwaway copy that loads the modules at top level loaded every module, registered the commands, and **Open manager** opened the manager, which rendered its welcome view with the three examples. |
 | Key binds | Tern's Linux preset already binds `ctrl+alt+shift+s`, so **Open manager**'s shortcut was left out (`plugin bind left out: the preset binds these keys`). `ctrl+alt+shift+j`, `r` and `a` bind. Of the other chords probed, `e`, `g`, `k` and `o` are taken on Linux and `m`, `l`, `d` and `q` are free on both Linux and macOS. 0.2.1 adds `ctrl+alt+shift+m` and keeps `s` for macOS. |
 | Not covered headless | `agent_finished`, the status line, the timer watchdog and notifications need a desktop Linux window. |
+
+## Linux as a remote host of the macOS window, v0.2.1 (Tern 0.8.2)
+
+0.2.1 installed into the Linux host's real Tern (`~/.config/tern/plugins`), driven from the macOS window that has it attached as host `foglet-herdr`, then removed with its data folder.
+
+| Check | Result |
+|---|---|
+| Data folder | `~/.local/state/tern/plugin-data/tern-agent-scheduler` (Tern's `<state>` directory on Linux), not `~/.config/tern/…`; the README said the latter. |
+| Manager on the remote host | With the window switched to the host (`cx.hosts:switch`), `cx:new_block("tern-agent-scheduler.manager", …)` opened the Linux host half's manager in the macOS window. The list, the New job form and its rows rendered, keys sent with `tern send` reached the block, and `r` on a job started it. |
+| Remote run | The run opened in the Linux host's own "Scheduled runs" session and finished `ok_unobserved` (summary `remote`, $0.0057) while the macOS window showed it: the macOS window half reads only the macOS data folder, so it never sampled the run (`observed = false`; the macOS snapshot listed no in-flight run). |
+| Open manager from the remote host | Read from the code, not exercised: `open_manager` focused any manager listed in this machine's snapshot before opening one on the window's current host, so with the macOS manager open it would focus that one instead of the remote host's. 0.2.2 skips that check on a remote host and starts the manager in the remote pane's folder (`test/runner_commands.luau`). |
+| Ids | Two fresh Linux setups both named their first job `j_cafy5vvk`: `math.randomseed` repeats one sequence for every seed past the 32-bit range, and the seed was a millisecond timestamp. 0.2.2 folds it into 31 bits (`test/runner_ids.luau`). |
+| `tern open` from a remote pane | Not routed through the macOS window's `tern.route.open`: the Linux daemon opened the file itself. |

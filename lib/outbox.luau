@@ -2,6 +2,8 @@
 -- Window half: queue intents for the host (intents/<t_ms13>-<win8>-<seq4>.json) and wait for the
 -- host's reply file (replies/<id>.json). Nothing here runs at load time.
 
+local ids = require("./ids")
+
 local outbox = {}
 
 local INTENT_MAX_BYTES = 16384
@@ -13,31 +15,17 @@ local win8: string? = nil
 local last_ms = 0
 local seq = 0
 
-local ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
-
--- Eight [a-z0-9] characters naming this VM; the RNG is seeded on first use, never at load.
+-- Eight [a-z0-9] characters naming this VM.
 local function window_id(): string
 	if win8 == nil then
-		math.randomseed(os.time() + math.floor(tern.now() * 1000))
-		local out: { string } = {}
-		for _ = 1, 8 do
-			local i = math.random(1, #ALPHABET)
-			table.insert(out, string.sub(ALPHABET, i, i))
-		end
-		win8 = table.concat(out)
+		win8 = ids.win8()
 	end
 	return win8 :: string
 end
 
 -- A fresh reply id: 12 [a-z0-9] characters.
 function outbox.reply_id(): string
-	window_id() -- seeds the RNG
-	local out: { string } = {}
-	for _ = 1, 12 do
-		local i = math.random(1, #ALPHABET)
-		table.insert(out, string.sub(ALPHABET, i, i))
-	end
-	return table.concat(out)
+	return ids.reply_id()
 end
 
 function outbox.intents_dir(): string

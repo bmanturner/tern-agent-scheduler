@@ -2,6 +2,20 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.2.2 (2026-10-12)
+
+Built and tested on Tern 0.8.2.
+
+### Added
+
+- README: what works when Tern is attached to a remote host
+
+### Fixed
+
+- Every window and reload drew the same "random" ids, so two windows could collide on the requests they send the scheduler; ids now differ per window and per load
+- **Open manager** and **New job…** in a remote host's session open that host's manager, in the focused pane's folder there, instead of focusing this computer's manager
+- README: the Linux data folder is `~/.local/state/tern/plugin-data/tern-agent-scheduler/`
+
 ## 0.2.1 (2026-10-12)
 
 Built and tested on Tern 0.8.2 (macOS, and Linux without a desktop window).

@@ -86,13 +86,14 @@ Ask Tern's assistant to create, list, run or pause jobs, for example *"Schedule 
 - **A run waiting for your approval** is only noticed while a desktop Tern window is open.
 - **In the browser (`tern web serve`) and on iPhone and iPad,** the manager works, but palette commands, the status line, notices of runs that need you and Carly's job tools need a desktop Tern window.
 - **With several Tern windows,** runs go to the first window's **Scheduled runs** session.
+- **Remote hosts:** jobs run on the machine the plugin is installed on. To schedule runs on a remote host you've attached in Tern, install the plugin there too (run the install command in a pane on that host); it keeps its own jobs and manager, which **Open manager** and **New job…** open while you're in one of that host's sessions. This computer's status line, notifications, Carly and the other palette commands cover only this computer's jobs, and a run on the remote host that waits for your approval isn't noticed.
 - **Failures:** a run that hits its time limit is stopped. After three failures in a row the job pauses itself and tells you.
 - **Finished run tabs:** the 5 most recent are kept and older ones are closed; their sessions can still be resumed.
 - **Settings** (`,` in the manager) cover where runs appear, how many run at once (2), how many finished tabs to keep, and the late limit for missed runs. **Settings › Setup** checks that Tern and omp are found, and lets you set omp's path if it's somewhere unusual.
 
 ## Your data
 
-Jobs, prompts and run history live in Tern's plugin data folder (**Settings › Setup › Open data folder**): `~/Library/Application Support/Tern/plugin-data/tern-agent-scheduler/` on macOS, `~/.config/tern/plugin-data/tern-agent-scheduler/` on Linux. If its files are ever damaged, the manager offers **Start fresh**.
+Jobs, prompts and run history live in Tern's plugin data folder (**Settings › Setup › Open data folder**): `~/Library/Application Support/Tern/plugin-data/tern-agent-scheduler/` on macOS, `~/.local/state/tern/plugin-data/tern-agent-scheduler/` on Linux. If its files are ever damaged, the manager offers **Start fresh**.
 
 > [!WARNING]
 > Anything that can write to the data folder can create jobs or change what they run, including Hands-off ones. Keep it private to your user.

@@ -14,26 +14,37 @@ local GROUP = "Agent Scheduler"
 -- A run_now intent the host hasn't applied by then is stale and dropped (the user was told it failed).
 local RUN_NOW_TTL_S = 20
 
--- The focused pane's working directory ("" when unknown), plus a reason when that pane is on
--- another machine.
-function commands.focused_cwd(cx: WindowCx): (string, string?)
-	local okh, host = pcall(function()
+-- True when the window's current host is a remote machine: blocks open there, and this machine's
+-- snapshot, intents and jobs are not that machine's.
+local function on_remote_host(cx: WindowCx): boolean
+	local ok, host = pcall(function()
 		return cx.hosts:current()
 	end)
-	if okh and type(host) == "table" and (host :: any).kind == "remote" then
-		return "", "That pane is on another machine. Pick a folder on this " .. platform.machine() .. "."
-	end
-	local okp, info = pcall(function()
+	return ok and type(host) == "table" and (host :: any).kind == "remote"
+end
+
+-- The focused pane's working directory on its own host ("" when unknown).
+local function pane_cwd(cx: WindowCx): string
+	local ok, info = pcall(function()
 		local pane = cx.session:focused()
 		if pane == nil then
 			return nil
 		end
 		return cx.session:pane(pane)
 	end)
-	if okp and info ~= nil and type(info.cwd) == "string" then
-		return info.cwd, nil
+	if ok and info ~= nil and type(info.cwd) == "string" then
+		return info.cwd
 	end
-	return "", nil
+	return ""
+end
+
+-- The focused pane's working directory for a job on this machine ("" when unknown), plus a reason
+-- when that pane is on another machine.
+function commands.focused_cwd(cx: WindowCx): (string, string?)
+	if on_remote_host(cx) then
+		return "", "That pane is on another machine. Pick a folder on this " .. platform.machine() .. "."
+	end
+	return pane_cwd(cx), nil
 end
 
 local function send(cx: WindowCx, kind: string, payload: { [string]: any }?): boolean
@@ -45,30 +56,33 @@ local function send(cx: WindowCx, kind: string, payload: { [string]: any }?): bo
 	return true
 end
 
+-- Opens the manager on the window's current host, starting in the focused pane's folder there. On
+-- this machine an open manager is focused instead; a remote host's managers aren't in this
+-- machine's snapshot, so there it always opens one.
 local function open_manager(cx: WindowCx)
-	wsnap.poll()
-	local snap = wsnap.get()
-	local managers: any = if snap then snap.managers else nil
-	if type(managers) == "table" then
-		-- The snapshot can list a manager closed seconds ago (the host prunes on its slow tick), so
-		-- only ask the host to focus one this window can still see; otherwise open a new one.
-		for _, id in managers do
-			local ok, pane = pcall(function()
-				return cx.session:resolve(tostring(id))
-			end)
-			if ok and pane ~= nil then
-				send(cx, "focus_manager", nil)
-				return
+	if not on_remote_host(cx) then
+		wsnap.poll()
+		local snap = wsnap.get()
+		local managers: any = if snap then snap.managers else nil
+		if type(managers) == "table" then
+			-- The snapshot can list a manager closed seconds ago (the host prunes on its slow tick), so
+			-- only ask the host to focus one this window can still see; otherwise open a new one.
+			for _, id in managers do
+				local ok, pane = pcall(function()
+					return cx.session:resolve(tostring(id))
+				end)
+				if ok and pane ~= nil then
+					send(cx, "focus_manager", nil)
+					return
+				end
 			end
 		end
 	end
-	local cwd = commands.focused_cwd(cx)
-	cx:new_block(const.MANAGER_KIND, { "list", cwd }, "tab")
+	cx:new_block(const.MANAGER_KIND, { "list", pane_cwd(cx) }, "tab")
 end
 
 local function new_job(cx: WindowCx)
-	local cwd = commands.focused_cwd(cx)
-	cx:new_block(const.MANAGER_KIND, { "new", cwd }, "tab")
+	cx:new_block(const.MANAGER_KIND, { "new", pane_cwd(cx) }, "tab")
 end
 
 local function job_group(job: any): string
