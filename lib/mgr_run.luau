@@ -34,7 +34,9 @@ function R.run_now(state: State, job_id: string, opts: { override: string?, toas
 	C.notice(state, "Checking conditions…")
 	runner.check_conditions(job_id, function(v: any)
 		if v.ok then
+			state.notice = nil
 			start(state, job_id, opts)
+			C.render(state)
 			return
 		end
 		state.sheet = { kind = "run_anyway", job_id = job_id, text = v.text, code = v.code, override = opts.override }

@@ -429,6 +429,7 @@ function F.sections(state: State, errs: { [string]: string }?): { P.Section }
 	end
 
 	local when_hint = if light then "" else F.preview(form)
+	local only_if_hint = if light then "" else F.only_if_preview(form)
 	local prompt_hint = "Enter edits it · ctrl+o opens it as a file. Say what to do if something is unclear. Nobody is watching a scheduled run."
 	if #form.prompt.text > 4000 then
 		prompt_hint = string.format("%d characters · long prompts read better as a file (ctrl+o)", #form.prompt.text)
@@ -509,7 +510,7 @@ function F.sections(state: State, errs: { [string]: string }?): { P.Section }
 		{
 			id = "only_if",
 			label = ROW_LABEL.only_if,
-			hint = (if light then "" else F.only_if_preview(form)) .. " · ctrl+p presets · ctrl+t checks now",
+			hint = (if only_if_hint ~= "" then only_if_hint .. " · " else "") .. "ctrl+p presets · ctrl+t checks now",
 			warning = warn("only_if"),
 			control = { k = "text", value = form.only_if.text, placeholder = "Always", mono = true },
 		},
@@ -937,6 +938,7 @@ function F.save(state: State, run_now: boolean)
 		stop_edit(state, false)
 	end
 	sync_draft(form)
+	form.extra.only_if = nil -- a script-read error from the last Save is re-checked by pin_checks
 	local errs = F.errors(state)
 	if next(errs) ~= nil then
 		form.submitted = true
