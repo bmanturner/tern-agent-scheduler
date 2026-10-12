@@ -1,13 +1,15 @@
 --!strict
--- lib/launcher.luau : LA §2-§4, §7.2. Single-flight FIFO launch queue: write the run files, ensure the run
--- session, `tern new tab|session … --keep-open -- omp …`, parse ids as strings, best-effort rename/focus.
--- No user text ever enters argv: the prompt and preamble travel as files; the job name only reaches
--- `tern rename`, which is exec'd without a shell.
+-- lib/launcher.luau : LA §2-§4, §7.2. Single-flight FIFO launch queue: stage the images the prompt links, write the run
+-- files, ensure the run session, `tern new tab|session … --keep-open -- omp …`, parse ids as strings, best-effort
+-- rename/focus. omp gets `@<run dir>/prompt.md` plus one `@<run dir>/images/<n>.<ext>` per staged image.
+-- No user text ever enters argv: the prompt and preamble travel as files, images under plugin-made names; the job
+-- name only reaches `tern rename`, which is exec'd without a shell.
 local const = require("./const")
 local store = require("./store")
 local validate = require("./validate")
 local tern_state = require("./tern_state")
 local bins_mod = require("./bins")
+local images = require("./images")
 
 export type Bins = bins_mod.Bins
 export type LaunchRequest = {
@@ -20,6 +22,8 @@ export type LaunchRequest = {
 	focus: string, -- "keep" | "front"
 	trigger: string,
 	slot_local: string?,
+	images: { string }?, -- staged image files, relative to the run dir (images/1.png, …); set by stage_images
+	images_skipped: { { name: string, why: string } }?,
 }
 export type LaunchResult = { block: string, tab: string?, session: string?, placement_used: string }
 export type LaunchError = { code: string, text: string }
@@ -29,6 +33,8 @@ local launcher = {}
 local APPROVAL_CLI: { [string]: string } = { write = "write", always_ask = "always-ask", yolo = "yolo" }
 local RETRY_MS = 15000
 local MAX_ATTEMPTS = 3
+local MAX_IMAGES = 10
+local MAX_IMAGE_BYTES = 20 * 1024 * 1024 -- omp's own image limit
 
 local function warn(...: any)
 	local args = table.pack(...)
@@ -86,6 +92,9 @@ function launcher.omp_argv(req: LaunchRequest): { string }
 		table.insert(a, "--allow-home")
 	end
 	table.insert(a, "@" .. dir .. "/prompt.md")
+	for _, name in ipairs(req.images or {}) do
+		table.insert(a, "@" .. dir .. "/" .. name)
+	end
 	table.insert(a, const.FIXED_POSITIONAL)
 	return a
 end
@@ -136,11 +145,12 @@ local function local_time(t: number): string
 	return tostring(t)
 end
 
-local function safe_name(name: string): string
+local function safe_name(name: string, max: number?): string
+	local limit = max or 80
 	local s = name:gsub("[%c`]", " "):gsub("%s+", " ")
 	s = s:gsub("^ ", ""):gsub(" $", "")
-	if #s > 80 then
-		local i = 80
+	if #s > limit then
+		local i = limit
 		while i > 0 do
 			local b = s:byte(i + 1)
 			if b ~= nil and b >= 0x80 and b < 0xC0 then
@@ -183,8 +193,18 @@ function launcher.preamble(req: LaunchRequest): string
 		string.format("- Your working directory is %s. Do not change files outside it unless the task says to.", cwd),
 		"- Do not leave background processes or servers running when you finish.",
 		string.format("- You have about %s before this run is stopped. Finish before then.", max_h),
-		"- End your final message with one line starting `RESULT:` followed by a one-sentence summary, for example `RESULT: 3 PRs merged, 1 risky change in auth/session.ts`. If you could not complete the task, write `RESULT: FAILED - <reason>`.",
 	}
+	if req.images ~= nil and #req.images > 0 then
+		table.insert(lines, string.format("- The images attached to the user's message come from the job's prompt, in the order it shows them (%s).", table.concat(req.images, ", ")))
+	end
+	if req.images_skipped ~= nil and #req.images_skipped > 0 then
+		local list: { string } = {}
+		for _, s in ipairs(req.images_skipped) do
+			table.insert(list, string.format("%s (%s)", s.name, s.why))
+		end
+		table.insert(lines, string.format("- The prompt refers to images that could not be attached: %s. Say so in your final message if you needed them.", table.concat(list, "; ")))
+	end
+	table.insert(lines, "- End your final message with one line starting `RESULT:` followed by a one-sentence summary, for example `RESULT: 3 PRs merged, 1 risky change in auth/session.ts`. If you could not complete the task, write `RESULT: FAILED - <reason>`.")
 	return table.concat(lines, "\n") .. "\n"
 end
 
@@ -257,6 +277,95 @@ local function proc(argv: { string }, opts: { [string]: any }, cb: (any) -> ())
 	end
 end
 
+-- ---------- image staging ----------
+
+-- exit 3: no such file, 5: too large; hard link when possible (repeat runs cost no disk), copy across file systems
+local STAGE_SH = '[ -f "$1" ] || exit 3; size=$(wc -c < "$1") || exit 4; [ "$size" -le "$3" ] || exit 5; ln -f -- "$1" "$2" 2>/dev/null || cp -f -- "$1" "$2" || exit 6'
+
+-- Copies the local images a prompt refers to into <run dir>/images/<n>.<ext> and points the run's prompt
+-- snapshot at them. Only plugin-made names reach omp's argv. Images that can't be attached are recorded, not fatal.
+function launcher.stage_images(req: LaunchRequest, done: () -> ())
+	local home: string? = nil
+	pcall(function()
+		home = (tern :: any).getenv("HOME")
+	end)
+	local base = store.path("prompts")
+	local found: { { ref: images.Ref, src: string } } = {}
+	for _, ref in ipairs(images.refs(req.prompt)) do
+		local src = images.resolve(ref.dest, base, home)
+		if src ~= nil and images.is_image(src) then
+			table.insert(found, { ref = ref, src = src })
+		end
+	end
+	if #found == 0 then
+		return done()
+	end
+	local order: { string } = {}
+	local seen: { [string]: boolean } = {}
+	for _, f in ipairs(found) do
+		if not seen[f.src] then
+			seen[f.src] = true
+			table.insert(order, f.src)
+		end
+	end
+	local rel_dir = launcher.run_dir_rel(req) .. "/images"
+	store.mkdirs(rel_dir)
+	local abs_dir = store.path(rel_dir)
+	local names: { string } = {}
+	local attached: { [string]: string } = {}
+	local skipped: { { name: string, why: string } } = {}
+	local i = 0
+	local function skip(src: string, why: string)
+		table.insert(skipped, { name = safe_name(src:match("([^/]*)$") or src, 60), why = why })
+	end
+	local function finish()
+		local subs: { { s: number, e: number, with: string } } = {}
+		for _, f in ipairs(found) do
+			local name = attached[f.src]
+			if name ~= nil then
+				table.insert(subs, { s = f.ref.s, e = f.ref.e, with = name })
+			end
+		end
+		req.prompt = images.rewrite(req.prompt, subs)
+		req.images = names
+		req.images_skipped = skipped
+		req.run.images = { attached = #names, skipped = skipped }
+		if #skipped > 0 then
+			local notes = type(req.run.notes) == "table" and req.run.notes or {}
+			table.insert(notes, "images_skipped")
+			req.run.notes = notes
+		end
+		done()
+	end
+	local function step()
+		i += 1
+		local src = order[i]
+		if src == nil then
+			return finish()
+		end
+		if i > MAX_IMAGES then
+			skip(src, "over the " .. MAX_IMAGES .. "-image limit")
+			return step()
+		end
+		local ext = (src:match("%.(%w+)$") :: string):lower()
+		local name = string.format("images/%d.%s", #names + 1, ext)
+		proc({ "/bin/sh", "-c", STAGE_SH, "sh", src, abs_dir .. "/" .. name:sub(8), tostring(MAX_IMAGE_BYTES) }, { timeout_ms = 10000 }, function(res)
+			if res.status == 0 then
+				table.insert(names, name)
+				attached[src] = name
+			elseif res.status == 3 then
+				skip(src, "not found")
+			elseif res.status == 5 then
+				skip(src, "too large")
+			else
+				skip(src, "unreadable")
+			end
+			step()
+		end)
+	end
+	step()
+end
+
 local function tab_title(name: string): string
 	local s = safe_name(name)
 	if utf8.len(s) ~= nil and (utf8.len(s) :: number) > 40 then
@@ -302,12 +411,6 @@ local function pump()
 		if not ok then
 			warn("launcher: callback failed", tostring(e))
 		end
-	end
-
-	local okw, werr = launcher.write_files(req)
-	if not okw then
-		reply(nil, { code = "data_unwritable", text = tostring(werr) })
-		return release()
 	end
 
 	local run_key = tostring(req.run.job_id or req.job.id) .. "/" .. tostring(req.run.run_id)
@@ -409,7 +512,15 @@ local function pump()
 			launch(verb)
 		end)
 	end
-	attempt(1)
+	-- images are staged once, before the files: launch retries reuse them
+	launcher.stage_images(req, function()
+		local okw, werr = launcher.write_files(req)
+		if not okw then
+			reply(nil, { code = "data_unwritable", text = tostring(werr) })
+			return release()
+		end
+		attempt(1)
+	end)
 end
 
 -- cb(LaunchResult) as soon as `tern new` returned the ids (before the best-effort rename/focus), or

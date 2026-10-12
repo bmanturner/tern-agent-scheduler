@@ -1,0 +1,7 @@
+PASS staging spawns: 3 distinct sources, remote ignored, duplicate shared
+PASS argv: prompt.md then images/1.png, images/2.jpg
+PASS prompt.md snapshot rewritten
+PASS preamble lists attached and skipped images
+PASS run.images = attached 2, skipped 1 (gone.png: not found); note images_skipped
+PASS prompt without images: same argv, no staging, no record
+PASS no errors

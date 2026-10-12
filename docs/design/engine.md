@@ -17,14 +17,14 @@ Audience: the developer implementing the engine half of the `schedule` Tern plug
 > - **R4** binary order is owned by `LA` §1; no bare-`omp` fallback, missing omp = `blocked/omp_missing` (§1.3, §6.4).
 > - **R5** every launch passes `--keep-open`; host alone closes run panes; global cap `MAX_FINISHED_PANES = 5` (§0.3, §0.4, new §6.9); job default `after = keep` subject to the cap.
 > - **R9** windows send raw samples (change + heartbeat ≤ 30 s); the host debounces and owns every transition; `last_message` ≤ 4 KiB in intents; full text and cost from an asynchronous `/usr/bin/tail -c 1048576` through `tern.process.run`, cost "approximate" when truncated (§0.3, §7.1, §7.3).
-> - **R10** intent envelope `{format:1, kind, …}`, file name `<t_ms>-<win8>-<seq>.json`, allowlisted kinds only, no `create`/`update`/`delete`/`settings` intents, retry 60 s; hands-off approval bound to a hash (new `hands_off_ack`) else `blocked/hands_off_review` (§1.1, §2.3, §6.4).
+> - **R10** intent envelope `{format:1, kind, …}`, file name `<t_ms>-<win8>-<seq>.json`, allowlisted kinds only, no `create`/`update`/`delete`/`settings` intents, retry 60 s.
 > - **R11** kv holds only `hot`; first-run flags in `settings.json`, binary paths and role cache in new `cache.json` (§1.3, §2, §2.4).
-> - **R12** canonical states unchanged; `skipped(late)` removed (a too-late slot is `missed`); new codes `agent_failed`, `interrupted`, `closed_by_user`, `hands_off_review`, `cwd_home`, `cwd_unsafe`, `waiting_cap`; `role_unverified` is a run note; `caught_up` and missed-too-late sentences; daemon-restart rule (RF F5) (§5.4, §7.3, §7.4).
+> - **R12** canonical states unchanged; `skipped(late)` removed (a too-late slot is `missed`); new codes `agent_failed`, `interrupted`, `closed_by_user`, `cwd_home`, `cwd_unsafe`, `waiting_cap`; `role_unverified` is a run note; `caught_up` and missed-too-late sentences; daemon-restart rule (RF F5) (§5.4, §7.3, §7.4).
 > - **R14** one `tern ls --json` helper (`tern_state.luau`) for sessions, blocks and liveness; no `inspect` `panes[].live` (§0.3, §5.4).
 > - **R15** one constants block (§0.4); host tick 15 s, observer 3 s, heartbeat 30 s; window half uses tern-swarm's staged loader.
-> - **R16-R19** role stored bare / passed as `@role`, "Other model" and pinned model cut, role check per job cwd with `role_unverified`; `cwd` has no `$HOME` fallback, new `allow_home`, unsafe-character rejection; approval default `write` (pending Q1), `read_only` hidden until V9; catch-up default 3 h (pending Q2) with "If your Mac was asleep" in the main form (§1.1).
+> - **R16-R19** role stored bare / passed as `@role`, "Other model" and pinned model cut, role check per job cwd with `role_unverified`; `cwd` has no `$HOME` fallback, new `allow_home`, unsafe-character rejection; approval default `yolo` (Hands-off; decided 2026-10-12), `read_only` hidden until V9; catch-up default 3 h (pending Q2) with "If your Mac was asleep" in the main form (§1.1).
 > - **R22** setting `session_name` default `Scheduled runs`. Added run fields launch.md needs: `session_file`, `placement_used`, `focus_override`, `run_dir`, `omp_path`, `omp_version`, `busy_seen`, `observed`, `close_requested`, `cancel_requested`, `pane_closed_at`, `overlay`, `notes` (§7.1). **R23** module/milestone references re-scoped (§0.2, new §0.5).
-> - **Review rows:** RC C-maxruntime (`max_runtime_s` 300-28800, grace 60 s, exit-near-limit 15 s), C-catchup (min 900 s, default constant), C-pause (0 or 2-10), C-hands-off (`hands_off_ack` + reset action), C24 (Run now `slot = now`, `focus_override`, draft test runs), C31 (settings keys), C-quiet (quiet success deferred, R6); RF F3 (claim-write failure path, write caps below read caps, §2.2/§5.6), F5 (§5.4/§7.3), F6 (user-controlled paths checked through `tern.process.run`, §6.4), F9 (async tail, pane cap).
+> - **Review rows:** RC C-maxruntime (`max_runtime_s` 300-28800, grace 60 s, exit-near-limit 15 s), C-catchup (min 900 s, default constant), C-pause (0 or 2-10), C24 (Run now `slot = now`, `focus_override`, draft test runs), C31 (settings keys), C-quiet (quiet success deferred, R6); RF F3 (claim-write failure path, write caps below read caps, §2.2/§5.6), F5 (§5.4/§7.3), F6 (user-controlled paths checked through `tern.process.run`, §6.4), F9 (async tail, pane cap).
 
 ---
 
@@ -78,7 +78,7 @@ type LaunchRequest = {
   placement: Placement, focus: "keep"|"front",   -- focus already folded with focus_override
 }
 ```
-Before launching, the host writes into `run_dir`: `prompt.md` (the fire-time snapshot of `prompts/<job id>.md`), `preamble.md` (text from `LA` §3) and, for every non-yolo approval, `omp.yml` (the safety overlay, R7). omp receives `@<run_dir>/prompt.md` plus the fixed positional `Run the scheduled job described in the attached file.`; omp stores its session under `<run_dir>/session` (`--session-dir`). The old "prompt as the final argv element after `--`" form is deleted.
+Before launching, the host writes into `run_dir`: `prompt.md` (the fire-time snapshot of `prompts/<job id>.md`), `preamble.md` (text from `LA` §3) and, for every non-yolo approval, `omp.yml` (the safety overlay, R7). Local images linked from the prompt are copied or hard-linked into `<run_dir>/images/<n>.<ext>` (names generated by the plugin, never user text), the links in the `prompt.md` snapshot are rewritten to `images/<n>.<ext>`, and at most 10 distinct images of ≤ 20 MiB each are attached; a missing, too-large or unreadable image is skipped and listed in the preamble, never blocks the run (`LA` §2). omp receives `@<run_dir>/prompt.md`, then one `@<run_dir>/images/<n>.<ext>` per image, plus the fixed positional `Run the scheduled job described in the attached file.`; omp stores its session under `<run_dir>/session` (`--session-dir`). The old "prompt as the final argv element after `--`" form is deleted.
 
 Sequence (**one launch process in flight at a time**, FIFO, which also removes the create-session race):
 1. `tern_state.snapshot()` (R14; one `tern ls --json`) → is there a session named `settings.session_name` (default **Scheduled runs**, R22)?
@@ -174,8 +174,7 @@ Versioned JSON, `format = 1`. A job is split across **definition** (`jobs.json`,
 | `allow_home` | boolean | `false` | `true` only when the user explicitly picked `~`/`$HOME` as the folder; `cwd == $HOME` with `allow_home=false` is invalid (`blocked/cwd_home`) | Passes `--allow-home` (`LA`); the form carries omp's temp-dir caveat (R17). |
 | `placement` | table | `{where="session"}` | `where ∈ session\|tab` in M1; `split\|float` are M2 (after V10/V11); `corner ∈ tl\|tr\|bl\|br` (default `br`, only `float`) | `session` = the dedicated run session named `settings.session_name` (default **Scheduled runs**, R22; default; keeps the shown tab and focus, PR2 T4); `tab` = background tab in the current session. Realisation and fallbacks: `LA`. **`hidden` is dropped:** `layout:park` fails for every id form (AR issue 3), and the run session keeps runs out of view. |
 | `focus` | `"keep"\|"front"` | `"keep"` | enum | `keep` = the CLI launch touches nothing; `front` = `tern focus <block>` after launch (the form's *Bring to front* switch). A one-off *Run now and watch* uses the run's `focus_override`, not this field (§6.8). |
-| `approval` | `"read_only"\|"write"\|"always_ask"\|"yolo"` | `"write"` (*Ask before commands*; **pending the user's decision, Q1**, R18) | enum; `read_only` is **hidden from the form until its tool allowlist is verified (V9)**; example jobs must work under their stated mode | UI → `--approval-mode`: `write`→`write`, `always_ask`→`always-ask`, `yolo`→`yolo` (Hands-off), `read_only`→`always-ask` + read-only allowlist `[INFERENCE: V9]`. Exact argv and the exec-tier overlay `omp.yml` for every non-yolo run (R7): `LA`. Default `write`: edits proceed, commands surface as *needs you* (PA §5.5). |
-| `hands_off_ack` | string? | nil | present and equal to the current hash whenever `approval="yolo"` | Written **only** by the host manager when the user confirms Hands-off: `"ho1:"` + FNV-1a-64 (two 32-bit lanes, `bit32`) of `prompt text ␀ cwd ␀ role` (R10). Preflight recomputes it from the stored prompt, `cwd`, `role`; a mismatch ⇒ `blocked/hands_off_review` until re-confirmed in the manager. Settings action *Reset hands-off confirmations* clears every `hands_off_ack`. This guards against accidental or foreign edits; plugin data is **not** a security boundary against processes running as the user. |
+| `approval` | `"read_only"\|"write"\|"always_ask"\|"yolo"` | `"yolo"` (*Hands-off*; decided 2026-10-12, R18). Choosing it shows a persistent warning under the Approval row in the manager; nothing re-confirms it and editing a job never blocks it. Plugin data is **not** a security boundary against processes running as the user | enum; `read_only` is **hidden from the form until its tool allowlist is verified (V9)**; example jobs must work under their stated mode | UI → `--approval-mode`: `write`→`write`, `always_ask`→`always-ask`, `yolo`→`yolo` (Hands-off), `read_only`→`always-ask` + read-only allowlist `[INFERENCE: V9]`. Exact argv and the exec-tier overlay `omp.yml` for every non-yolo run (R7): `LA`. With `write` (*Ask before commands*) edits proceed and commands surface as *needs you* (PA §5.5). |
 | `max_runtime_s` | number | `1800` (`MAXRUN_DEFAULT_S`) | integer 300–28800 (UI hint "5m or more", up to 8 h; RC C-maxruntime) | Passed as `--max-time`; the host forces `timed_out` at +`MAXRUN_GRACE_S` (60 s); a pane exit within `EXIT_NEAR_LIMIT_S` (15 s) of the limit counts as the limit (§7.3). No "unlimited" (PA §6 "Process leaks"). |
 | `overlap` | `"skip"\|"queue"\|"parallel"` | `"skip"` | enum | D7. `queue` keeps at most one waiting slot (latest wins). Form option is **M2**; M1 stores the default. |
 | `catch_up` | `"within"\|"always"\|"skip"` | `"within"` | enum | D6. The form shows it as the main-section row **If your Mac was asleep** (R19). |
@@ -228,7 +227,7 @@ Host-written. Also holds the host-owned first-run flags (R11, R25). Binary paths
 | `cap_wait_s` | `600` | A due run waiting on the cap is skipped (`cap`) after this long (ux). |
 | `catchup_spacing_s` | `30` | Min gap between *catch-up* launches (ux §5.7). |
 | `retain_runs` / `retain_days` | `50` / `90` | Per-job ledger retention (ux §7.7). |
-| `defaults.*` | role `default`, placement `session`, focus `keep`, approval `write` (pending Q1), `max_runtime_s` 1800, notify `issues`, after `keep`, catch_up `within`, system_notification `true` | Applied by the New-job form only; stored jobs are always fully materialised. |
+| `defaults.*` | role `default`, placement `session`, focus `keep`, approval `yolo`, `max_runtime_s` 1800, notify `issues`, after `keep`, catch_up `within`, system_notification `true` | Applied by the New-job form only; stored jobs are always fully materialised. |
 | `omp_path`, `tern_path` | nil | Explicit absolute paths. **Resolution order, validation (`--version`) and the no-bare-`omp` rule are owned by `LA` §1 (R4)**: Tern-managed omp first; missing omp ⇒ `blocked/omp_missing`. |
 | `bin_dirs` | `{}` | Extra dirs the launcher tries (UX "Extra PATH folders"; use per `LA` §1). |
 | `session_name` | `"Scheduled runs"` | The dedicated run session (R22). Validated `[%w _.-]{1,40}`. Palette group and manager tab stay "Schedule". |
@@ -292,11 +291,13 @@ Everything lives under `tern.plugin.data` (`<state>/plugin-data/schedule`, creat
   jobs.json      (+ .bak)         { format, seq, jobs[] } definitions    cap 256 KiB
   state.json     (+ .bak)         runtime state + in-flight run ids      cap 256 KiB
   prompts/<job id>.md             managed prompt text (source of truth)  cap 64 KiB
-  drafts/<draft id>.md            unsaved New-job prompt drafts (manager-written); discarded on cancel, pruned at load when older than 7 days  cap 64 KiB
+  prompts/<unix time>-<draft id>.md  unsaved prompt drafts (New job, `ctrl+o`), in `prompts/` so a pasted image's relative link stays valid when the text is saved as `prompts/<job id>.md`; aged out after 7 days (§2.5)  cap 64 KiB
+  prompts/*.{png,jpg,jpeg,gif,webp,bmp}  images Tern saves beside a pasted-into prompt (or in its `attachments` subfolder); swept when unreferenced (§2.5)
   ledger/<job id>.jsonl (+ .bak)  run ledger, one record per line        cap 128 KiB   (R2)
   ledger/_drafts.jsonl            test runs of unsaved drafts (job id `_draft`), pruned like any ledger (§6.8)
   runs/<job id>/<run id>/         per-run directory (R2):
-      prompt.md                     fire-time snapshot of the prompt (passed as `@<run>/prompt.md`)
+      prompt.md                     fire-time snapshot of the prompt (passed as `@<run>/prompt.md`); image links rewritten to `images/<n>.<ext>`
+      images/<n>.<ext>              copies/hard links of the prompt's local images, plugin-generated names (each passed as `@<run>/images/<n>.<ext>`)
       preamble.md                   `--append-system-prompt` file (text: LA §3)
       omp.yml                       safety overlay for every non-yolo run (R7)
       session/                      `--session-dir`: omp's own JSONL + artifacts
@@ -341,7 +342,7 @@ The host VM is the only writer of `settings.json`, `cache.json`, `jobs.json`, `s
 | Writer | May write | Never |
 |---|---|---|
 | Window palette commands, status segment | `intents/<t_ms>-<win8>-<seq>.json` (unique name, written once), allowlisted kinds only | any registry file, kv |
-| Manager block (host-side) | calls the engine in-process (same VM): the **only** place jobs and settings are created, edited or deleted, and where hands-off is confirmed | direct file writes outside `store` |
+| Manager block (host-side) | calls the engine in-process (same VM): the **only** place jobs and settings are created, edited or deleted, | direct file writes outside `store` |
 | Window observer (every window) | `obs` intents only | `ledger/`, `runs/`, `jobs.json`, `snapshot.json` |
 | The user | `prompts/<id>.md` in Tern's doc editor (`ctrl+o`); the engine only *reads* it, at fire time | n/a |
 
@@ -358,7 +359,7 @@ The host VM is the only writer of `settings.json`, `cache.json`, `jobs.json`, `s
 | `roles_request` | `cwd` of an existing job | Refresh the role list for that cwd asynchronously into `cache.json` (§6.4); republish snapshot. |
 | `ack_failed` | `run_id` | Clear the unseen-failure flag (`hot.failed_unseen`). |
 
-**There are no `create`, `update`, `delete` or `settings` intents.** Creating and editing jobs and settings happens only inside the host manager block; palette *New job* and any future Carly `job_add` open the manager with draft args through `cx:new_block` (an M1 gate V-item, §9). Every payload field is validated by the same validator as the form (ids must exist, strings are length-clipped, enums checked). Plugin data is **not** a security boundary against processes running as the user: any such process can write `intents/` or the data files. The allowlist and the hands-off hash (§1.1 `hands_off_ack`) limit what a *plugin-side* caller can do, not what the OS user can. Cross-half wake-up when latency matters: `cx:open("schedule://wake")` → window `tern.route.link` → touch a new intent (LP #10); otherwise the 2 s pump is the latency.
+**There are no `create`, `update`, `delete` or `settings` intents.** Creating and editing jobs and settings happens only inside the host manager block; palette *New job* and any future Carly `job_add` open the manager with draft args through `cx:new_block` (an M1 gate V-item, §9). Every payload field is validated by the same validator as the form (ids must exist, strings are length-clipped, enums checked). Plugin data is **not** a security boundary against processes running as the user: any such process can write `intents/` or the data files. The allowlist limits what a *plugin-side* caller can do, not what the OS user can. Cross-half wake-up when latency matters: `cx:open("schedule://wake")` → window `tern.route.link` → touch a new intent (LP #10); otherwise the 2 s pump is the latency.
 
 ### 2.4 `tern.kv` is hot state only
 
@@ -375,8 +376,10 @@ One key, rewritten by the host at most every `TICK_S` (15 s) and on state change
 
 - Ledger: keep the newest `retain_runs` (50) *terminal* records per job and drop records older than `retain_days` (90); in-flight records are never pruned. A pruned record's `runs/<job>/<run>/` directory (snapshot, preamble, overlay, session) is removed with `tern.fs.remove` (recursive).
 - On job delete: write `trash/<id>.md` (prompt copy), remove `ledger/<id>.*`, `runs/<id>/`, `prompts/<id>.md`; prune `trash/` older than 30 days at load. Delete is two-press in the UI with undo (ux §3.4).
-- `events.jsonl`: last 200 lines. `drafts/*.md` older than 7 days are removed at load. Undecodable intents older than `INTENT_RETRY_S` are removed at load.
+- `events.jsonl`: last 200 lines. Undecodable intents older than `INTENT_RETRY_S` are removed at load.
 - Housekeeping runs at load and once per hour on the tick (`TICK_S`), under a time slice (≤200 ms per tick).
+- Drafts: `prompts/<digits>-*.md` older than 7 days are removed. The legacy `drafts/` folder is removed once it holds no draft younger than 7 days.
+- Images: image files under `prompts/` older than 7 days (`find -mtime +7`) that no `prompts/*.md` or `trash/*.md` text references are removed. Run snapshots keep their own copies in `runs/<job>/<run>/images/` and go with the run directory.
 
 ---
 
@@ -691,14 +694,13 @@ Runs at step 4 of admission for *every* trigger including Run now, **asynchronou
 | Check | How | Fails as |
 |---|---|---|
 | Job valid | schema validation passed at load (§1.1) | `invalid_job`; `cwd_unsafe` if a hand-edited `cwd` contains one of `' " \ $ ` ! newline` |
-| Hands-off review | `approval="yolo"`: recompute the `hands_off_ack` hash from the stored prompt text, `cwd`, `role`; it must equal the stored value | `hands_off_review` ("Blocked: this hands-off job changed since you confirmed it. Open it in Schedule to review.") until re-confirmed in the manager |
 | `cwd` | `/bin/test -d <cwd>` through `process.run`; `cwd == $HOME` requires `allow_home=true` | `cwd_missing` ("~/Dev/app doesn't exist"); `cwd_home` |
 | Prompt | `prompts/<id>.md` is plugin-owned and local: one bounded `tern.fs.read(path, 64 KiB)`; non-empty. A symlinked or missing file reads as missing (bounded reads reject symlinks): re-save the prompt in the manager | `prompt_missing` / `prompt_empty` / `prompt_too_large` |
 | Role | Per job cwd (R16): fresh `cache.json` entry for that cwd (`ROLE_CACHE_S`) → check membership; otherwise `tern.process.run` of `omp config get modelRoles --json` with the job cwd as working directory (`timeout_ms` 5000 `[INFERENCE: process.run takes a cwd, O11]`) and cache the result. **List read and role absent ⇒ blocked. List unreadable (error, timeout, undecodable) ⇒ the run proceeds** and gets the note `role_unverified` (§7.1); never block on missing information | `role_missing` ("role @research no longer exists in omp") |
 | `tern` and `omp` | Resolved per `LA` §1 and cached in `cache.json` (candidate validated with `--version`). **No bare-`omp` fallback (R4)** | `tern_missing` (environment); `omp_missing` |
 | Run dir | `fs.mkdir` of `runs/<job>/<run>` and the writes of `prompt.md`, `preamble.md` (and `omp.yml`) succeeded | `data_unwritable` |
 
-`blocked` kinds: `cwd_missing`, `cwd_home`, `cwd_unsafe`, `prompt_*`, `role_missing`, `invalid_job`, `omp_missing`, `hands_off_review` are **config** blocks (count toward the failure streak and trigger auto-pause); `data_unwritable` and `tern_missing` are environmental (no streak). Auto-pause of a config-blocked job at the threshold sets `paused_reason="blocked"`.
+`blocked` kinds: `cwd_missing`, `cwd_home`, `cwd_unsafe`, `prompt_*`, `role_missing`, `invalid_job`, `omp_missing` are **config** blocks (count toward the failure streak and trigger auto-pause); `data_unwritable` and `tern_missing` are environmental (no streak). Auto-pause of a config-blocked job at the threshold sets `paused_reason="blocked"`.
 
 ### 6.5 Failure streak, auto-pause, notify-once
 
@@ -754,7 +756,7 @@ One record per run, in `ledger/<job id>.jsonl` (one JSON object per line, oldest
 | `created`, `started`, `ended` | number | `started` = launch time (`tern new` returned); `ended` set on terminal. |
 | `lateness_s` | number | `started_or_created − slot`. |
 | `block`, `tab`, `session` | string? | Daemon ids from `tern new --json`, kept as **strings** (R3). `block` is persisted first and passed to window calls as-is (§0.3). |
-| `run_dir` | string | `runs/<job id>/<run id>` (relative to `<data>`); holds `prompt.md`, `preamble.md`, `omp.yml`, `session/` (R2). |
+| `run_dir` | string | `runs/<job id>/<run id>` (relative to `<data>`); holds `prompt.md`, `preamble.md`, `images/`, `omp.yml`, `session/` (R2). |
 | `session_file` | string? | Path of omp's session JSONL under `<run_dir>/session`, discovered asynchronously after launch by the walk in `LA` §8; nil until found. *Open run* resumes with `omp --resume <session_file> --session-dir <run_dir>/session` (`LA` §10). |
 | `session_id` | string? | Id part of `<ISO>_<id>.jsonl` (OC §4). |
 | `placement_used` | string? | Placement actually realised (`session`, `tab`, `tab_here`, …, `LA` §4); differs from `job.placement` after a fallback. |
@@ -764,6 +766,7 @@ One record per run, in `ledger/<job id>.jsonl` (one JSON object per line, oldest
 | `approval`, `max_runtime_s` | | Snapshot, to explain the run. |
 | `omp_path`, `omp_version` | string | The binary that ran (`LA` §1). |
 | `overlay` | boolean | `omp.yml` was passed (every non-yolo run, R7). |
+| `images` | `{attached:number, skipped:{{name:string, why:string}}}?` | Local prompt images attached to this run and those skipped (missing, over 20 MiB, unreadable, or past the 10-image cap); `"images_skipped"` is added to `notes` when any were skipped. |
 | `prompt_head` | string ≤ 200 | First chars of the snapshot `prompt.md` that was actually sent. |
 | `busy_seen` | boolean | The host has seen a `working` sample (or a non-empty `last_message` differing from the empty baseline). Set only by the host (§7.3). |
 | `observed` | boolean | At least one window sample arrived. `false` ⇒ tier 2/3 run, shown "not observed"; replaces the earlier `unobserved` field. |
@@ -816,8 +819,8 @@ A run with no sample for `OBS_STALE_S` while a window is open stays in its state
 | `ok` | finished | (none) |
 | `ok_unobserved` | finished | "Finished (no window was open to watch it)." |
 | `agent_failed` | failed | "The agent reported it couldn't finish: *<text after `FAILED -`>*." (final `RESULT: FAILED - …`, R6) |
-| `agent_error` | failed | "The agent stopped with an error: *<last line>*." (omp exit ≠ 0) |
-| `exited_early` | failed | "The agent exited before finishing." |
+| `agent_error` | failed | "The agent stopped with an error: *<last line>*." (omp exit ≠ 0; the line comes from `tern capture <block> --surfaces`, because plain `capture` returns nothing for omp panes) |
+| `exited_early` | failed | "The agent exited before finishing." (detail from the same `--surfaces` capture) |
 | `no_response` | failed | "Couldn't start: the prompt wasn't delivered." (no `working` within 180 s; counts toward the streak; pane kept) |
 | `delivery_error` | failed | "Couldn't start: omp needs updating to receive the prompt." |
 | `launch_error` | failed | "Couldn't start: Tern couldn't open a block." |
@@ -829,7 +832,6 @@ A run with no sample for `OBS_STALE_S` while a window is open stays in its state
 | `closed_by_user` | cancelled | "Closed by you." (pane gone, no gap before it, not closed by us) |
 | `replaced` | cancelled | "Replaced by a newer run." |
 | `cwd_missing`, `cwd_home`, `cwd_unsafe`, `prompt_missing`, `prompt_empty`, `prompt_too_large`, `role_missing`, `invalid_job`, `omp_missing` | blocked | "Blocked: ~/Dev/app doesn't exist." etc.; `cwd_home`: "Blocked: the folder is your home folder; pick a project folder or allow home in the job."; `cwd_unsafe`: "Blocked: the folder name has characters Schedule can't pass safely." |
-| `hands_off_review` | blocked | "Blocked: this hands-off job changed since you confirmed it. Open it to review." |
 | `data_unwritable` | blocked | "Blocked: couldn't write run data." |
 | `tern_missing` | blocked | "Blocked: the tern command wasn't found." |
 | `overlap`, `overlap_replaced` | skipped | "Skipped: the previous run was still going." |
@@ -890,7 +892,7 @@ luau-analyze lib/*.luau                          # type check
 | 12 | NL grammar: 26 inputs incl. errors (`every 2m`, `25:00`, `2026-02-30`, `every 25h`, `monthly on the 40th`) | §3.5 | `[VERIFIED]` t3, t8 |
 | 13 | `describe`: 12 expressions | "Weekdays at 09:00", "Mon, Thu at 18:30", … | `[VERIFIED]` t4 |
 | 14 | `next` kind/nominal: gap → `("gap", 02:30)`, overlap → `"overlap"` | | `[VERIFIED]` t7 |
-| 15 | **Not yet written**: clock-jump (`dw<−5`) keeps cursor and does not refire; reload with `launching` and no block (orphan adopted from a fake `tern ls` by the `/runs/<job>/<run>/` marker); a present block without the marker after a restart ⇒ `failed/interrupted`, not tracked, not closed (F5); launch queue serialisation and the session-exists branch with a fake `tern.process.run` (`there is no session` → `new session`); `obs` dedupe and host-side debounce (needs-input 10 s, finish 6 s, stale sample 45 s, reminder 30 min); intent envelope: file-name order, allowlist rejects `create`/`update`/`delete`/`settings`, undecodable retried 60 s; claim-write failure (fake `fs.write` raises ⇒ no launch, cursor rolled back, `data_unwritable`) and write-cap pruning (F3); `store.safe_write` torn-write recovery with a fault-injecting fake `tern.fs`; format guard refuses write; ledger retention prune; `hands_off_ack` mismatch ⇒ `blocked/hands_off_review`; role unreadable ⇒ `role_unverified` note, role read and absent ⇒ `blocked/role_missing`; finished-pane cap closes the oldest unfocused beyond 5; 15-digit block ids stay exact strings; preflight matrix | | to implement with the runner |
+| 15 | **Not yet written**: clock-jump (`dw<−5`) keeps cursor and does not refire; reload with `launching` and no block (orphan adopted from a fake `tern ls` by the `/runs/<job>/<run>/` marker); a present block without the marker after a restart ⇒ `failed/interrupted`, not tracked, not closed (F5); launch queue serialisation and the session-exists branch with a fake `tern.process.run` (`there is no session` → `new session`); `obs` dedupe and host-side debounce (needs-input 10 s, finish 6 s, stale sample 45 s, reminder 30 min); intent envelope: file-name order, allowlist rejects `create`/`update`/`delete`/`settings`, undecodable retried 60 s; claim-write failure (fake `fs.write` raises ⇒ no launch, cursor rolled back, `data_unwritable`) and write-cap pruning (F3); `store.safe_write` torn-write recovery with a fault-injecting fake `tern.fs`; format guard refuses write; ledger retention prune; role unreadable ⇒ `role_unverified` note, role read and absent ⇒ `blocked/role_missing`; finished-pane cap closes the oldest unfocused beyond 5; 15-digit block ids stay exact strings; preflight matrix | | to implement with the runner |
 | 16 | **Not yet written**: real-libc conformance (`conformance.luau`) comparing `cron.upcoming` under the fake clock vs `TZ=America/Chicago luau` for 2026 | identical | needs `brew install luau` |
 
 Add a property check: for random valid specs, `next(t) > t`, `upcoming` strictly increasing, and `next(next(t)−1) == next(t)` (no skipped slot).

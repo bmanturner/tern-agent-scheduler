@@ -16,6 +16,7 @@ local bins = require("./bins")
 local roles = require("./roles")
 local tern_state = require("./tern_state")
 local launcher = require("./launcher")
+local images = require("./images")
 local session_tail = require("./session_tail")
 local notify = require("./notify")
 local platform = require("./platform")
@@ -380,24 +381,38 @@ local function apply_sample_message(run: Run, rt: RT)
 	end
 end
 
+-- Lines omp prints around its own exit that say nothing about why it failed.
+local TAIL_CHROME = { "^Closing session", "^Update Available", "^New version .+ is available", "Run: omp update" }
+
+-- `--surfaces` because plain capture is empty for omp panes even after omp exits; with it omp's text comes
+-- through and ordinary grid text is still included.
 local function capture_tail(run: Run, cb: (string?) -> ())
 	local b, block = tern_bin(), run.block
 	if b == nil or block == nil then
 		return cb(nil)
 	end
-	proc({ b, "capture", tostring(block) }, { timeout_ms = 5000 }, function(r)
+	proc({ b, "capture", tostring(block), "--surfaces" }, { timeout_ms = 5000 }, function(r)
 		if r.status ~= 0 then
 			return cb(nil)
 		end
 		local text = tostring(r.stdout):gsub("\27%[[%d;?]*[%a]", ""):gsub("%c", "\n")
 		local last: string? = nil
+		local last_error: string? = nil
 		for line in text:gmatch("[^\n]+") do
 			local t = line:gsub("^%s+", ""):gsub("%s+$", "")
-			if t ~= "" then
+			local chrome = t == ""
+			for _, pat in TAIL_CHROME do
+				chrome = chrome or t:find(pat) ~= nil
+			end
+			if not chrome then
 				last = t
+				if t:find("^Error") or t:find("error:", 1, true) or t:find("Error:", 1, true) then
+					last_error = t
+				end
 			end
 		end
-		cb(last ~= nil and clip(last, 120) or nil)
+		local pick = last_error or last
+		cb(pick ~= nil and clip(pick, 120) or nil)
 	end)
 end
 
@@ -1425,6 +1440,54 @@ end
 
 -- ---------- housekeeping (EN §2.5) ----------
 
+local DRAFT_AGE_S = 7 * 86400
+local sweep_running = false
+
+-- Removes image files in prompts/ (pasted by Tern beside a prompt) that are over 7 days old and that no
+-- prompt or trashed prompt links to. Never touches Markdown files or anything outside prompts/.
+local function sweep_images()
+	if sweep_running then
+		return
+	end
+	local dir = store.path("prompts")
+	sweep_running = true
+	proc({ "/usr/bin/find", dir, "-type", "f", "!", "-name", "*.md", "-mtime", "+7" }, { timeout_ms = 10000 }, function(r)
+		sweep_running = false
+		if r.status ~= 0 or tostring(r.stdout) == "" then
+			return
+		end
+		-- Trashed texts were prompts in prompts/, so their relative links resolve against the same folder.
+		local referenced: { [string]: boolean } = {}
+		local t0 = T().now()
+		local h = home()
+		for _, sub in { "prompts", "trash" } do
+			for _, name in store.list(sub) do
+				if name:match("%.md$") then
+					local text = store.read_text(sub .. "/" .. name, const.PROMPT_MAX)
+					-- A text that can't be read might link the image: delete nothing this time.
+					if text == nil or T().now() - t0 > 300 then
+						return
+					end
+					for _, ref in images.refs(text) do
+						local path = images.resolve(ref.dest, dir, h)
+						if path ~= nil then
+							referenced[path] = true
+						end
+					end
+				end
+			end
+		end
+		local prefix = dir .. "/"
+		for line in tostring(r.stdout):gmatch("[^\n]+") do
+			if line:sub(1, #prefix) == prefix and not referenced[line] then
+				pcall(function()
+					T().fs.remove(line)
+				end)
+			end
+		end
+	end)
+end
+
 local function housekeeping(now: number)
 	local settings = jobs.settings()
 	local t0 = T().now()
@@ -1435,16 +1498,38 @@ local function housekeeping(now: number)
 		pcall(ledger.prune, job.id, settings, now)
 	end
 	pcall(intents.prune, now)
-	-- trash/ after 30 days, drafts/ after 7 (EN §2.5); both names start with their creation time. A
-	-- draft still open in a manager form is rewritten on save, so aging out an old one loses nothing saved.
-	for _, dir in { { "trash", 30 * 86400 }, { "drafts", 7 * 86400 } } do
-		for _, name in store.list(dir[1] :: string) do
-			local at = tonumber(name:match("^(%d+)%-"))
-			if at ~= nil and now - at > (dir[2] :: number) then
-				store.remove((dir[1] :: string) .. "/" .. name)
+	-- trash/ after 30 days (EN §2.5); names start with their creation time.
+	for _, name in store.list("trash") do
+		local at = tonumber(name:match("^(%d+)%-"))
+		if at ~= nil and now - at > 30 * 86400 then
+			store.remove("trash/" .. name)
+		end
+	end
+	-- ctrl+o drafts live in prompts/ as <unix time>-<id>.md and age out after 7 days. A draft still open in a
+	-- manager form is rewritten on save, so aging out an old one loses nothing saved. Job prompts are j_….md.
+	for _, name in store.list("prompts") do
+		local at = tonumber(name:match("^(%d+)%-.+%.md$"))
+		if at ~= nil and now - at > DRAFT_AGE_S then
+			store.remove("prompts/" .. name)
+		end
+	end
+	-- Older versions kept drafts in drafts/. Age them the same way; once none is left, drop the folder (and
+	-- any image Tern saved there).
+	local kept = false
+	for _, name in store.list("drafts") do
+		local at = tonumber(name:match("^(%d+)%-"))
+		if at ~= nil then
+			if now - at > DRAFT_AGE_S then
+				store.remove("drafts/" .. name)
+			else
+				kept = true
 			end
 		end
 	end
+	if not kept and store.exists("drafts") then
+		store.remove("drafts")
+	end
+	sweep_images()
 end
 
 -- ---------- gaps and the pump ----------
@@ -1792,12 +1877,12 @@ end
 local function setup_rows(): { SetupRow }
 	local f = bins.found()
 	local rows: { SetupRow } = {}
-	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 8, 2)
+	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 8, 3)
 	table.insert(rows, {
 		id = "tern",
 		label = "Tern version",
 		ok = tern_ok,
-		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.8.2. Update Tern.",
+		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.8.3. Update Tern.",
 	})
 	table.insert(rows, {
 		id = "omp",

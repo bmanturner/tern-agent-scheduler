@@ -89,8 +89,8 @@ This is the M1 experience ([ux.md](design/ux.md) owns the details).
 │                 claude-opus-5-5 · medium. Costs more than @smol. Resolved each time the job runs.      │
 │                                                                                                        │
 │  SAFETY                                                                                                │
-│  Approval       Ask before commands ▾                                                                  │
-│                 If a run stops to ask, it shows up under Needs you.                                    │
+│  Approval       Hands-off ▾                                                                            │
+│                 Runs commands and edits files as you, with your credentials, while you're away.        │
 │  Stop after     30 min ▾                                                                               │
 │                                                                                                        │
 │  Active         [on]                                                                                   │
@@ -139,7 +139,7 @@ The preview shows next fire times, the Mac's time zone, the cron "date OR weekda
 |---|---|
 | Menu to CRUD scheduled prompts | Manager block: list, detail, form; Run now, Pause/Resume, Delete (two-press + undo), Duplicate, Pause all ([ux.md §3-4](design/ux.md)) |
 | Cron-style schedule | When field: cron, presets, intervals, one-shot, manual; live preview ([engine.md §3](design/engine.md), [ux.md §4.3](design/ux.md#43-when-schedule-input-presets-preview)) |
-| Prompt | Multi-line editor in the form, or a managed `prompts/<id>.md` opened with `ctrl+o` (M1 gate decides the fallback, section 8) |
+| Prompt | Multi-line editor in the form, or a managed `prompts/<id>.md` opened with `ctrl+o` (M1 gate decides the fallback, section 8). Images pasted into the file are attached to every run |
 | omp role, default `@default` | Role row; stored bare, passed as `--model @default` ([decisions R16](design/decisions.md#3-product)) |
 | Configurable cwd | Folder row, pre-filled from the focused pane; validated; no `$HOME` fallback (R17) |
 | Configurable placement of the agent's block | Scheduled runs session or background tab, plus Bring to front (M1); split and picture-in-picture (M2) ([launch.md §4](design/launch.md)) |
@@ -208,9 +208,9 @@ local R = D.."/runs/j_k3x9a2bc/r_k3x9a2bc_1791727200"
   jobs.json     (+.bak)   job definitions
   state.json    (+.bak)   runtime state, in-flight run ids
   prompts/<job id>.md     managed prompt text (source of truth)
-  drafts/<draft id>.md    unsaved New-job prompts
+                          (unsaved drafts: prompts/<unix time>-<draft id>.md; pasted images sit beside them)
   ledger/<job id>.jsonl   run ledger, one record per run
-  runs/<job id>/<run id>/ prompt.md, preamble.md, omp.yml, session/
+  runs/<job id>/<run id>/ prompt.md, preamble.md, images/, omp.yml, session/
   events.jsonl            engine events (gaps, reloads, zone changes)
   trash/<job id>.md       deleted job's prompt, pruned after 30 days
   intents/<t_ms>-<win8>-<seq>.json   window -> host, allowlisted kinds only
@@ -228,7 +228,7 @@ sequenceDiagram
   participant W as Window half
   participant S as Store + snapshot.json
   C->>L: slot due, run r1 = launching
-  L->>L: preflight (cwd, role, path gate, hands-off hash); write prompt.md, preamble.md, omp.yml
+  L->>L: preflight (cwd, role, path gate); write prompt.md, preamble.md, omp.yml
   alt preflight fails
     L->>S: r1 = blocked (reason, no pane)
   else ok
@@ -305,7 +305,7 @@ If 1 and 2 were fixed, a window-side launcher would become viable for remote hos
 
 Scheduled runs are unattended agents with your permissions, so the design assumes any process running as you can write to the plugin's data folder ([review/feasibility-security.md](review/feasibility-security.md)).
 
-- **Unattended approvals.** Default is "Ask before commands" (`--approval-mode write`); the default is still open question 1. A run that needs approval shows under Needs you. "Hands-off" (`yolo`) requires a confirmation bound to a hash of (prompt text, cwd, role); if any of them change, the run is `blocked/hands_off_review` and nothing launches (R10). "Read-only" is hidden until its tool allowlist is verified (V9).
+- **Unattended approvals.** Default for new jobs is "Hands-off" (`--approval-mode yolo`; settings `defaults.approval`, Carly's `job_add` jobs too). Choosing it shows a persistent warning under the Approval row; nothing re-confirms it and editing a job never blocks it. With "Ask before commands" (`write`) a run that needs approval shows under Needs you. "Read-only" is hidden until its tool allowlist is verified (V9).
 - **No user text in argv.** The prompt is a per-run snapshot file; job names and prompts never reach the shell string (R1).
 - **Overlay pinning exec-tier approvals.** Every non-yolo run passes `--config <run>/omp.yml` pinning `tools.approval` of exec-tier tools to `prompt`, so a repo's `.omp/config.yml` cannot widen "Ask before commands". Precedence is unverified (V31). User-global omp extensions still load; project-level extension risk is documented, not blocked ([launch.md §7.2](design/launch.md#72-per-run-overlay-runompyml-r7)).
 - **Intent allowlist.** Window-to-host messages accept only `obs`, `run_now` (existing job id, stored settings), `pause`, `resume`, `pause_all`, `resume_all`, `stop_run`, `focus_run`, `open_run`, `roles_request`, `ack_failed`. There are no create, update, delete or settings intents; those exist only inside the host manager block, and intent payloads go through the same validator as the form (R10).
@@ -356,7 +356,7 @@ From [decisions.md §4](design/decisions.md#4-open-questions-for-the-user-final-
 
 | # | Question | Options | Recommendation |
 |---|---|---|---|
-| 1 | Default approval for new jobs | (A) Ask before commands plus a per-job "Allowed commands" list (`git`, `gh`, `npm test`...) compiled into the overlay, if omp's `bash` patterns verify; (B) Hands-off by default (matches your omp default `yolo` and tern-swarm); (C) Ask before commands, no allowlist (safe, but most real jobs stall on their first shell command) | A |
+| 1 | Default approval for new jobs | **Decided: Hands-off (`yolo`).** Choosing it shows a persistent warning under the Approval row; "Ask before commands" stays one pick away. | Decided |
 | 2 | Catch-up window | 3 h; 12 h; any age (Raycast); skip | 3 h |
 | 3 | Keeping Tern's service alive | (A) Honest copy plus Setup keep-alive row; (B) the plugin keeps one idle pane in the runs session; (C) opt-in launchd agent that starts `tern daemon` at login | A |
 | 4 | Finished run panes | Keep with a cap of 5; close successful runs right away (relies on `--resume`); keep everything | Cap of 5 |

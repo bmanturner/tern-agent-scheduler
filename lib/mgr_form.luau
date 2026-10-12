@@ -1121,13 +1121,14 @@ local function open_file(state: State)
 	local form = state.form :: Form
 	local path = form.draft_path
 	if path == nil then
-		local dir = tern.plugin.data .. "/drafts"
+		local dir = tern.plugin.data .. "/prompts"
 		local made = pcall(tern.fs.mkdir, dir)
 		if not made then
-			C.notice(state, "Couldn't create the drafts folder.")
+			C.notice(state, "Couldn't create the prompts folder.")
 			return
 		end
-		-- The creation time leads the name (tern.fs has no mtime) so housekeeping can age it out.
+		-- Drafts live beside job prompts so an image Tern saves beside the draft keeps its relative link when
+		-- the text is saved as the job's prompt. The time leads the name because tern.fs has no mtime.
 		path = string.format("%s/%d-%s.md", dir, os.time(), ids.draft_id())
 	else
 		-- Keep edits already made in the file before writing the current prompt over it.

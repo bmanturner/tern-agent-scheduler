@@ -8,16 +8,16 @@ Plugin id `schedule` · repo `tern-schedule` · target Tern 0.7.2 · omp 18.9.1.
 > ## Revision 2 (after review, 2026-10-11)
 > Conforms to `design/decisions.md` (authoritative; R-ids below) and fixes the review rows that decisions.md does not contradict (RC / RF / RP). Structure, voice and wireframes are kept; the Revision 1 block below is historical and is superseded wherever this one says so.
 > - **Scope (R23, RP P3/§4.2):** every surface is tagged M1/M2/M3 (§0 "Scope", §2.1-2.6, §3.2, §3.4, §4.1, §4.6-4.10, §5, §6, §7). M1 form = 9 rows (§4.11); M1 palette = Open manager, New job, Run a job now, Go to run that needs me (§2.2); Test run, Quick add, Recent runs, filter, tab badges, per-job notify/after/overlap, Advanced, quiet success, Carly are M2/M3. Q6 in §9.
-> - **Prompt (R1, RP §1c):** source `prompts/<job id>.md`; drafts in `drafts/<draft id>.md` (§2.6, §4.1); `prompt_source="file"` is out of v1; Open run explains the fixed first message with the prompt attached (§5.6).
+> - **Prompt (R1, RP §1c):** source `prompts/<job id>.md`; drafts in `prompts/<unix time>-<draft id>.md` (§2.6, §4.1); `prompt_source="file"` is out of v1; Open run explains the fixed first message with the prompt attached (§5.6).
 > - **Pane cap (R5, RP P8):** keep at most 5 finished run panes, copy in §4.8, §5.4, §7.7. Per-job After row is M2.
 > - **Preamble (R6, RP P13):** always on in M1, per-job toggle removed from the M1 form (§4.9); summary = last `RESULT:` line (§5.4); `RESULT: FAILED -` ⇒ failed (§5.5); quiet success moved to M2 (§4.9, §5.4).
 > - **Notifications (R8, RP P5):** host sends every OS notification; no-window copy in §5.1, §5.3, §6.4. Config overlay mentioned in §4.7 (R7).
-> - **Intents (R10, RF S1):** palette New job / Quick add / Carly open a draft in the manager via `cx:new_block`; no create/update/delete/settings intents (§2.2, §2.5, §3.1, §4.10). Hands-off confirmation is bound to prompt/cwd/role, `hands_off_review` copy (§4.7, §6.5, §5.5, §7.3).
-> - **States (R12, RP P13):** UI label ↔ engine state table (§5.0); reason sentences corrected, with missed-too-late and caught-up as separate rows, `no_response`, `interrupted`, `closed_by_user`, `hands_off_review`, `role_unverified` (§5.5).
+> - **Intents (R10, RF S1):** palette New job / Quick add / Carly open a draft in the manager via `cx:new_block`; no create/update/delete/settings intents (§2.2, §2.5, §3.1, §4.10).
+> - **States (R12, RP P13):** UI label ↔ engine state table (§5.0); reason sentences corrected, with missed-too-late and caught-up as separate rows, `no_response`, `interrupted`, `closed_by_user`, `role_unverified` (§5.5).
 > - **Glyphs (R13):** stopped `■` neutral, blocked `shield-alert`, test/manual as text suffix (§3.5).
 > - **Role (R16, RP P9):** `@default` default, bare storage, per-folder role list, "Other model…" removed, role-unreadable behavior fixed (§4.4, §6.2).
 > - **Folder (R17, RP P12/P15):** no `~` fallback, `allow_home`, unsafe-character copy (§4.5, §7.5).
-> - **Approval (R18, RP P2):** Read-only hidden until verified; default pending Q1; examples rewritten (all `@smol`, with cost, work under their mode, scheduled at awake hours; RP P6) (§4.7, §6.1).
+> - **Approval (R18, RP P2):** Read-only hidden until verified; default Hands-off (decided 2026-10-12); examples rewritten (all `@smol`, with cost, work under their mode, scheduled at awake hours; RP P6) (§4.7, §6.1).
 > - **If your Mac was asleep (R19, RP P6):** promoted into the main form (§4.1 row 4, §4.1a).
 > - **Availability (R20, RP P1/P7/§2-4):** exact copy everywhere; Setup Keep-alive row (§6.2, §6.4, §7.7). **Multi-window (R21, RP P4):** §4.6, §5.1, §6.4.
 > - **Naming (R22, RP P7):** run session is "Scheduled runs"; palette group and manager tab stay "Schedule".
@@ -145,7 +145,7 @@ Natural-language entry for free, with swarm's safety model (LP swarm pattern 16:
 | Export | Signature | Behavior |
 |---|---|---|
 | `jobs_list` | `jobs_list()` → table of `{name, schedule, next, role, cwd, state, last}` | Read-only. Reply ≤1 MiB (0.7.2). |
-| `job_add` | `job_add(name, prompt, when, cwd?, role?)` | **Creates a draft, not a job.** Opens the manager (via `cx:new_block` with draft args) in the New job form pre-filled and returns "Draft opened for review". The user presses Save. Approval mode is the default, never hands-off, and cannot be set by Carly (LP swarm "approval flags only from the user"). There is no setting to let Carly save directly. |
+| `job_add` | `job_add(name, prompt, when, cwd?, role?)` | **Creates a draft, not a job.** Opens the manager (via `cx:new_block` with draft args) in the New job form pre-filled and returns "Draft opened for review". The user presses Save. Approval mode is the default (Hands-off, from settings `defaults.approval`) and cannot be set by Carly (LP swarm "approval flags only from the user"). There is no setting to let Carly save directly. |
 | `job_run` | `job_run(name)` | Sends `run_now`; returns "Queued" once the host accepts it. |
 | `job_pause` | `job_pause(name, paused)` | `pause` / `resume` for one job. |
 | `jobs_pause_all` | `jobs_pause_all(paused)` | `pause_all` / `resume_all`. |
@@ -166,9 +166,9 @@ Each job's prompt is one markdown file in the plugin data dir: `<data>/prompts/<
 
 | Entry | Behavior |
 |---|---|
-| Form, **Prompt** row: `ctrl+o` or the "Open as file" button | Opens the file beside in Tern's doc editor (`cx.docs:open(path, {how="beside"})`). For an unsaved new job the manager writes the text to a **draft file** `<data>/drafts/<draft id>.md` and opens that; on Save the host moves it to `prompts/<job id>.md`, on Cancel it is deleted. Draft args from the palette ("New job", Quick add) or a Carly `job_add` are written to a draft file the same way. (`drafts/` is a sibling of `prompts/` in the `engine.md` §2 layout.) |
+| Form, **Prompt** row: `ctrl+o` or the "Open as file" button | Opens the file beside in Tern's doc editor (`cx.docs:open(path, {how="beside"})`). For an unsaved new job the manager writes the text to a **draft file** `<data>/prompts/<unix time>-<draft id>.md` and opens that; on Save the host moves it to `prompts/<job id>.md`, on Cancel it is deleted. Draft args from the palette ("New job", Quick add) or a Carly `job_add` are written to a draft file the same way. Drafts live in `prompts/` so that an image pasted into the draft (Tern saves it beside the file and writes a relative Markdown link) still resolves once the text is saved as `prompts/<job id>.md`; unsaved drafts are removed after 7 days (`engine.md` §2.5). **Images:** an image pasted into the prompt file or a `ctrl+o` draft is attached to every run (up to 10 per run, each ≤ 20 MiB; ones that can't be attached are noted in the run, `launch.md` §2.3). |
 | Manager: `p` on a job / palette #10 (M2) | Opens `prompts/<job id>.md` beside. |
-| After saving in the doc editor | The form (if open) re-reads the file when focused again; the detail view shows "Prompt edited 2m ago". Toast, if the manager is focused: `success` "Prompt updated" / sub "Applies to the next run". For a hands-off job this edit also stales the hands-off confirmation (§6.5). |
+| After saving in the doc editor | The form (if open) re-reads the file when focused again; the detail view shows "Prompt edited 2m ago". Toast, if the manager is focused: `success` "Prompt updated" / sub "Applies to the next run". |
 
 **How the prompt reaches the agent (R1; `launch.md` §2.2-2.3).** No user text is ever put on a command line. At fire time the host copies the prompt file to the run's snapshot `runs/<job id>/<run id>/prompt.md` and starts omp with that file attached plus the fixed first message "Run the scheduled job described in the attached file." So the first user message in the run's terminal is that sentence with `prompt.md` attached, not your text (§5.6 repeats this for Open run). The snapshot also means editing mid-run is safe and the run record shows what actually ran.
 
@@ -186,7 +186,7 @@ Host block, `view` returns `{main, dock, layer}` (GD blocks via TP §2.6; each r
 |---|---|
 | `main` | A mode stack: **List** (default) → **Detail** (Enter) → **Form** (`n`/`e`). `esc` pops one level; the list's selection, filter and folds are kept in block `save`. |
 | `dock` | Always visible: line 1 = context (next run, filter field when `/` is active, banners); line 2 = key hints (width-tiered, §8.3); right edge = clickable `badge`s for the selected row's actions (mouse parity). |
-| `layer` | Overlays: delete/stop confirmation, hands-off confirmation, pickers (`picker` node, §4), Setup sheet, Settings (`prefs` in `layer` = right-docked sheet, EL work `prefs`), help (`?`), and the first-run "Run it now and watch?" prompt (§6.3). |
+| `layer` | Overlays: delete/stop confirmation, pickers (`picker` node, §4), Setup sheet, Settings (`prefs` in `layer` = right-docked sheet, EL work `prefs`), help (`?`), and the first-run "Run it now and watch?" prompt (§6.3). |
 
 Because the manager is a host block it has no window `cx`; **in-block choosers are `picker`/`overlay` nodes handled in `key`** (EL lists `picker`: "draws no real text field; typing, arrows, Enter and Escape must be handled in your block's key handler"). The palette commands (window half) use `cx:pick`; both show the same rows in the same order. The manager and the launcher live in the same host VM, so Run now, Save & run now and Stop call the launcher directly; Open run calls `tern focus`/`tern new tab` from the host. **Creating and editing jobs and settings happens only inside this block** (R10): palette commands and Carly can only open it with draft args (via `cx:new_block`, an M1 gate item) or send the allowlisted intents (run now, pause/resume, pause all, stop, focus/open run). Toasts and other window chrome are driven by the window half from `snapshot.json` + kv `rev`.
 
@@ -197,7 +197,7 @@ Order is fixed. Empty sections are not drawn (except the empty state, §3.5). On
 | Section | Scope | Contains | Default |
 |---|---|---|---|
 | **Needs you** | M1 | **Runs** waiting on a human (`needs_input`). Row = the run + reason. | open, pinned top |
-| **Needs fixing** | M1 | **Jobs** that can't start until you change something: folder missing, role gone, omp missing, hands-off review (`blocked/*`). Row = the job + the blocked sentence. Kept separate from Needs you so each header has one meaning (RP). | open, under Needs you |
+| **Needs fixing** | M1 | **Jobs** that can't start until you change something: folder missing, role gone, omp missing (`blocked/*`). Row = the job + the blocked sentence. Kept separate from Needs you so each header has one meaning (RP). | open, under Needs you |
 | **Running** | M1 | Runs in progress (name, started, elapsed). | open |
 | **Upcoming** | M1 | Active jobs by next fire ascending; manual-only jobs sort last under "no schedule". | open |
 | **Paused & finished** | M1 | Paused jobs, one-shot jobs that already ran, jobs auto-paused after failures (reason in detail). | collapsed (header shows count) |
@@ -247,7 +247,7 @@ One key per action; keys are handled in the block `key` handler (EL lists: lists
 | `o` | **Open run** (live or last block for the selected job) | `Open` badge |
 | `x` | **Stop** the selected running run (confirm overlay `y`/`esc`) | `Stop` badge |
 | `p` | Edit the prompt **file** (`prompts/<id>.md`, §2.6) | — |
-| `c` | **Duplicate** (copy opens in the form as "New job", name `daily-review copy`, Active off; a hands-off job needs its confirmation again, §6.5) | `Duplicate` badge |
+| `c` | **Duplicate** (copy opens in the form as "New job", name `daily-review copy`, Active off) | `Duplicate` badge |
 | `a` | Jump to next *needs you* | status segment / "needs you" section header click |
 | `/` (M2) | **Filter** (inline field in dock; matches name, folder, role, schedule text, prompt first line; `esc` clears, `enter` keeps filter and returns to list) | click filter badge |
 | `P` (shift+p) | **Pause all** / Resume all | `Pause all` badge |
@@ -422,7 +422,7 @@ Dock during the form: hint line plus the clickable badges **Save** · **Save & r
 | 4 | **If your Mac was asleep** | M1 | `choice` (3), in the main section (R19) | Run once when I'm back, if under 3h late | §4.1a below. Default pending Q2 (§9) |
 | 5 | **Folder** | M1 | `text` row showing tilde path + **Pick…** (`enter`: picker of recent folders) | focused local pane's cwd, else empty and required | §4.5 |
 | 6 | **Role** | M1 | `choice` row, menu style, opens picker | `@default` | §4.4 |
-| 7 | **Approval** | M1 | `choice` (3 options in M1, 4 once Read-only is verified) with `warning` line | Ask before commands (pending Q1) | §4.7 |
+| 7 | **Approval** | M1 | `choice` (3 options in M1, 4 once Read-only is verified) with `warning` line | Hands-off (default, decided 2026-10-12) | §4.7 |
 | 8 | **Stop after** | M1 | `choice` menu | 30 min | §4.7 |
 | 9 | **Active** | M1 | `switch` | on | Off = "Save paused". Good for a canary: "Save paused, then press r." |
 | — | Where it appears · Bring to front | M2 (global in Settings in M1) | `choice` / `switch` | Scheduled runs session · off | §4.6 |
@@ -519,18 +519,18 @@ Options whose V-item has not passed are not shown (no disabled rows).
 
 ### 4.7 Approval, runtime, safety [M1]
 
-**Approval** (choice, menu; each option has a one-line `detail`; maps to `--approval-mode`, OC §0 1c). **The default for new jobs is Ask before commands, pending the user's decision on Q1 (§9, R18).**
+**Approval** (choice, menu; each option has a one-line `detail`; maps to `--approval-mode`, OC §0 1c). **The default for new jobs is Hands-off (decided 2026-10-12, R18; settings `defaults.approval`, and Carly's `job_add` drafts too).**
 
 | Option | Detail | omp | Shown |
 |---|---|---|---|
 | **Read-only** | Reads and searches only. Can't edit files or run commands. | tool allowlist (`launch.md` V9) | **Hidden until V9 verifies the allowlist**; M1 lists three options |
-| **Ask before commands** (default) | Edits files on its own; waits for you before running shell commands. | `write` | always |
+| **Ask before commands** | Edits files on its own; waits for you before running shell commands. | `write` | always |
 | **Ask for everything** | Waits for you before any edit or command. | `always-ask` | always |
-| **Hands-off** | Never asks. Runs commands and edits files as you. | `yolo` | always |
+| **Hands-off** (default) | Never asks. Runs commands and edits files as you. | `yolo` | always |
 
 No example job or default prompt may need a shell under an approval mode that forbids it (R18, §6.1). A repo's own `.omp/config.yml` can't widen "Ask before commands": the run passes a config overlay (R7).
 
-Choosing **Hands-off** shows a persistent `warning` on the row: "Hands-off runs commands and edits files as you, with your credentials, while you're away. Only use it for prompts you'd trust unattended." Saving a job with Hands-off shows a confirm overlay (§6.5) with `[Use hands-off]` / `[Keep asking]`. **The confirmation is bound to the job's prompt text, folder and role** (R10): editing any of them (including the prompt `.md` file) makes the job `blocked/hands_off_review` until it is confirmed again in the manager, and the overlay shows again on the next Save. The row in lists shows `⚠ hands-off`. Waiting-for-approval runs are *needs you*, never silently stuck while a window is open (PA §5.5, §6 "Permission stalls").
+Choosing **Hands-off** shows a persistent `warning` on the row: "Hands-off runs commands and edits files as you, with your credentials, while you're away. Only use it for prompts you'd trust unattended." Nothing asks to re-confirm it, and editing the prompt, folder or role never blocks the job. The row in lists shows `⚠ hands-off`. Waiting-for-approval runs are *needs you*, never silently stuck while a window is open (PA §5.5, §6 "Permission stalls").
 
 Hint under the row for Ask-before-commands: "If a run stops to ask, it shows up under Needs you. Use Save & run now to see what it asks for."
 
@@ -591,8 +591,9 @@ Palette "New job…" (and, in M3, a Carly `job_add`) opens this form pre-filled 
 │                 claude-opus-5-5 · medium. Costs more than @smol. Resolved each time the job runs.      │
 │                                                                                                        │
 │  SAFETY                                                                                                │
-│  Approval       Ask before commands ▾                                                                  │
-│                 If a run stops to ask, it shows up under Needs you.                                    │
+│  Approval       Hands-off ▾                                                                            │
+│                 Hands-off runs commands and edits files as you, with your credentials, while you're    │
+│                 away. Only use it for prompts you'd trust unattended.                                  │
 │  Stop after     30 min ▾                                                                               │
 │                                                                                                        │
 │  Active         [on]                                                                                   │
@@ -626,7 +627,7 @@ The engine's states are canonical (`engine.md` §7: `scheduled launching running
 | timed out | `timed_out/*` | `✗` | §5.5 |
 | stopped | `cancelled/user_stop` (also `replaced`) | `■` neutral | §5.5 |
 | closed by you | `cancelled/closed_by_user` (block gone without our close, no daemon gap) | `■` neutral | §5.5 |
-| blocked | `blocked/*` (`cwd_missing`, `role_missing`, `omp_missing`, `hands_off_review`, …) | `shield-alert` icon | §5.5 |
+| blocked | `blocked/*` (`cwd_missing`, `role_missing`, `omp_missing`, …) | `shield-alert` icon | §5.5 |
 | skipped | `skipped/*` (`overlap`, `cap`, `paused_all`) | `↷` | §5.5 |
 | missed | `missed/*` (`asleep_or_closed`, too late) | `◌` | §5.5 |
 | quiet (M2) | `finished` with `quiet=true` | `✓` | §5.4 |
@@ -703,7 +704,6 @@ Each is a row in History, never auto-archived (PA §6 "Failures that hide their 
 | blocked | `blocked/cwd_missing` | "Blocked: ~/Dev/app doesn't exist." |
 | blocked | `blocked/role_missing` | "Blocked: role @research no longer exists in omp." |
 | blocked | `blocked/omp_missing` | "Blocked: omp wasn't found." |
-| blocked | `blocked/hands_off_review` | "Blocked: the prompt, folder or role changed since you approved hands-off. Open Edit and confirm again." |
 | blocked | other config blocks | "Blocked: Approval mode was changed in omp config; open Edit to review." (no tokens spent; one alert) |
 | ran, role unchecked | `role_unverified` on a run that proceeded | "Ran without checking role @smol (couldn't read your omp roles)." |
 | skipped (overlap) | `skipped/overlap` | "Skipped: the previous run was still going." |
@@ -741,7 +741,7 @@ On wake, app/daemon start, or window open, the scheduler compares each active jo
 ## 6. First run and trust
 
 ### 6.1 Onboarding empty state [M1]
-Wireframe in §3.5. Three examples; each opens the form pre-filled and unsaved (PA §6 "hidden auto-created tasks"; rss starter feeds precedent, `PRODUCT.md`). Every example uses `@smol` and shows its cost, works under its stated approval mode (RP P2), and is scheduled at a time a laptop is usually awake (RP P6). The first two never need a shell, so they run unattended under the default; the third says it asks first. Hands-off is never pre-filled. *(R16, R18, R19)*
+Wireframe in §3.5. Three examples; each opens the form pre-filled and unsaved (PA §6 "hidden auto-created tasks"; rss starter feeds precedent, `PRODUCT.md`). Every example uses `@smol` and shows its cost, works under its stated approval mode (RP P2), and is scheduled at a time a laptop is usually awake (RP P6). The first two never need a shell, so they run unattended under their stated mode; the third says it asks first. None is pre-filled with Hands-off. *(R16, R18, R19)*
 
 | Example | When | Approval | Role · cost | Prompt text |
 |---|---|---|---|---|
@@ -786,14 +786,9 @@ Where it is shown, **Details** (empty state and Settings) opens the Setup sheet 
 - Settings can show the last heartbeat time. "Keep Mac awake while a run is going" (`caffeinate`) is M2.
 
 ### 6.5 Unattended-permissions warning [M1]
-Shown (1) on the Approval row for Hands-off (§4.7), (2) when a job is saved with Hands-off and whenever its confirmation is stale (confirm overlay), (3) as `⚠ hands-off` in every list row and in Detail "Safety: Hands-off: runs commands as you", (4) in Settings next to the default approval. Never auto-dismissed, never a toast. The confirmation is bound to the job's prompt text, folder and role (R10). Wording on the confirm overlay:
+Shown (1) on the Approval row for Hands-off (§4.7), (2) as `⚠ hands-off` in every list row and in Detail "Safety: Hands-off: runs commands as you", (3) in Settings next to the default approval. Never auto-dismissed, never a toast. Wording on the Approval row: "Hands-off runs commands and edits files as you, with your credentials, while you're away. Only use it for prompts you'd trust unattended."
 
-> **Use hands-off?**
-> daily-review will run shell commands and edit files as you, with your credentials, whenever it fires, even when you're away. A prompt that reads web pages or issues can be tricked into doing things you didn't ask.
-> This confirmation covers the prompt, folder and role as they are now. If you change any of them you'll be asked again, and until then the job won't run.
-> `[Use hands-off  y]` `[Keep asking  esc]`
-
-If the prompt (including an edit made in the `.md` file), folder or role no longer matches what was confirmed, the job becomes `blocked/hands_off_review`: row copy "Blocked: the prompt, folder or role changed since you approved hands-off. Open Edit and confirm again.", listed under Needs fixing, toast `{name} needs a hands-off review` (§7.3). Plugin data is not a security boundary against other processes running as you; the confirmation protects against accidents and against the plugin's own intent surface (R10), not against local malware.
+Hands-off is the default for new jobs and nothing asks to confirm it again: there is no confirm overlay and editing a job never blocks it. Plugin data is not a security boundary against other processes running as you.
 
 ### 6.6 First load and discovery [M1] (R25)
 On the first load of the plugin, one `info` toast: "Schedule is ready." / sub "Press ctrl+alt+shift+s." (flag in host `settings.json`; never shown again). The status segment stays hidden while there are zero jobs, so the toast and the palette group are the only discovery paths. The first-ever scheduled (non-test) run also toasts once: `info` "{name} started" / sub "in the “Scheduled runs” session · later runs start quietly" (flag in host `settings.json`). No window open at that moment: the toast shows when a window next opens.
@@ -837,7 +832,6 @@ Strings are final unless marked `{var}`. Scope: everything is M1 unless tagged.
 | Failed | error | `{name} failed` | `{reason ≤120 chars}` |
 | Auto-paused | error | `{name} paused after {N} failures` | `fix the problem, then press space` |
 | Blocked | error | `{name} is blocked` | `{reason}` |
-| Hands-off review | info | `{name} needs a hands-off review` | `confirm it in Edit; nothing ran` |
 | Missed, catching up | info | `Missed {name} ({Mon 09:00})` | `running it once now` |
 | Several caught up | info | `Catching up {N} jobs` | `{a, b, +n}` |
 | Missed, too late | info | `Skipped {N} missed job(s)` | `{13h} late, over its {3h} limit` |
@@ -867,7 +861,7 @@ As the table in §5.5 plus: `Waiting for approval.` · `Asked a question.` · `W
 
 ### 7.7 Detail view, settings, empty, setup
 - Detail field labels: `When` · `If asleep` · `Next` · `Role` · `Folder` · `Appears` · `Safety` · `After` · `Prompt` · `Runs (last 20)`.
-- Settings rows (sheet, `prefs`). **M1 core rows**: **Runs** (where runs appear: Scheduled runs session / Background tab in the current session · bring to front when it starts: off · run session name: `Scheduled runs` · finished run panes to keep: 5 · jobs running at once: 2) · **Status line** (nothing in M1) · **Setup** (Check setup · last heartbeat · availability text + **Details** · **Open data folder**) · **Safety** (reset hands-off confirmations). **M2**: defaults for new jobs (role, approval, stop-after, notifications) · keep run history (last 50 runs per job for 90 days) · show next run in the status line · keep Mac awake during runs · extra PATH folders. **M3**: Carly (draft-only, nothing to relax).
+- Settings rows (sheet, `prefs`). **M1 core rows**: **Runs** (where runs appear: Scheduled runs session / Background tab in the current session · bring to front when it starts: off · run session name: `Scheduled runs` · finished run panes to keep: 5 · jobs running at once: 2) · **Status line** (nothing in M1) · **Setup** (Check setup · last heartbeat · availability text + **Details** · **Open data folder**). **M2**: defaults for new jobs (role, approval, stop-after, notifications) · keep run history (last 50 runs per job for 90 days) · show next run in the status line · keep Mac awake during runs · extra PATH folders. **M3**: Carly (draft-only, nothing to relax).
 - Empty state: title `Run an omp agent on a schedule.` · body `Pick a time, write a prompt, point it at a folder. Runs show up here when they need you.` · section `Start from an example` · filter empty (M2): `No jobs match “{query}”.` · all-paused empty Upcoming: `Nothing scheduled. All jobs are paused.`
 - Availability text (R20, exact): `Jobs run while Tern's session service is running. It keeps running after you close windows as long as a terminal or run is still open. Nothing runs while your Mac is asleep, or after a restart until you open Tern.`
 - Setup banner: `Schedule needs attention` · sheet title `Check setup`.
@@ -892,9 +886,9 @@ Every action in §3.4 and §4.10 has a key; no feature is pointer-only. Overlays
 
 ## 9. Open UX questions (decide with the user)
 
-Final list from `decisions.md` §4 (options verbatim). Until the user answers, the spec builds the recommended option; the dependent copy is marked in §4.7 (Q1), §4.1a (Q2), §6.2/§6.4 (Q3), §4.8 (Q4), §4.6 (Q5) and §4 (Q6).
+Final list from `decisions.md` §4 (options verbatim). Q1 is decided (Hands-off, 2026-10-12); until the user answers the others, the spec builds the recommended option; the dependent copy is marked in §4.1a (Q2), §6.2/§6.4 (Q3), §4.8 (Q4), §4.6 (Q5) and §4 (Q6).
 
-1. **Default approval for new jobs**: (A) Ask before commands + per-job "Allowed commands" list (`git`, `gh`, `npm test`…) compiled into the overlay, if omp's `bash` patterns verify — *recommended*; (B) Hands-off by default (matches your omp default `yolo` and tern-swarm); (C) Ask before commands with no allowlist (safe, but most real jobs stall on their first shell command).
+1. **Default approval for new jobs**: decided, Hands-off (`yolo`); "Ask before commands" stays one pick away.
 2. **Catch-up window**: 3 h (*recommended*), 12 h, any age (Raycast), or skip.
 3. **Keeping Tern's service alive**: (A) honest copy + Setup keep-alive row (*recommended*); (B) the plugin keeps one idle pane in the runs session so the service survives closing every window; (C) an opt-in launchd agent that starts `tern daemon` at login.
 4. **Finished run panes**: keep with a cap of 5 (*recommended*), close successful runs right away (relies on `--resume`), or keep everything.

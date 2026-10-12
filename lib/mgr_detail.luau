@@ -138,6 +138,11 @@ local function run_item(run: any, now: number, tier: number): Node
 	end
 	props.label = { ui.span(string.format("%s%s%s", if glyph ~= nil then glyph .. " " else "", C.when_text(t, now), suffix)) }
 
+	local not_attached = ""
+	if type(run.images) == "table" and type(run.images.skipped) == "table" and #run.images.skipped > 0 then
+		local k = #run.images.skipped
+		not_attached = string.format("%d %s not attached", k, if k == 1 then "image" else "images")
+	end
 	local detail: string
 	if run.state == "finished" then
 		local parts: { string } = {}
@@ -149,11 +154,20 @@ local function run_item(run: any, now: number, tier: number): Node
 		elseif run.reason_code == "ok_unobserved" then
 			table.insert(parts, "finished (no window was open to watch it)")
 		end
+		if not_attached ~= "" then
+			table.insert(parts, not_attached)
+		end
 		detail = table.concat(parts, " · ")
 	elseif type(run.reason) == "string" and run.reason ~= "" then
 		detail = clip(run.reason, 120)
+		if not_attached ~= "" then
+			detail ..= " · " .. not_attached
+		end
 	else
 		detail = run.state
+		if not_attached ~= "" then
+			detail ..= " · " .. not_attached
+		end
 	end
 	if tier >= 2 and detail ~= "" then
 		props.detail = { ui.span(detail, "muted") }

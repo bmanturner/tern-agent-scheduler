@@ -8,7 +8,7 @@ Write a prompt, pick a folder and say when ("weekdays 9am", "every 2h", `0 9 * *
 
 ## Install
 
-Built and tested on Tern 0.8.2. Runs on macOS or Linux (not Windows yet) and needs [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
+Built and tested on Tern 0.8.3. Runs on macOS or Linux (not Windows yet) and needs [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
 
 ```sh
 tern plugin install github.com/bmanturner/tern-agent-scheduler
@@ -24,7 +24,7 @@ Press `n` in the manager, or `ctrl+alt+shift+j` anywhere. The folder starts as t
 
 | Field | What it sets |
 | --- | --- |
-| Prompt | What the agent should do, in Markdown. `ctrl+o` opens it in an editor. |
+| Prompt | What the agent should do, in Markdown. `ctrl+o` opens it in an editor. Images it links to are attached to every run. |
 | When | The schedule, with a preview of the next three runs. `ctrl+p` picks a preset. |
 | If your computer was asleep | Run once when you're back if under 3 h late (default), always catch up, or skip. |
 | Folder | Where every run starts. |

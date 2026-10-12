@@ -2,6 +2,24 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.2.3 (2026-10-12)
+
+Built and tested on Tern 0.8.3 (macOS, and a Linux remote host).
+
+### Added
+
+- Images a prompt links to (`![](shot.png)` beside the prompt file, or a path such as `~/Desktop/shot.png`) are attached to every run, so the model sees them. Up to 10 per prompt, 20 MB each. An image that can't be attached doesn't stop the run: the agent is told which ones are missing, and the run's row in the job's details says how many weren't attached.
+
+### Changed
+
+- Settings › Setup expects Tern 0.8.3 and flags older versions
+- Drafts opened with `ctrl+o` in the job form are kept beside the job prompts, so an image saved beside a draft still works after you save the job
+- Images beside your prompts that no prompt has linked to for a week are cleaned up
+
+### Fixed
+
+- A run where omp stopped with an error now shows omp's error message instead of a generic "omp exited with status N"
+
 ## 0.2.2 (2026-10-12)
 
 Built and tested on Tern 0.8.2.

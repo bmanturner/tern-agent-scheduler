@@ -30,7 +30,7 @@ local fake = {
 }
 fake.live_panes = {} -- pane ids (strings) reported by tern.pane.list()
 fake.installed = {
-	[fake.tern_bin] = "tern 0.8.2 (test)\n",
+	[fake.tern_bin] = "tern 0.8.3 (test)\n",
 	[fake.omp_bin] = "omp/18.9.1\n",
 }
 

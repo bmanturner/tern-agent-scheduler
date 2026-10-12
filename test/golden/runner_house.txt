@@ -1,0 +1,6 @@
+PASS drafts in prompts/ age out after 7 days
+PASS legacy drafts/ retired
+PASS image sweep removes only unreferenced old files under prompts/
+PASS capture_tail passes --surfaces and picks the error line
+PASS legacy drafts/ kept while a fresh draft remains
+PASS failed find deletes nothing
