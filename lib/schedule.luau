@@ -22,6 +22,8 @@ local function time_of_day(s: string): (number?, number?)       -- "9am" "9:30pm
   if H > 23 or Mi > 59 then return nil, nil end
   return H, Mi
 end
+M.time_of_day = time_of_day
+M.DOW = DOW
 
 local function dow_list(s: string): string?                       -- "mon,thu" "monday and wednesday" "weekdays"
   if s == "weekdays" or s == "every weekday" then return "1-5" end

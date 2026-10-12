@@ -1,0 +1,44 @@
+parse "only if new commits on main in src/ docs/" => [new commits on main in src/ docs/]
+parse "weekdays 9-18 and max 3 runs a day and ./scripts/x.sh" => [weekdays 09:00–18:00 and max 3 runs a day and ./scripts/x.sh]
+parse "not 22:00-07:00" => [not 22:00–07:00]
+parse "max 3 runs and max $2 a day" => [max 3 runs and $2.00 a day]
+parse "always" => []
+parse "" => []
+parse "new commits" => [new commits]
+parse "new commit in lib" => [new commits in lib]
+parse "If NEW COMMITS on Release/1.2" => [new commits on Release/1.2]
+parse "weekends" => [weekends]
+parse "mon,wed 9am-5pm" => [mon,wed 09:00–17:00]
+parse "mon, wed" => [mon,wed]
+parse "daily 14:00-16:00" => [14:00–16:00]
+parse "outside 9-17" => [not 09:00–17:00]
+parse "max $2 per week" => [max $2.00 a week]
+parse "max 1 run a day" => [max 1 run a day]
+parse "~/bin/check.sh and /opt/c.sh" => [~/bin/check.sh and /opt/c.sh]
+parse "./a.sh and new commits and ./b.sh" => [new commits and ./a.sh and ./b.sh]
+parse "weekdays 9-18 and max 3 runs a day and new commits and ./x.sh" => error: Use at most 3 conditions.
+parse "new commits on ../x" => error: “../x” isn't a branch name Agent Scheduler can check.
+parse "new commits on" => error: Say which branch after “on”, e.g. new commits on main.
+parse "new commits on -x" => error: “-x” isn't a branch name Agent Scheduler can check.
+parse "new commits in ../up" => error: “../up” isn't a folder path Agent Scheduler can check (no spaces, .. or leading -).
+parse "foo" => error: Not understood: “foo”. Try “new commits on main”, “weekdays 9-18”, “max 3 runs a day” or “./scripts/has-work.sh”.
+parse "./my script.sh" => error: Script paths can't contain spaces.
+parse "./x$y.sh" => error: “./x$y.sh” can't be used as a script path.
+parse "./../x.sh" => error: “./../x.sh” can't be used as a script path.
+parse "max 0 runs a day" => error: Try “max 3 runs a day” or “max $2 a day”.
+parse "max 101 runs a day" => error: Try “max 3 runs a day” or “max $2 a day”.
+parse "max $2000 a day" => error: Try “max 3 runs a day” or “max $2 a day”.
+parse "max 3 runs a day and max $2 a week" => error: Use one period for limits, e.g. max 3 runs and max $2 a day.
+parse "9-9" => error: The time range is empty.
+parse "new commits and new commits on main" => error: Only one “new commits” condition.
+parse "weekdays and 9-18" => error: Only one time window.
+parse "./a.sh and ./b.sh and ./c.sh" => error: Use at most 2 script checks.
+sig/check_stored/script_path => ok
+fnv64 "" => cbf29ce484222325
+fnv64 "a" => af63dc4c8601ec8c
+fnv64 "foobar" => 85944171f73967e8
+summarize "RESULT: [quiet]" => nothing to report | failed=nil | quiet=true
+summarize "RESULT: [QUIET] - nothing new" => nothing new | failed=nil | quiet=true
+summarize "RESULT: FAILED - x" => x | failed=x | quiet=nil
+summarize "RESULT: done" => done | failed=nil | quiet=nil
+ADD_DOC fits => true

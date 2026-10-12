@@ -3,6 +3,7 @@
 local cron = require("./cron")
 local schedule = require("./schedule")
 local const = require("./const")
+local conditions = require("./conditions")
 
 local validate = {}
 
@@ -10,6 +11,9 @@ export type JobInput = {
 	name: string?,
 	prompt: string?,
 	when: string?,
+	only_if: string?,
+	check_acks: { [string]: string }?,
+	quiet_ok: boolean?,
 	role: string?,
 	cwd: string?,
 	approval: string?,
@@ -244,6 +248,35 @@ function validate.job(fields: JobInput, ctx: Ctx): (boolean, { [string]: string 
 		end
 	end
 
+	-- only_if
+	if fields.only_if ~= nil then
+		local text = trim(fields.only_if)
+		if #text > 300 then
+			errs.only_if = "Keep conditions under 300 characters."
+		else
+			local list, err = conditions.parse(text)
+			if list == nil then
+				errs.only_if = err
+			else
+				for _, c in list do
+					if c.type == "check" and fields.check_acks ~= nil then
+						c.ack = fields.check_acks[c.path]
+						if c.ack == nil then
+							errs.only_if = string.format("Couldn't read %s to approve it.", c.path)
+						end
+					end
+				end
+				if errs.only_if == nil then
+					out.only_if = text
+					out.conditions = list
+				end
+			end
+		end
+	end
+	if fields.quiet_ok ~= nil then
+		out.quiet_ok = fields.quiet_ok == true
+	end
+
 	-- role
 	if fields.role ~= nil then
 		local role = trim(fields.role):gsub("^@", "")
@@ -388,6 +421,23 @@ function validate.stored(job: any): string?
 	end
 	if job.max_runtime_s ~= nil and int_in(job.max_runtime_s, const.MAXRUN_MIN_S, const.MAXRUN_MAX_S) == nil then
 		return "Invalid time limit."
+	end
+	if job.conditions ~= nil then
+		local cerr = conditions.check_stored(job.conditions)
+		if cerr ~= nil then
+			return cerr
+		end
+		for _, c in job.conditions do
+			if c.type == "check" and c.ack == nil then
+				return "Its script check isn't approved."
+			end
+		end
+	end
+	if job.only_if ~= nil and (type(job.only_if) ~= "string" or #job.only_if > 300) then
+		return "Its conditions can't be read."
+	end
+	if job.quiet_ok ~= nil and type(job.quiet_ok) ~= "boolean" then
+		return "Invalid quiet setting."
 	end
 	return nil
 end

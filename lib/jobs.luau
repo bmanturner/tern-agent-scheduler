@@ -706,6 +706,9 @@ function jobs.update(id: string, input: validate.JobInput, prompt: string?, now:
 			st.paused_reason = nil
 			st.failure_streak = 0
 			st.incident = nil
+			if type(st.watch) == "table" and type(st.watch.conditions) == "table" then
+				st.watch.conditions.err = nil
+			end
 		else
 			st.paused_reason = "user"
 		end
@@ -850,6 +853,9 @@ function jobs.resume(id: string, now: number): boolean
 	st.paused_reason = nil
 	st.failure_streak = 0
 	st.incident = nil
+	if type(st.watch) == "table" and type(st.watch.conditions) == "table" then
+		st.watch.conditions.err = nil
+	end
 	arm(job, now)
 	if not save_both() then
 		restore_table(job, before_job)

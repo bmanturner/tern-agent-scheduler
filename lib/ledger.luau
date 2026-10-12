@@ -13,6 +13,7 @@ local ledger = {}
 export type Run = { [string]: any }
 
 -- allowed transitions (EN §7.2/§7.3); terminal states never change
+-- terminal states never change, with one exception: ledger.fold may update a skipped record's count/last/reason
 local ALLOWED: { [string]: { [string]: boolean } } = {
 	scheduled = {
 		scheduled = true,
@@ -193,6 +194,7 @@ local function day_time(t: number): string
 	local w = cron.clock.date("*t", t)
 	return string.format("%s %02d:%02d", DAYS[(w.wday or 1)] or "", w.hour, w.min)
 end
+ledger.day_time = day_time
 
 local function dur(s: number): string
 	s = math.max(0, math.floor(s))
@@ -319,6 +321,17 @@ function ledger.reason_text(code: string?, run: Run): string
 			return string.format("Missed %d runs, last %s: Tern wasn't running or your %s was asleep.", count, day_time(slot), platform.machine())
 		end
 		return string.format("Missed %s: Tern wasn't running or your %s was asleep.", day_time(slot), platform.machine())
+	elseif c == "cond_baseline" then
+		return tostring(run.cond_text or "")
+	elseif c == "cond_error" then
+		return string.format("Blocked: %s.", tostring(run.cond_text or "a condition couldn't be checked"))
+	elseif c == "cond_commits" or c == "cond_window" or c == "cond_budget" or c == "cond_check" then
+		local text = tostring(run.cond_text or "a condition said no")
+		local count = tonumber(run.count) or 1
+		if count > 1 then
+			return string.format("Skipped %d times since %s: %s.", count, day_time(tonumber(run.first) or tonumber(run.slot) or 0), text)
+		end
+		return string.format("Skipped: %s.", text)
 	end
 	return ""
 end
@@ -426,6 +439,31 @@ function ledger.transition(
 		return true, "not_persisted"
 	end
 	return true, nil
+end
+
+-- Folds a repeated skipped run into the previous skipped row (count/first/last/ended) and drops the new one.
+function ledger.fold(prev: Run, run: Run, now: number): boolean
+	if prev.state ~= "skipped" then
+		return false
+	end
+	prev.count = (tonumber(prev.count) or 1) + 1
+	prev.first = prev.first or prev.slot
+	prev.last = run.slot
+	prev.ended = tonumber(run.ended) or now
+	prev.reason = ledger.reason_text(prev.reason_code, prev)
+	local job_id = tostring(run.job_id)
+	local run_id = tostring(run.run_id)
+	local f = load_file(job_id)
+	for i = #f.items, 1, -1 do
+		local r = f.items[i].run
+		if r ~= nil and r.run_id == run_id then
+			table.remove(f.items, i)
+		end
+	end
+	f.index[run_id] = nil
+	inflight_index[run_id] = nil
+	remove_run_dir(run)
+	return write_file(job_id, f)
 end
 
 function ledger.get(run_id: string): Run?
