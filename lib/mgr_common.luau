@@ -90,7 +90,7 @@ export type Form = {
 }
 
 export type Sheet = {
-	kind: string, -- roles | presets | branches | days | setup | settings | help | first_run | confirm_stop | run_anyway | conditions
+	kind: string, -- roles | presets | branches | time | setup | settings | help | first_run | confirm_stop | run_anyway | conditions
 	-- picker
 	query: textfield.Field?,
 	sel: string?,
@@ -108,8 +108,8 @@ export type Sheet = {
 	code: string?,
 	override: string?,
 	verdict: any?,
-	-- days sheet: the weekdays being picked (0 = Sunday .. 6 = Saturday).
-	days: { number }?,
+	-- time sheet: which row it sets (c_from | c_to).
+	row: string?,
 }
 
 export type State = {

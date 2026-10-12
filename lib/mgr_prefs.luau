@@ -25,9 +25,29 @@ function P.option_values(c: { [string]: any }): { string }
 	return out
 end
 
--- The next value of a number control one step `dir` away; nil with nowhere to go.
+-- The next value of a number control one step `dir` away; nil with nowhere to go. With `labels` the steps are
+-- the labelled keys (sorted numerically) rather than `value ± step`.
 function P.step_number(c: { [string]: any }, dir: number): number?
 	local v = tonumber(c.value) or c.min or 0
+	if type(c.labels) == "table" then
+		local keys: { number } = {}
+		for k in c.labels do
+			local n = tonumber(k)
+			if n ~= nil then
+				table.insert(keys, n)
+			end
+		end
+		table.sort(keys)
+		local pick: number? = nil
+		for _, n in keys do
+			if dir > 0 and n > v then
+				return n
+			elseif dir < 0 and n < v then
+				pick = n
+			end
+		end
+		return pick
+	end
 	local n = math.clamp(v + dir * (c.step or 1), c.min or -math.huge, c.max or math.huge)
 	return if n ~= v then n else nil
 end

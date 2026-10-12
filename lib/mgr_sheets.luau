@@ -139,6 +139,22 @@ local function branch_entries(state: State, query: string): ({ { id: string, lab
 	return out, note
 end
 
+-- The From / Until picker's times, filtered by the query.
+local function time_entries(state: State, sheet: Sheet): { { id: string, label: string } }
+	local form = state.form
+	if form == nil then
+		return {}
+	end
+	local q = string.lower(C.trim((sheet.query or textfield.new()).text))
+	local out: { { id: string, label: string } } = {}
+	for _, e in F.time_entries(form, sheet.row or "c_from") do
+		if q == "" or string.find(string.lower(e.label), q, 1, true) ~= nil then
+			table.insert(out, e)
+		end
+	end
+	return out
+end
+
 local function picker_node(state: State, sheet: Sheet): Node
 	local query = (sheet.query or textfield.new()).text
 	local items: { any } = {}
@@ -167,6 +183,15 @@ local function picker_node(state: State, sheet: Sheet): Node
 		if form ~= nil then
 			current = { if form.c_branch == "" then F.CURRENT_BRANCH else form.c_branch }
 		end
+	elseif sheet.kind == "time" then
+		for _, e in time_entries(state, sheet) do
+			table.insert(items, { id = e.id, label = e.label, icon = "clock" })
+			table.insert(order, e.id)
+		end
+		local form = state.form
+		if form ~= nil then
+			current = { tostring(if sheet.row == "c_to" then form.c_to else form.c_from) }
+		end
 	else
 		for _, p in PRESETS do
 			if query == "" or string.find(string.lower(p.label), string.lower(C.trim(query)), 1, true) ~= nil then
@@ -183,13 +208,14 @@ local function picker_node(state: State, sheet: Sheet): Node
 	local props: { [string]: any } = {
 		key = "picker",
 		size = "md",
-		title = if sheet.kind == "roles" then "Role" elseif sheet.kind == "branches" then "Branch" else "When",
+		title = if sheet.kind == "roles" then "Role" elseif sheet.kind == "branches" then "Branch" elseif sheet.kind == "time" then (if sheet.row == "c_to" then "Until" else "From") else "When",
 		subtitle = if sheet.kind == "roles"
 			then message
 			elseif sheet.kind == "branches" then (message or "Runs start only when this branch has new commits.")
+			elseif sheet.kind == "time" then "Times are your " .. platform.machine() .. "'s local time."
 			else "Pick a starting point, then adjust the time.",
-		noun = if sheet.kind == "roles" then "roles" elseif sheet.kind == "branches" then "branches" else "presets",
-		placeholder = if sheet.kind == "roles" then "Search roles…" elseif sheet.kind == "branches" then "Search branches…" else "Search presets…",
+		noun = if sheet.kind == "roles" then "roles" elseif sheet.kind == "branches" then "branches" elseif sheet.kind == "time" then "times" else "presets",
+		placeholder = if sheet.kind == "roles" then "Search roles…" elseif sheet.kind == "branches" then "Search branches…" elseif sheet.kind == "time" then "Search times…" else "Search presets…",
 		query = query,
 		cursor = textfield.utf16(sheet.query or textfield.new()),
 		items = C.arr(items),
@@ -208,6 +234,10 @@ local function picker_ids(state: State, sheet: Sheet): { string }
 		local list = role_list(state)
 		for _, name in filtered(list, query) do
 			table.insert(out, name)
+		end
+	elseif sheet.kind == "time" then
+		for _, e in time_entries(state, sheet) do
+			table.insert(out, e.id)
 		end
 	elseif sheet.kind == "branches" then
 		for _, e in branch_entries(state, query) do
@@ -228,6 +258,8 @@ local function choose(state: State, sheet: Sheet, id: string)
 		F.set_role(state, id)
 	elseif sheet.kind == "branches" then
 		F.set_branch(state, if id == F.CURRENT_BRANCH then "" else id)
+	elseif sheet.kind == "time" then
+		F.set_time(state, sheet.row or "c_from", tonumber(id) or 0)
 	else
 		for _, p in PRESETS do
 			if p.id == id and p.phrase ~= nil then
@@ -327,34 +359,6 @@ local function run_anyway_node(_state: State, sheet: Sheet): Node
 			C.badge("Cancel  esc", "neutral", "anyway_no", "no"),
 		}), { key = "acts" }),
 	})
-end
-
--- Days dialog: Mon..Sun toggles on a copy of the form's days; Done writes them back.
-local DAY_ORDER = { 1, 2, 3, 4, 5, 6, 0 }
-local DAY_NAME: { [number]: string } = { [0] = "Sun", [1] = "Mon", [2] = "Tue", [3] = "Wed", [4] = "Thu", [5] = "Fri", [6] = "Sat" }
-
-local function days_node(_state: State, sheet: Sheet): Node
-	local days = sheet.days or {}
-	local toggles: { Node } = {}
-	for i, d in DAY_ORDER do
-		local on = table.find(days, d) ~= nil
-		table.insert(toggles, C.badge(string.format("%s  %d", DAY_NAME[d], i), if on then "accent" else "neutral", "day_" .. d, "day" .. d))
-	end
-	local body: { Node } = {
-		C.text({ ui.span("Pick the days a run may start. Keys 1 to 7 toggle Mon to Sun.", "muted") }, "body"),
-		C.with(ui.row(toggles), { key = "days" }),
-	}
-	if sheet.text ~= nil then
-		table.insert(body, C.text({ ui.span(sheet.text, "warning") }, "need"))
-	end
-	table.insert(
-		body,
-		C.with(ui.row({
-			C.badge("Done  ⏎", "accent", "days_done", "done"),
-			C.badge("Cancel  esc", "neutral", "days_cancel", "cancel"),
-		}), { key = "acts" })
-	)
-	return dialog("Days", "md", body)
 end
 
 local RESULT_GLYPH: { [string]: { string } } = {
@@ -877,7 +881,7 @@ function S.layer(state: State): Node?
 		return nil
 	end
 	local kind = sheet.kind
-	if kind == "roles" or kind == "presets" or kind == "branches" then
+	if kind == "roles" or kind == "presets" or kind == "branches" or kind == "time" then
 		return picker_node(state, sheet)
 	elseif kind == "confirm_stop" then
 		return confirm_stop_node(state, sheet)
@@ -887,8 +891,6 @@ function S.layer(state: State): Node?
 		return run_anyway_node(state, sheet)
 	elseif kind == "conditions" then
 		return conditions_node(state, sheet)
-	elseif kind == "days" then
-		return days_node(state, sheet)
 	elseif kind == "help" then
 		return help_node(state, sheet)
 	elseif kind == "setup" then
@@ -943,39 +945,12 @@ local function do_forget(state: State, sheet: Sheet)
 	C.toast(state, "success", "Forgot what " .. job_name(id) .. " has seen", "The next run notes where things are and waits for something new.")
 end
 
-local function toggle_day(sheet: Sheet, day: number)
-	local days: { number } = {}
-	local found = false
-	for _, d in sheet.days or {} do
-		if d == day then
-			found = true
-		else
-			table.insert(days, d)
-		end
-	end
-	if not found then
-		table.insert(days, day)
-	end
-	sheet.days = days
-	sheet.text = nil
-end
-
-local function do_days_done(state: State, sheet: Sheet)
-	local days = sheet.days or {}
-	if #days == 0 then
-		sheet.text = "Pick at least one day."
-		return
-	end
-	state.sheet = nil
-	F.set_days(state, days)
-end
-
 -- Keys while a sheet is open. `true` / `nil` re-render; `false` means nothing changed.
 function S.key(state: State, k: Key): boolean?
 	local sheet = state.sheet :: Sheet
 	local kind = sheet.kind
 	local name = k.name
-	if kind == "roles" or kind == "presets" or kind == "branches" then
+	if kind == "roles" or kind == "presets" or kind == "branches" or kind == "time" then
 		return key_picker(state, sheet, k)
 	elseif kind == "settings" then
 		return key_settings(state, sheet, k)
@@ -1015,20 +990,6 @@ function S.key(state: State, k: Key): boolean?
 			return true
 		end
 		return false
-	elseif kind == "days" then
-		if name == "enter" then
-			do_days_done(state, sheet)
-			return true
-		elseif name == "escape" then
-			state.sheet = nil
-			return true
-		end
-		local n = tonumber(name)
-		if n ~= nil and n >= 1 and n <= 7 and name == tostring(n) then
-			toggle_day(sheet, DAY_ORDER[n])
-			return true
-		end
-		return false
 	elseif kind == "setup" then
 		if name == "escape" then
 			state.sheet = nil
@@ -1060,7 +1021,7 @@ function S.event(state: State, ev: UiEvent)
 		return
 	end
 	local act = ev.act
-	if kind == "roles" or kind == "presets" or kind == "branches" then
+	if kind == "roles" or kind == "presets" or kind == "branches" or kind == "time" then
 		if ev.ev == "select" and type(ev.item) == "string" then
 			sheet.sel = ev.item
 		elseif ev.ev == "activate" and type(ev.item) == "string" then
@@ -1083,12 +1044,6 @@ function S.event(state: State, ev: UiEvent)
 			run_setup_check(state, sheet)
 		elseif act == "open_data" then
 			open_data_folder()
-		elseif act == "days_done" then
-			do_days_done(state, sheet)
-		elseif act == "days_cancel" then
-			state.sheet = nil
-		elseif type(act) == "string" and string.match(act, "^day_%d$") ~= nil then
-			toggle_day(sheet, tonumber(string.sub(act, 5)) :: number)
 		end
 	end
 end

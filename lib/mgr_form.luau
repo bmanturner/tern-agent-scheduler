@@ -111,21 +111,22 @@ local C_ROWS: { [string]: boolean } = {
 	c_per = true,
 	c_check = true,
 	c_script = true,
+	c_commits_now = true,
+	c_window_now = true,
+	c_limits_now = true,
+	c_check_now = true,
 }
+-- The "Right now" rows that follow each switch after Check now.
+local NOW_ROWS: { [string]: boolean } = { c_commits_now = true, c_window_now = true, c_limits_now = true, c_check_now = true }
+-- Segmented choices (click or ←→ flips them, no menu), number steppers, and rows that open the time picker.
+local SEG_ROWS: { [string]: boolean } = { c_outside = true, c_per = true }
+local NUM_ROWS: { [string]: boolean } = { c_runs = true, c_usd = true }
+local TIME_ROWS: { [string]: boolean } = { c_from = true, c_to = true }
+local DAY_ORDER = { 1, 2, 3, 4, 5, 6, 0 }
+local DAY_NAMES = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }
 local SWITCH_ROWS: { [string]: boolean } = { active = true, quiet = true, c_commits = true, c_window = true, c_limits = true, c_check = true }
 local TEXT_ROWS: { [string]: boolean } = { name = true, prompt = true, when = true, folder = true, c_paths = true, c_script = true }
-local MENU_ROWS: { [string]: boolean } = {
-	catch_up = true,
-	approval = true,
-	stop = true,
-	c_days = true,
-	c_from = true,
-	c_to = true,
-	c_outside = true,
-	c_runs = true,
-	c_usd = true,
-	c_per = true,
-}
+local MENU_ROWS: { [string]: boolean } = { catch_up = true, approval = true, stop = true }
 -- Validation field -> form row, for the fields that don't share their row's name.
 local ERROR_ROW: { [string]: string } = {
 	cwd = "folder",
@@ -180,19 +181,6 @@ local function sorted_days(days: any): { number }
 	end
 	table.sort(out)
 	return out
-end
-
--- "every" | "weekdays" | "weekends" | "custom": which Days menu option the days match.
-local function days_key(days: { number }): string
-	local s = table.concat(sorted_days(days), ",")
-	if s == "0,1,2,3,4,5,6" then
-		return "every"
-	elseif s == "1,2,3,4,5" then
-		return "weekdays"
-	elseif s == "0,6" then
-		return "weekends"
-	end
-	return "custom"
 end
 
 local function snapshot_of(form: Form): { [string]: any }
@@ -611,25 +599,33 @@ local function summary_line(text: string): string
 	return clipped
 end
 
-local function number_options(base: { number }, current: number?, label: (number) -> string): { any }
+-- Stepper labels for a number row: 0 reads "No limit"; a seeded value off the list is added.
+local function number_control(base: { number }, current: number?, label: (number) -> string): { [string]: any }
 	local nums = table.clone(base)
 	if current ~= nil and table.find(nums, current) == nil then
 		table.insert(nums, current)
 		table.sort(nums)
 	end
-	local out: { any } = { { value = "none", label = "No limit" } }
+	local labels: { [string]: string } = { ["0"] = "No limit" }
 	for _, n in nums do
-		table.insert(out, { value = tostring(n), label = label(n) })
+		labels[tostring(n)] = label(n)
 	end
-	return out
+	return { k = "number", value = current or 0, min = 0, max = nums[#nums], labels = labels }
 end
 
 local function money_label(n: number): string
 	return if n == math.floor(n) then string.format("$%d", n) else string.format("$%.2f", n)
 end
 
--- Half-hour choices lo..hi (minutes); a value off the grid (from Carly) is added so it displays.
-local function time_options(lo: number, hi: number, current: number, is_end: boolean): { any }
+function F.time_label(row: string, m: number): string
+	return if row == "c_to" and m == 1440 then "Midnight" else conditions.hhmm(m)
+end
+
+-- The half-hour picks of the From / Until picker (From 00:00..23:30, Until 00:30..24:00), plus an off-grid value
+-- the form already holds (seeded from Carly).
+function F.time_entries(form: Form, row: string): { { id: string, label: string } }
+	local lo, hi = if row == "c_to" then 30 else 0, if row == "c_to" then 1440 else 1410
+	local current = if row == "c_to" then form.c_to else form.c_from
 	local mins: { number } = {}
 	for m = lo, hi, 30 do
 		table.insert(mins, m)
@@ -638,32 +634,36 @@ local function time_options(lo: number, hi: number, current: number, is_end: boo
 		table.insert(mins, current)
 		table.sort(mins)
 	end
-	local out: { any } = {}
+	local out: { { id: string, label: string } } = {}
 	for _, m in mins do
-		table.insert(out, { value = tostring(m), label = if is_end and m == 1440 then "Midnight" else conditions.hhmm(m) })
+		table.insert(out, { id = tostring(m), label = F.time_label(row, m) })
 	end
 	return out
 end
 
--- The second sentence of a condition's hint after Check now: what its result was.
-local function right_now(form: Form, kind: string): string
+-- The "Right now" row under a condition's switch once Check now has answered; nil before that.
+local function now_row(form: Form, row_id: string, kind: string): P.Row?
 	local v: any = form.verdict
 	if v == nil or type(v.results) ~= "table" then
-		return ""
+		return nil
 	end
 	for _, r in v.results do
 		if r.type == kind then
+			local hint: string? = nil
+			local warning: string? = nil
 			if r.result == "pass" then
-				return " Right now: ✓ " .. tostring(r.text)
+				hint = "✓ " .. tostring(r.text)
 			elseif r.result == "fail" then
-				return " Right now: ✗ " .. tostring(r.text)
+				hint = "✗ " .. tostring(r.text)
 			elseif r.result == "error" then
-				return " Right now: ⚠ " .. tostring(r.text)
+				warning = "⚠ " .. tostring(r.text)
+			else
+				hint = "Not checked: an earlier condition said no."
 			end
-			return " Right now: not checked (an earlier condition said no)"
+			return { id = row_id, label = "Right now", hint = hint, warning = warning, control = { k = "action", act = "c_now", label = "Check again" } }
 		end
 	end
-	return ""
+	return nil
 end
 
 -- The rows of the Only when page: one section per condition, each with its switch first.
@@ -702,18 +702,19 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 		branch_warning = form.branches_err
 	end
 
-	local days_options: { any } = {
-		{ value = "every", label = "Every day" },
-		{ value = "weekdays", label = "Weekdays" },
-		{ value = "weekends", label = "Weekends" },
-		{ value = "custom", label = if days_key(form.c_days) == "custom" then conditions.days_label(sorted_days(form.c_days)) else "Custom…" },
-	}
-	local runs_options = number_options({ 1, 2, 3, 4, 5, 6, 8, 10, 12, 24 }, form.c_runs, function(n: number): string
-		return if n == 1 then "1 run" else string.format("%d runs", n)
-	end)
-	local usd_options = number_options({ 0.5, 1, 2, 3, 5, 10, 20, 50 }, form.c_usd, money_label)
+	local days_values: { string } = {}
+	for _, d in sorted_days(form.c_days) do
+		table.insert(days_values, tostring(d))
+	end
+	local days_options: { any } = {}
+	for i, d in DAY_ORDER do
+		table.insert(days_options, { value = tostring(d), label = DAY_NAMES[i] })
+	end
+	local function time_control(row: string, m: number): { [string]: any }
+		return { k = "choice", style = "menu", value = tostring(m), options = { { value = tostring(m), label = F.time_label(row, m) } } }
+	end
 
-	return {
+	local sections: { P.Section } = {
 		{
 			id = "now",
 			title = nil,
@@ -733,7 +734,7 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 				{
 					id = "c_commits",
 					label = ROW_LABEL.c_commits,
-					hint = "Checks git in the job's folder. The first run notes where the branch is and waits; after that a run starts only if something landed since the last successful run, and the agent gets the list." .. (if form.c_commits then right_now(form, "commits") else ""),
+					hint = "Checks git in the job's folder. The first run notes where the branch is and waits; after that a run starts only if something landed since the last successful run, and the agent gets the list.",
 					warning = warn("c_commits"),
 					control = { k = "switch", on = form.c_commits },
 				},
@@ -767,7 +768,7 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 				{
 					id = "c_window",
 					label = ROW_LABEL.c_window,
-					hint = "Uses your " .. platform.machine() .. "'s local time." .. (if form.c_window then right_now(form, "window") else ""),
+					hint = "Uses your " .. platform.machine() .. "'s local time.",
 					warning = warn("c_window"),
 					control = { k = "switch", on = form.c_window },
 				},
@@ -776,21 +777,21 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 					label = ROW_LABEL.c_days,
 					warning = warn("c_days"),
 					disabled = off(form.c_window, "c_window"),
-					control = { k = "choice", style = "menu", value = days_key(form.c_days), options = days_options },
+					control = { k = "multi", values = days_values, options = days_options },
 				},
 				{
 					id = "c_from",
 					label = ROW_LABEL.c_from,
 					warning = warn("c_from"),
 					disabled = off(form.c_window, "c_window"),
-					control = { k = "choice", style = "menu", value = tostring(form.c_from), options = time_options(0, 1410, form.c_from, false) },
+					control = time_control("c_from", form.c_from),
 				},
 				{
 					id = "c_to",
 					label = ROW_LABEL.c_to,
 					warning = warn("c_to"),
 					disabled = off(form.c_window, "c_window"),
-					control = { k = "choice", style = "menu", value = tostring(form.c_to), options = time_options(30, 1440, form.c_to, true) },
+					control = time_control("c_to", form.c_to),
 				},
 				{
 					id = "c_outside",
@@ -799,12 +800,9 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 					disabled = off(form.c_window, "c_window"),
 					control = {
 						k = "choice",
-						style = "menu",
+						style = "segmented",
 						value = if form.c_outside then "outside" else "inside",
-						options = {
-							{ value = "inside", label = "When it may run" },
-							{ value = "outside", label = "Quiet hours (it never runs then)" },
-						},
+						options = { { value = "inside", label = "When it may run" }, { value = "outside", label = "Quiet hours" } },
 					},
 				},
 			},
@@ -816,7 +814,7 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 				{
 					id = "c_limits",
 					label = ROW_LABEL.c_limits,
-					hint = "Counts this job's runs since midnight (or since Monday). Test runs don't count; a run with unknown cost counts as the job's typical cost." .. (if form.c_limits then right_now(form, "budget") else ""),
+					hint = "Counts this job's runs since midnight (or since Monday). Test runs don't count; a run with unknown cost counts as the job's typical cost.",
 					warning = warn("c_limits"),
 					control = { k = "switch", on = form.c_limits },
 				},
@@ -825,14 +823,16 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 					label = ROW_LABEL.c_runs,
 					warning = warn("c_runs"),
 					disabled = off(form.c_limits, "c_limits"),
-					control = { k = "choice", style = "menu", value = if form.c_runs == nil then "none" else tostring(form.c_runs), options = runs_options },
+					control = number_control({ 1, 2, 3, 4, 5, 6, 8, 10, 12, 24 }, form.c_runs, function(n: number): string
+						return if n == 1 then "1 run" else string.format("%d runs", n)
+					end),
 				},
 				{
 					id = "c_usd",
 					label = ROW_LABEL.c_usd,
 					warning = warn("c_usd"),
 					disabled = off(form.c_limits, "c_limits"),
-					control = { k = "choice", style = "menu", value = if form.c_usd == nil then "none" else tostring(form.c_usd), options = usd_options },
+					control = number_control({ 0.5, 1, 2, 3, 5, 10, 20, 50 }, form.c_usd, money_label),
 				},
 				{
 					id = "c_per",
@@ -841,9 +841,9 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 					disabled = off(form.c_limits, "c_limits"),
 					control = {
 						k = "choice",
-						style = "menu",
+						style = "segmented",
 						value = form.c_per,
-						options = { { value = "day", label = "Day" }, { value = "week", label = "Week (from Monday)" } },
+						options = { { value = "day", label = "Day" }, { value = "week", label = "Week" } },
 					},
 				},
 			},
@@ -855,7 +855,7 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 				{
 					id = "c_check",
 					label = ROW_LABEL.c_check,
-					hint = "For anything the others can't express. It runs in the job's folder (30 s limit) with a JSON file describing the run as its argument. Exit 0 runs, 1 skips, anything else blocks the run and tells you. It may print REASON: (shown in history), CONTEXT: lines (given to the agent) and CURSOR: (handed back next time). Saving the job approves the script as it is; if it changes, runs are blocked until you save again." .. (if form.c_check then right_now(form, "check") else ""),
+					hint = "For anything the others can't express. It runs in the job's folder (30 s limit) with a JSON file describing the run as its argument. Exit 0 runs, 1 skips, anything else blocks the run and tells you. It may print REASON: (shown in history), CONTEXT: lines (given to the agent) and CURSOR: (handed back next time). Saving the job approves the script as it is; if it changes, runs are blocked until you save again.",
 					warning = warn("c_check"),
 					control = { k = "switch", on = form.c_check },
 				},
@@ -869,6 +869,21 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 			},
 		},
 	}
+	-- After a Check now, each switched-on condition gets its own "Right now" row right after its switch.
+	local NOW_FOR = { c_commits = { "c_commits_now", "commits" }, c_window = { "c_window_now", "window" }, c_limits = { "c_limits_now", "budget" }, c_check = { "c_check_now", "check" } }
+	for _, sec in sections do
+		for i, r in sec.rows do
+			local nf = NOW_FOR[r.id]
+			if nf ~= nil and r.control.on == true then
+				local nr = now_row(form, nf[1], nf[2])
+				if nr ~= nil then
+					table.insert(sec.rows, i + 1, nr)
+				end
+				break
+			end
+		end
+	end
+	return sections
 end
 
 -- The form's rows. `errs` are the current errors (F.errors); nil builds the structure only (ids, options), which is
@@ -1197,20 +1212,6 @@ local function menu_current(form: Form, row: string): string
 		return form.catch_up
 	elseif row == "approval" then
 		return form.approval
-	elseif row == "c_days" then
-		return days_key(form.c_days)
-	elseif row == "c_from" then
-		return tostring(form.c_from)
-	elseif row == "c_to" then
-		return tostring(form.c_to)
-	elseif row == "c_outside" then
-		return if form.c_outside then "outside" else "inside"
-	elseif row == "c_runs" then
-		return if form.c_runs == nil then "none" else tostring(form.c_runs)
-	elseif row == "c_usd" then
-		return if form.c_usd == nil then "none" else tostring(form.c_usd)
-	elseif row == "c_per" then
-		return form.c_per
 	end
 	return tostring(form.stop_s)
 end
@@ -1242,22 +1243,14 @@ local function apply_choice(state: State, row: string, value: string)
 		form.approval = value
 	elseif row == "stop" then
 		form.stop_s = tonumber(value) or form.stop_s
-	elseif row == "c_days" then
-		if value == "custom" then
-			state.sheet = { kind = "days", days = sorted_days(form.c_days) }
-			return
-		end
-		form.c_days = if value == "weekdays" then { 1, 2, 3, 4, 5 } elseif value == "weekends" then { 0, 6 } else { 0, 1, 2, 3, 4, 5, 6 }
-	elseif row == "c_from" then
-		form.c_from = tonumber(value) or form.c_from
-	elseif row == "c_to" then
-		form.c_to = tonumber(value) or form.c_to
 	elseif row == "c_outside" then
 		form.c_outside = value == "outside"
 	elseif row == "c_runs" then
-		form.c_runs = tonumber(value)
+		local n = tonumber(value)
+		form.c_runs = if n ~= nil and n > 0 then n else nil
 	elseif row == "c_usd" then
-		form.c_usd = tonumber(value)
+		local n = tonumber(value)
+		form.c_usd = if n ~= nil and n > 0 then n else nil
 	elseif row == "c_per" then
 		form.c_per = if value == "week" then "week" else "day"
 	end
@@ -1330,15 +1323,50 @@ function F.set_branch(state: State, branch: string)
 	form.focus = "c_branch"
 end
 
-function F.set_days(state: State, days: { number })
+function F.set_time(state: State, row: string, minutes: number)
 	local form = state.form
 	if form == nil then
 		return
 	end
-	form.c_days = sorted_days(days)
+	if row == "c_to" then
+		form.c_to = minutes
+	else
+		form.c_from = minutes
+	end
+	form.touched[row] = true
+	cond_changed(form)
+	form.focus = row
+end
+
+-- Applies a new selection of the Days chips; at least one day must stay on.
+local function change_days(state: State, days: { number })
+	local form = state.form :: Form
+	local clean = sorted_days(days)
+	if #clean == 0 then
+		C.notice(state, "Pick at least one day.")
+		return
+	end
+	form.c_days = clean
 	form.touched.c_days = true
 	cond_changed(form)
-	form.focus = "c_days"
+end
+
+-- Flips one weekday (0 = Sunday .. 6 = Saturday) in the Days chips.
+local function toggle_day(state: State, day: number)
+	local form = state.form :: Form
+	local days: { number } = {}
+	local found = false
+	for _, d in form.c_days do
+		if d == day then
+			found = true
+		else
+			table.insert(days, d)
+		end
+	end
+	if not found then
+		table.insert(days, day)
+	end
+	change_days(state, days)
 end
 
 -- Save -------------------------------------------------------------------------------------------------
@@ -1423,6 +1451,9 @@ local function check_now(state: State)
 	form.check_token = token
 	form.checking = true
 	form.verdict = nil
+	if NOW_ROWS[form.focus or ""] then
+		form.focus = "c_now"
+	end
 	runner.check_draft(draft, function(v: any)
 		if state.form ~= form or form.check_token ~= token then
 			return
@@ -1901,8 +1932,27 @@ end
 local function key_menu(state: State, k: Key): boolean
 	local form = state.form :: Form
 	local m = form.menu :: { row: string, option: string }
-	local values = choice_values(state, m.row)
 	local name = k.name
+	if m.row == "c_days" then
+		-- Days chips: ←→ move the highlight, space toggles that day, Enter or Escape closes.
+		local at = table.find(DAY_ORDER, tonumber(m.option) or 1) or 1
+		if name == "left" or name == "right" then
+			local j = math.clamp(at + (if name == "left" then -1 else 1), 1, #DAY_ORDER)
+			if j == at then
+				return false
+			end
+			m.option = tostring(DAY_ORDER[j])
+			return true
+		elseif name == "space" then
+			toggle_day(state, DAY_ORDER[at])
+			return true
+		elseif name == "enter" or name == "escape" then
+			form.menu = nil
+			return true
+		end
+		return false
+	end
+	local values = choice_values(state, m.row)
 	if name == "up" or name == "down" then
 		local at = table.find(values, m.option) or 0
 		local j = math.clamp(at + (if name == "up" then -1 else 1), 1, math.max(#values, 1))
@@ -1930,6 +1980,25 @@ local function activate(state: State, row: string): boolean
 		return true
 	elseif MENU_ROWS[row] then
 		form.menu = { row = row, option = menu_current(form, row) }
+		return true
+	elseif row == "c_days" then
+		local first = 1
+		for _, d in DAY_ORDER do
+			if table.find(form.c_days, d) ~= nil then
+				first = d
+				break
+			end
+		end
+		form.menu = { row = row, option = tostring(first) }
+		return true
+	elseif TIME_ROWS[row] then
+		state.sheet = { kind = "time", row = row, query = textfield.new(), sel = tostring(if row == "c_to" then form.c_to else form.c_from) }
+		return true
+	elseif SEG_ROWS[row] then
+		apply_choice(state, row, if row == "c_outside" then (if form.c_outside then "inside" else "outside") else (if form.c_per == "day" then "week" else "day"))
+		return true
+	elseif NOW_ROWS[row] then
+		check_now(state)
 		return true
 	elseif row == "role" then
 		state.sheet = { kind = "roles", query = textfield.new(), sel = form.role }
@@ -2039,6 +2108,28 @@ local function key_inner(state: State, k: Key): boolean?
 			end
 			apply_choice(state, row, values[j])
 			return true
+		elseif SEG_ROWS[row] then
+			local want_second = name == "right"
+			if row == "c_outside" then
+				if form.c_outside == want_second then
+					return false
+				end
+				apply_choice(state, row, if want_second then "outside" else "inside")
+			else
+				if (form.c_per == "week") == want_second then
+					return false
+				end
+				apply_choice(state, row, if want_second then "week" else "day")
+			end
+			return true
+		elseif NUM_ROWS[row] then
+			local r = P.find(F.sections(state), row)
+			local n = if r ~= nil then P.step_number(r.control, if name == "left" then -1 else 1) else nil
+			if n == nil then
+				return false
+			end
+			apply_choice(state, row, tostring(n))
+			return true
 		elseif SWITCH_ROWS[row] then
 			local want = name == "right"
 			if switch_get(form, row) == want then
@@ -2106,6 +2197,19 @@ function F.event(state: State, ev: UiEvent)
 			reset_row(state, item)
 		elseif SWITCH_ROWS[item] and type(ev.value) == "boolean" then
 			switch_set(state, item, ev.value)
+		elseif SEG_ROWS[item] and type(ev.value) == "string" then
+			apply_choice(state, item, ev.value)
+		elseif NUM_ROWS[item] and type(ev.value) == "number" then
+			apply_choice(state, item, tostring(ev.value))
+		elseif item == "c_days" and type(ev.value) == "table" then
+			local days: { number } = {}
+			for _, v in ev.value :: { any } do
+				local n = tonumber(v)
+				if n ~= nil then
+					table.insert(days, n)
+				end
+			end
+			change_days(state, days)
 		elseif MENU_ROWS[item] and type(ev.value) == "string" then
 			apply_choice(state, item, ev.value)
 		end
