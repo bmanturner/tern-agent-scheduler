@@ -14,7 +14,7 @@ Built and tested on Tern 0.8.2. Runs on macOS or Linux (not Windows yet) and nee
 tern plugin install github.com/bmanturner/tern-agent-scheduler
 ```
 
-Press `ctrl+alt+shift+s` to open the manager. With no jobs yet, it offers three examples you can save as they are or edit first. To update, run the install command again with `--force`; [CHANGELOG.md](CHANGELOG.md) lists what changed.
+Press `ctrl+alt+shift+m` to open the manager (`ctrl+alt+shift+s` also works on macOS). With no jobs yet, it offers three examples you can save as they are or edit first. To update, run the install command again with `--force`; [CHANGELOG.md](CHANGELOG.md) lists what changed.
 
 ## Create a job
 
@@ -71,7 +71,7 @@ Press `enter` on a job for its details: the prompt, a bar per recent run (red fo
 | `d` `d` | Delete (`u` undoes it for 10 s) |
 | `?` | Every key |
 
-From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+alt+shift+s`), **New job…** (`ctrl+alt+shift+j`), **Run a job now…** (`ctrl+alt+shift+r`) and **Go to run that needs you** (`ctrl+alt+shift+a`).
+From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+alt+shift+m`), **New job…** (`ctrl+alt+shift+j`), **Run a job now…** (`ctrl+alt+shift+r`) and **Go to run that needs you** (`ctrl+alt+shift+a`).
 
 ### Carly
 

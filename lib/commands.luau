@@ -168,7 +168,8 @@ function commands.register()
 		title = "Open manager",
 		icon = "timer",
 		group = GROUP,
-		keys = { "ctrl+alt+shift+s" },
+		-- m first: Tern's Linux preset already binds ctrl+alt+shift+s, which still works on macOS.
+		keys = { "ctrl+alt+shift+m", "ctrl+alt+shift+s" },
 		run = open_manager,
 	})
 	tern.command({

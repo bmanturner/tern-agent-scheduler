@@ -452,7 +452,7 @@ function status.update(cx: WindowCx?, now: number)
 	if cx ~= nil then
 		if hot ~= nil and hot.welcome == true and not ready_shown then
 			ready_shown = true
-			cx:toast("info", "Agent Scheduler is ready.", "Press ctrl+alt+shift+s.")
+			cx:toast("info", "Agent Scheduler is ready.", "Press ctrl+alt+shift+m.")
 		end
 		if snap ~= nil then
 			for _, t in status.diff(snap, hot, now) do

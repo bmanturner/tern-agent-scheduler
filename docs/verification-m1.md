@@ -46,3 +46,16 @@ Run against an isolated daemon (`TERN_CONFIG_DIR` and socket under `/tmp`, remov
 | End to end | A Carly-style `in 2m` job (`@smol`, Hands-off) launched into a new "Scheduled runs" session as `⏲ linux-e2e-2` and finished unobserved (no window) with summary `Linux`, cost $0.056. |
 | One-shot regression | The first attempt was cancelled as "Stopped by you": the review fix that cancels waiting runs of paused jobs also caught a one-shot, which turns itself off when its run is claimed. Fixed in the runner, covered by `test/runner_once.luau` (fails before, passes after); affected macOS too. |
 | Notifications / Open folder | `notify-send` and `xdg-open` are used when installed; not visible on a headless box, so unverified visually. |
+
+## Linux, v0.2.0 (Ubuntu 24.04.5, Tern 0.8.2, omp 18.8.3)
+
+Run on 2026-10-12 on the same headless server: the host half against an isolated daemon (`TERN_CONFIG_DIR` under `/tmp`, socket in a `0700` directory, which the daemon requires), the window half in a headless `tern serve` window. Everything was removed afterwards.
+
+| Check | Result |
+|---|---|
+| Install | `tern plugin install github.com/bmanturner/tern-agent-scheduler` installed 0.2.0; host half ready (1 block). |
+| Binaries and Setup | `tern` and `omp` found in `~/.local/bin`; cached `tern_version` is `tern 0.8.2 (44c7f76)`, which passes the Setup check; `setup_ok` true. |
+| End to end | A Carly-style `in 2m` job (`@smol`, Hands-off, `/tmp`) fired on its slot (09:20:00, started 09:20:03) into a new "Scheduled runs" session as `⏲ linux-e2e-0-2-0` and finished unobserved at 09:20:49 with summary `Linux`, cost $0.052. No plugin warnings in `tern-daemon.log`. |
+| Window half | `tern serve` pins the clock, so timer callbacks never run and the staged loader in `window.luau` never starts. A throwaway copy that loads the modules at top level loaded every module, registered the commands, and **Open manager** opened the manager, which rendered its welcome view with the three examples. |
+| Key binds | Tern's Linux preset already binds `ctrl+alt+shift+s`, so **Open manager**'s shortcut was left out (`plugin bind left out: the preset binds these keys`). `ctrl+alt+shift+j`, `r` and `a` bind. Of the other chords probed, `e`, `g`, `k` and `o` are taken on Linux and `m`, `l`, `d` and `q` are free on both Linux and macOS. 0.2.1 adds `ctrl+alt+shift+m` and keeps `s` for macOS. |
+| Not covered headless | `agent_finished`, the status line, the timer watchdog and notifications need a desktop Linux window. |

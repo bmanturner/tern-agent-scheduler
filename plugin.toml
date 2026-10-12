@@ -1,7 +1,7 @@
 schema = 1
 id = "tern-agent-scheduler"
 name = "Agent Scheduler"
-version = "0.2.0"
+version = "0.2.1"
 description = "Schedule omp agent runs: cron, presets, natural language and one-shot jobs, launched into a Scheduled runs session."
 icon = "timer"
 host = "host.luau"

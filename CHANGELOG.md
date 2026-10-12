@@ -2,6 +2,14 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.2.1 (2026-10-12)
+
+Built and tested on Tern 0.8.2 (macOS, and Linux without a desktop window).
+
+### Fixed
+
+- Open manager has a shortcut on Linux: `ctrl+alt+shift+m`. Tern's Linux keys already use `ctrl+alt+shift+s`, so that shortcut was never bound there; it still works on macOS.
+
 ## 0.2.0 (2026-10-12)
 
 Built and tested on Tern 0.8.2.
