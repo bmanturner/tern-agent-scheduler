@@ -14,6 +14,10 @@ local STALL_MIN_S = 120
 local NEEDS_CHORD = "ctrl+alt+shift+a"
 local CMD_OPEN = "plugin.tern-agent-scheduler.open-manager"
 local CMD_NEEDS = "plugin.tern-agent-scheduler.go-to-needs-you"
+-- Shown once this window's timers are off (see window.luau); a click reloads plugins.
+local STOPPED_SEG: StatusSegment =
+	{ text = "Agent Scheduler stopped · click to reload plugins", icon = "warn", tone = "error", command = "reload_plugins" }
+local stopped = false
 
 export type View = {
 	seg: StatusSegment?,
@@ -391,6 +395,16 @@ end
 -- Recomputes only the view (no toasts, no refresh) from the cached snapshot.
 function status.recompute(now: number)
 	view = status.compute(wsnap.get(), wsnap.hot(), now)
+	if stopped then
+		view.seg = STOPPED_SEG
+	end
+end
+
+-- This window's timers are off until plugins reload: the segment says so and offers the reload.
+function status.stopped()
+	stopped = true
+	view.seg = STOPPED_SEG
+	pcall(tern.chrome.refresh)
 end
 
 -- Runs that need the user, oldest first.
@@ -465,7 +479,8 @@ function status.update(cx: WindowCx?, now: number)
 	end
 end
 
-function status.register()
+-- `beat` is called at the start of every pass, for the timer watchdog in window.luau.
+function status.register(beat: () -> ())
 	if registered then
 		return
 	end
@@ -479,11 +494,18 @@ function status.register()
 	end)
 	local function arm()
 		tern.timer(REFRESH_MS, function(cx)
+			local t0 = tern.now()
+			beat()
 			arm()
 			pcall(wsnap.poll)
+			local t1 = tern.now()
 			local ok, err = pcall(status.update, cx, os.time())
 			if not ok then
 				tern.log.warn("tern-agent-scheduler: status", err)
+			end
+			local took = tern.now() - t0
+			if took >= const.WINDOW_SLOW_MS then
+				tern.log.warn(string.format("tern-agent-scheduler: status pass took %.1f ms (snapshot %.1f ms)", took, t1 - t0))
 			end
 		end)
 	end

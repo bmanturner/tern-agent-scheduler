@@ -107,7 +107,7 @@ local function resolve_with(settings)
 	return got, err
 end
 local custom_omp = "/home/u/custom/omp"
-fake.installed = { [fake.tern_bin] = "tern 0.7.2 (test)\n", [custom_omp] = "omp/18.9.1\n", ["/home/u/.bun/bin/omp"] = "omp/18.9.1\n" }
+fake.installed = { [fake.tern_bin] = "tern 0.8.2 (test)\n", [custom_omp] = "omp/18.9.1\n", ["/home/u/.bun/bin/omp"] = "omp/18.9.1\n" }
 local b1 = resolve_with({ omp_path = custom_omp })
 assert(b1 ~= nil and b1.omp == custom_omp, "omp_path setting wins")
 fake.installed[custom_omp] = nil
@@ -127,7 +127,7 @@ fake.override.zsh = nil
 print("PASS F18/F68 omp lookup")
 
 -- F15: a forced re-resolve keeps the known paths while probes run
-fake.installed = { [fake.tern_bin] = "tern 0.7.2 (test)\n", [fake.omp_bin] = "omp/18.9.1\n" }
+fake.installed = { [fake.tern_bin] = "tern 0.8.2 (test)\n", [fake.omp_bin] = "omp/18.9.1\n" }
 resolve_with({})
 bins.resolve({}, function() end, true)
 assert(bins.found().tern == fake.tern_bin and bins.found().omp == fake.omp_bin, "paths kept while re-resolving")

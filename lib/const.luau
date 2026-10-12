@@ -18,6 +18,7 @@ local const = {
 	OBS_HEARTBEAT_S = 30,
 	OBS_STALE_S = 45,
 	STATUS_REFRESH_S = 60,
+	WINDOW_SLOW_MS = 20, -- a window timer pass this slow is logged (the budget is 50 ms; one trip stops every timer)
 	-- launch
 	LAUNCH_TIMEOUT_MS = 15000,
 	ORPHAN_WAIT_S = 20,

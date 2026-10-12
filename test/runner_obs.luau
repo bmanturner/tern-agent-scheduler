@@ -186,5 +186,42 @@ assert(finished(run5).pane_closed_at == nil, "newest finished pane kept")
 assert(finished(run).state == "finished" and finished(run).summary == "pong", "closing a pane keeps the run record")
 print("PASS finished-pane cap closes the oldest panes")
 
+local function send_finished(block, result, last_message)
+	seq += 1
+	fake.intent(string.format("%013d-testwin01-%04d", 1760000000000 + seq, seq), {
+		format = 1, kind = "obs", block = block, state = "idle", last_message = last_message, finished = result, seen_at = os.time(),
+	})
+end
+
+-- 10. agent_finished "done" finishes the run on the next pump, without the 6 s idle hold
+local run10 = start_run(job)
+hold(run10.block, "working", "", 3)
+send_finished(run10.block, "done", "RESULT: quick")
+fake.advance(2500)
+local rec10 = finished(run10)
+assert(rec10.state == "finished" and rec10.reason_code == "ok", "done => finished/ok: " .. tostring(rec10.state) .. "/" .. tostring(rec10.reason_code))
+assert(rec10.summary == "quick", "summary from the finished sample: " .. tostring(rec10.summary))
+print("PASS agent_finished done => finished without the idle hold")
+
+-- 11. agent_finished "failed" fails the run even when its last message reports no failure
+local run11 = start_run(job)
+hold(run11.block, "working", "", 3)
+send_finished(run11.block, "failed", "Working on it")
+fake.advance(2500)
+local rec11 = finished(run11)
+assert(rec11.state == "failed" and rec11.reason_code == "agent_failed", "failed => failed/agent_failed: " .. tostring(rec11.state) .. "/" .. tostring(rec11.reason_code))
+assert(rec11.reason == "The agent reported it couldn't finish.", "reason sentence: " .. tostring(rec11.reason))
+print("PASS agent_finished failed => failed/agent_failed")
+
+-- 12. an unknown `finished` value is a plain sample: idle must still hold FINISH_CONFIRM_S
+local run12 = start_run(job)
+hold(run12.block, "working", "", 3)
+send_finished(run12.block, "exited", "RESULT: later")
+fake.advance(2500)
+assert(run12.state == "running", "unknown finished value does not end the run")
+hold(run12.block, "idle", "RESULT: later", 9)
+assert(finished(run12).state == "finished", "idle hold still finishes it")
+print("PASS unknown finished value waits for the idle hold")
+
 assert(#fake.errors == 0, "no error logs: " .. table.concat(fake.errors, "; "))
 print("PASS no errors")

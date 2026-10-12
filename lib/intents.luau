@@ -249,12 +249,14 @@ local function apply(kind: string, p: { [string]: any }, h: Handlers)
 		if state == nil or not OBS_STATES[state] then
 			return
 		end
+		local finished = p.finished
 		h.obs({
 			block = block,
 			state = state,
 			model = str(p.model, 120),
 			last_message = str(p.last_message, const.LAST_MESSAGE_MAX),
 			delivery_error = str(p.delivery_error, 400),
+			finished = (finished == "done" or finished == "failed") and finished or nil,
 			seen_at = type(p.seen_at) == "number" and p.seen_at or nil,
 		})
 	elseif kind == "run_now" then

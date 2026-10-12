@@ -8,13 +8,13 @@ Write a prompt, pick a folder and say when ("weekdays 9am", "every 2h", `0 9 * *
 
 ## Install
 
-Needs Tern 0.7.2 or later on macOS or Linux (not Windows yet), and [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
+Built and tested on Tern 0.8.2. Runs on macOS or Linux (not Windows yet) and needs [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
 
 ```sh
 tern plugin install github.com/bmanturner/tern-agent-scheduler
 ```
 
-Press `ctrl+alt+shift+s` to open the manager. With no jobs yet, it offers three examples you can save as they are or edit first. To update, run the install command again with `--force`.
+Press `ctrl+alt+shift+s` to open the manager. With no jobs yet, it offers three examples you can save as they are or edit first. To update, run the install command again with `--force`; [CHANGELOG.md](CHANGELOG.md) lists what changed.
 
 ## Create a job
 
@@ -83,7 +83,8 @@ Ask Tern's assistant to create, list, run or pause jobs, for example *"Schedule 
 ## Good to know
 
 - **Jobs run while Tern's session service is running.** It keeps running after you close every window, as long as a terminal or a run tab is open. Nothing runs while your computer is asleep or after a restart until you open Tern; missed runs follow the job's **If your computer was asleep** setting.
-- **A run waiting for your approval** is only noticed while a Tern window is open.
+- **A run waiting for your approval** is only noticed while a desktop Tern window is open.
+- **In the browser (`tern web serve`) and on iPhone and iPad,** the manager works, but palette commands, the status line, notices of runs that need you and Carly's job tools need a desktop Tern window.
 - **With several Tern windows,** runs go to the first window's **Scheduled runs** session.
 - **Failures:** a run that hits its time limit is stopped. After three failures in a row the job pauses itself and tells you.
 - **Finished run tabs:** the 5 most recent are kept and older ones are closed; their sessions can still be resumed.

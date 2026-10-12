@@ -48,10 +48,9 @@ local function utc_offset(t: number): number -- seconds east of UTC at instant t
   return civil_secs(cron.clock.date("*t", t)) - civil_secs(cron.clock.date("!*t", t))
 end
 
--- Local wall-clock fields -> instant, like C mktime. Tern's Luau `os.time(table)` reads the table as
--- UTC while `os.date("*t")` is local (verified in the host, Tern 0.7.2), so the default clock corrects
--- the guess until `os.date("*t")` shows the requested fields. In a DST gap no instant matches; the
--- last guess is returned and `resolve` below classifies it as a gap.
+-- Local wall-clock fields -> instant, like C mktime. The default clock checks the guess against
+-- `os.date("*t")` and corrects it until the requested fields show. In a DST gap no instant matches;
+-- the last guess is returned and `resolve` below classifies it as a gap.
 local function local_time(tb: any): number
   local want = days_from_civil(tb.year, tb.month, tb.day) * 86400 + tb.hour * 3600 + tb.min * 60 + (tb.sec or 0)
   local t = os.time(tb)

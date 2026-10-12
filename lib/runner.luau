@@ -35,6 +35,7 @@ type RT = {
 	tail_sig: string?,
 	tail_since: number?,
 	exit_status: number?,
+	reported_failed: boolean?, -- agent_finished said "failed"
 	cap_marked: boolean?,
 	live_tail: { cost: number?, tools: number, requests: number, last_message: string? }?,
 	live_tool: { id: string?, name: string, detail: string?, since: number }?,
@@ -409,7 +410,7 @@ local function finish_with(run: Run, facts: session_tail.Facts?, unobserved: boo
 	local rt = rt_of(run)
 	apply_facts(run, facts)
 	apply_sample_message(run, rt)
-	if run.detail ~= nil then
+	if run.detail ~= nil or rt.reported_failed == true then
 		transition(run, "failed", "agent_failed", {})
 		return
 	end
@@ -1266,6 +1267,22 @@ local function on_obs(p: { [string]: any })
 	if S.runs[tostring(run.run_id)] ~= nil then
 		check_live(run)
 	end
+	-- agent_finished: omp itself reported the end of its turn, so no idle hold is needed
+	local finished = p.finished
+	if
+		(finished == "done" or finished == "failed")
+		and S.runs[tostring(run.run_id)] ~= nil
+		and (run.state == "running" or run.state == "needs_input")
+	then
+		if run.busy_seen ~= true then
+			run.busy_seen = true
+			mark(run)
+		end
+		if finished == "failed" then
+			rt.reported_failed = true
+		end
+		begin_finish(run, false)
+	end
 end
 
 -- ---------- advancing runs ----------
@@ -1775,12 +1792,12 @@ end
 local function setup_rows(): { SetupRow }
 	local f = bins.found()
 	local rows: { SetupRow } = {}
-	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 7, 2)
+	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 8, 2)
 	table.insert(rows, {
 		id = "tern",
 		label = "Tern version",
 		ok = tern_ok,
-		text = tern_ok and (f.tern_version or "") or "Agent Scheduler needs Tern 0.7.2 or newer. Update Tern.",
+		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.8.2. Update Tern.",
 	})
 	table.insert(rows, {
 		id = "omp",

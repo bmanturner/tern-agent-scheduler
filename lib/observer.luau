@@ -2,7 +2,8 @@
 -- Window half: raw agent samples for the host (LA §8.3). While the snapshot lists in-flight runs,
 -- every OBS_POLL_S this finds each run's agent in cx.agents:list() and sends an `obs` intent when
 -- (state, model, last_message) changed, and again every OBS_HEARTBEAT_S while it persists. The
--- window never interprets the state; the host debounces and decides every transition.
+-- `agent_finished` event also sends one at once, with `finished` = "done" | "failed", when a run's
+-- turn ends. The window never interprets the state; the host debounces and decides every transition.
 
 local const = require("./const")
 local outbox = require("./outbox")
@@ -55,20 +56,22 @@ local function text_or_nil(v: any): string?
 	return nil
 end
 
--- Sends the `obs` intent for one run's agent entry when it changed or the heartbeat is due.
-function observer.send_sample(block: string, entry: AgentBlock, now_ms: number)
+-- Sends the `obs` intent for one run's agent entry when it changed or the heartbeat is due, and
+-- always when `finished` reports the end of a turn.
+function observer.send_sample(block: string, entry: AgentBlock, now_ms: number, finished: string?)
 	local e: any = entry
 	local model = text_or_nil(e.model)
 	local msg = observer.clip(text_or_nil(e.last_message))
 	local key = sample_key(tostring(e.state), model, msg)
 	local prev = sent[block]
-	if prev == nil or prev.key ~= key or now_ms - prev.at >= const.OBS_HEARTBEAT_S * 1000 then
+	if finished ~= nil or prev == nil or prev.key ~= key or now_ms - prev.at >= const.OBS_HEARTBEAT_S * 1000 then
 		local name = outbox.send("obs", {
 			block = block,
 			state = e.state,
 			model = model,
 			last_message = msg,
 			delivery_error = text_or_nil(e.delivery_error),
+			finished = finished,
 			seen_at = os.time(),
 		})
 		if name then
@@ -118,6 +121,39 @@ function observer.sample(cx: WindowCx, now_ms: number)
 	end
 end
 
+-- `agent_finished`: a turn ended. Only "done" and "failed" are forwarded; "exited" reaches
+-- the host as `pane_exited`, and closing a pane is seen by the host's liveness check.
+function observer.on_finished(ev: AgentFinishedEvent, cx: WindowCx)
+	if ev.result ~= "done" and ev.result ~= "failed" then
+		return
+	end
+	pcall(wsnap.poll)
+	for _, run in wsnap.inflight() do
+		local block = run.block
+		if type(block) == "string" and block ~= "" then
+			local okr, win = pcall(function()
+				return cx.session:resolve(block)
+			end)
+			if okr and win == ev.pane then
+				local entry: any = { state = "idle" }
+				local okl, list = pcall(function()
+					return cx.agents:list()
+				end)
+				if okl then
+					for _, e in list do
+						if e.pane == ev.pane then
+							entry = e
+							break
+						end
+					end
+				end
+				observer.send_sample(block, entry, tern.now(), ev.result)
+				return
+			end
+		end
+	end
+end
+
 -- Starts the polling chain (once per VM). The next timer is armed before the body runs, so an
 -- error in a pass doesn't end the chain.
 function observer.start()
@@ -127,6 +163,7 @@ function observer.start()
 	started = true
 	local function arm(ms: number)
 		tern.timer(ms, function(cx)
+			local t0 = tern.now()
 			pcall(wsnap.poll)
 			local busy = #wsnap.inflight() > 0
 			arm(if busy then const.OBS_POLL_S * 1000 else IDLE_POLL_S * 1000)
@@ -136,9 +173,23 @@ function observer.start()
 					tern.log.warn("tern-agent-scheduler: observer", err)
 				end
 			end
+			local took = tern.now() - t0
+			if took >= const.WINDOW_SLOW_MS then
+				tern.log.warn(string.format("tern-agent-scheduler: observer pass took %.1f ms (%d runs)", took, #wsnap.inflight()))
+			end
 		end)
 	end
 	arm(1000)
+	-- Polling still covers every state if the event can't be registered.
+	local ok = pcall(tern.on, "agent_finished", function(ev: AgentFinishedEvent, cx: WindowCx)
+		local okf, err = pcall(observer.on_finished, ev, cx)
+		if not okf then
+			tern.log.warn("tern-agent-scheduler: agent_finished", err)
+		end
+	end)
+	if not ok then
+		tern.log.debug("tern-agent-scheduler: no agent_finished event; polling only")
+	end
 end
 
 return observer

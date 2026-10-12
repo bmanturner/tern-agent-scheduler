@@ -32,10 +32,55 @@ local MODULES = {
 local load_module: (string) -> any = require :: any
 
 local loading = MODULES[1]
+local registered = false
+
+-- Timer watchdog. One window timer callback over the 50 ms budget turns off every timer callback of
+-- this plugin in this window until plugins reload, which would silently stop loading, the status
+-- line, run observation and Carly replies. The loader steps and every status pass call `beat`. A
+-- `focus` event (its own hook) that finds the timers silent for TIMERS_SILENT_MS arms a zero-delay
+-- probe, which a window that slept or was throttled answers at once; a later `focus` that finds the
+-- probe unanswered after PROBE_WAIT_MS reports the timers off.
+local TIMERS_SILENT_MS = 60000
+local PROBE_WAIT_MS = 5000
+local last_beat = tern.now()
+local probe_at: number? = nil
+local timers_off = false
+
+local function beat()
+	last_beat = tern.now()
+	probe_at = nil
+end
+
+tern.on("focus", function(_ev: any, cx: WindowCx)
+	if timers_off then
+		return
+	end
+	local now = tern.now()
+	if now - last_beat < TIMERS_SILENT_MS then
+		return
+	end
+	if probe_at == nil then
+		probe_at = now
+		tern.timer(0, beat)
+		return
+	end
+	if now - (probe_at :: number) < PROBE_WAIT_MS then
+		return
+	end
+	timers_off = true
+	tern.log.warn("tern-agent-scheduler: timers stopped in this window; reload plugins to restart them")
+	if registered then
+		pcall(function()
+			load_module("./lib/status").stopped()
+		end)
+	end
+	cx:toast("error", "Agent Scheduler stopped in this window", "Run “Reload plugins” from the palette.")
+end)
 
 local function register()
+	registered = true
 	load_module("./lib/commands").register()
-	load_module("./lib/status").register()
+	load_module("./lib/status").register(beat)
 	load_module("./lib/observer").start()
 	if tern.carly then
 		-- Carly exports are optional; a failure here must not keep the rest from starting.
@@ -50,6 +95,7 @@ end
 
 local function step(i: number)
 	tern.timer(0, function()
+		beat()
 		if i > #MODULES then
 			register()
 			return
