@@ -21,6 +21,7 @@ local session_tail = require("./session_tail")
 local notify = require("./notify")
 local platform = require("./platform")
 local intents = require("./intents")
+local cond_eval = require("./cond_eval")
 
 type Run = { [string]: any }
 type RT = {
@@ -43,6 +44,8 @@ type RT = {
 	live_at: number?,
 	live_sig: string?,
 	live_updated: number?,
+	cond_done: boolean?,
+	cond_context: { any }?,
 }
 
 local runner = {}
@@ -216,6 +219,8 @@ local function record_outcome(run: Run)
 			state = state,
 			reason_code = run.reason_code,
 			summary = run.summary,
+			reason = run.reason,
+			quiet = if run.outcome_flag == "quiet" then true else nil,
 		}
 		if run.started ~= nil then
 			st.runs_total = (tonumber(st.runs_total) or 0) + 1
@@ -241,7 +246,7 @@ local function record_outcome(run: Run)
 			jobs.pause(job.id, state == "blocked" and "blocked" or "failures")
 			alert(run, "paused", string.format("%s paused after %d failures.", tostring(job.name), limit))
 		end
-	elseif state == "failed" or (state == "blocked" and not CONFIG_BLOCKS[code]) then
+	elseif state == "failed" or (state == "blocked" and not CONFIG_BLOCKS[code] and code ~= "cond_error") then
 		-- not counted (interrupted, data_unwritable, tern_missing): still host-visible
 		alert(run, state, clip(tostring(run.reason ~= "" and run.reason or state), 120))
 	end
@@ -299,6 +304,12 @@ local function on_terminal(run: Run)
 		end
 	end
 	pcall(record_outcome, run)
+	if run.state == "finished" then
+		local job = jobs.get(tostring(run.job_id))
+		if job ~= nil and type(job.conditions) == "table" and #job.conditions > 0 then
+			pcall(cond_eval.commit, job, run)
+		end
+	end
 	jobs.save_state()
 	if run.block ~= nil then
 		S.cap_check_due = true
@@ -308,6 +319,10 @@ local function on_terminal(run: Run)
 end
 
 local function transition(run: Run, state: string, code: string?, fields: { [string]: any }?): boolean
+	if state == "finished" and run.quiet == true then
+		fields = fields or {}
+		fields.outcome_flag = "quiet"
+	end
 	local ok, err = ledger.transition(run, state, code, fields, wall())
 	if not ok then
 		log_warn("runner: transition refused", tostring(run.run_id), tostring(run.state), state, tostring(err))
@@ -350,6 +365,9 @@ local function apply_facts(run: Run, facts: session_tail.Facts?)
 	if facts.failed_reason ~= nil then
 		run.detail = facts.failed_reason
 	end
+	if facts.quiet == true then
+		run.quiet = true
+	end
 end
 
 -- Summary from a window sample when no session file could be read.
@@ -371,9 +389,12 @@ local function apply_sample_message(run: Run, rt: RT)
 		run.cost_line = cost_line
 	end
 	if run.summary == nil or run.summary == "" then
-		local summary, failed = session_tail.summarize(lm)
+		local summary, failed, quiet = session_tail.summarize(lm)
 		if summary ~= "" then
 			run.summary = summary
+		end
+		if quiet == true then
+			run.quiet = true
 		end
 		if failed ~= nil and run.detail == nil then
 			run.detail = failed
@@ -803,6 +824,7 @@ function start_launch(run: Run, rt: RT)
 		trigger = tostring(run.trigger),
 		slot_local = slot_local(tonumber(run.slot) or wall()),
 	}
+	req.context = rt.cond_context
 	rt.stage = "queued"
 	launcher.enqueue(req, function(res, err)
 		if S.runs[tostring(run.run_id)] == nil then
@@ -905,6 +927,64 @@ local function run_admission(run: Run, rt: RT, now: number)
 	end
 end
 
+-- A skipped run that repeats the previous skip (same reason and text) folds into that row.
+local function fold_skip(run: Run)
+	local list = ledger.recent(tostring(run.job_id), 3)
+	for _, prev in ipairs(list) do
+		if prev.run_id ~= run.run_id then
+			if prev.state == "skipped" and prev.reason_code == run.reason_code and prev.cond_text == run.cond_text then
+				ledger.fold(prev, run, wall())
+				mark(nil)
+			end
+			return
+		end
+	end
+end
+
+local function evaluate_run(run: Run, rt: RT, job: { [string]: any })
+	local others: { Run } = {}
+	for _, r in pairs(S.runs) do
+		if r ~= run and r.job_id == run.job_id then
+			table.insert(others, r)
+		end
+	end
+	cond_eval.evaluate(job, { dry = false, trigger = run.trigger, slot = run.slot, now = wall(), others = others }, function(v: any)
+		local id = tostring(run.run_id)
+		if S.runs[id] == nil or run.state ~= "scheduled" then
+			return
+		end
+		local st = jobs.state(job.id)
+		cond_eval.apply_baselines(job, v)
+		if v.ok then
+			cond_eval.note_pass(st)
+			run.cond_passed = true
+			run.cursor_next = if next(v.proposals) ~= nil then v.proposals else nil
+			rt.cond_context = v.context
+			rt.cond_done = true
+			rt.stage = "ready"
+			mark(run)
+			jobs.save_state()
+		elseif v.code == "cond_error" then
+			local before = cond_eval.note_error(st, v.error_code)
+			transition(run, "blocked", "cond_error", { cond_text = v.text, incident_repeat = if before > 0 then true else nil })
+			if before == 0 then
+				alert(run, "cond_error", v.alert or clip(tostring(run.reason), 120))
+			end
+			local limit = tonumber(job.pause_after_failures) or 3
+			if limit ~= 0 and before + 1 >= limit and job.enabled ~= false then
+				jobs.pause(job.id, "conditions")
+				alert(run, "paused", string.format("%s paused: its conditions couldn't be checked %d times in a row.", tostring(job.name), before + 1))
+			end
+			jobs.save_state()
+		else
+			cond_eval.note_skip(st, v.code, v.text, run.slot)
+			transition(run, "skipped", v.code, { cond_text = v.text, count = 1, first = run.slot, last = run.slot })
+			fold_skip(run)
+			jobs.save_state()
+		end
+	end)
+end
+
 local function advance_scheduled(now: number)
 	local list = sorted_runs()
 	-- overlap=queue: only the newest waiting slot of a job survives
@@ -954,7 +1034,24 @@ local function advance_scheduled(now: number)
 					mark(run)
 				end)
 			elseif rt.stage == "ready" then
-				run_admission(run, rt, now)
+				local needs = type(job.conditions) == "table"
+					and #job.conditions > 0
+					and run.trigger ~= "test"
+					and run.cond_bypass == nil
+					and not rt.cond_done
+				if needs then
+					local mode = tostring(job.overlap or "skip")
+					if mode ~= "parallel" and others_active(run) then
+						if mode ~= "queue" then
+							transition(run, "skipped", "overlap", {})
+						end
+					else
+						rt.stage = "conditions"
+						evaluate_run(run, rt, job)
+					end
+				else
+					run_admission(run, rt, now)
+				end
 			end
 		end
 	end
@@ -1746,7 +1843,7 @@ function runner.changed()
 	notify_subs()
 end
 
-function runner.run_now(job_id: string, opts: { focus_override: string? }?): (boolean, string?)
+function runner.run_now(job_id: string, opts: { focus_override: string?, bypass: string? }?): (boolean, string?)
 	local settings = jobs.settings()
 	if settings.paused_all == true then
 		return false, "Resume all jobs to run."
@@ -1771,7 +1868,46 @@ function runner.run_now(job_id: string, opts: { focus_override: string? }?): (bo
 	if run == nil then
 		return false, "Agent Scheduler can't write its data right now."
 	end
+	if opts ~= nil and opts.bypass ~= nil then
+		run.cond_bypass = opts.bypass
+		ledger.save(run)
+	end
 	return true, nil
+end
+
+local function empty_verdict(ok: boolean, code: string?, text: string?): any
+	return { ok = ok, code = code, text = text, results = {}, proposals = {}, baselines = {}, context = {} }
+end
+
+-- Dry run of a job's conditions (nothing is recorded or changed). `job` may be an unsaved draft.
+function runner.check_draft(job: { [string]: any }, cb: (any) -> ())
+	if type(job.conditions) ~= "table" or #job.conditions == 0 then
+		return cb(empty_verdict(true, nil, nil))
+	end
+	local others: { Run } = {}
+	for _, r in pairs(S.runs) do
+		if r.job_id == job.id then
+			table.insert(others, r)
+		end
+	end
+	local now = wall()
+	cond_eval.evaluate(job, { dry = true, trigger = "manual", slot = now, now = now, others = others }, cb)
+end
+
+function runner.check_conditions(job_id: string, cb: (any) -> ())
+	local job = jobs.get(job_id)
+	if job == nil then
+		return cb(empty_verdict(false, "cond_error", "that job no longer exists"))
+	end
+	runner.check_draft(job, cb)
+end
+
+-- Forgets the watermarks (what the conditions have already seen) of a job.
+function runner.forget_conditions(job_id: string): boolean
+	cond_eval.forget(job_id)
+	jobs.save_state()
+	runner.changed()
+	return true
 end
 
 function runner.stop(run_id: string): boolean
@@ -2016,6 +2152,7 @@ handlers = {
 	end,
 	focus_manager = runner.focus_manager,
 	changed = runner.changed,
+	check_conditions = runner.check_conditions,
 }
 
 local function restore_runs(now: number)

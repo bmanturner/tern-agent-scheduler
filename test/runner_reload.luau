@@ -59,7 +59,7 @@ for id, b in pairs(fake.blocks) do
 end
 assert(lost_block_id, "orphan pane exists")
 fake.blocks[tonumber(block_restart)].args = { "-l" } -- command still shows the old line, but ownership is by args[3]
-for _, name in ipairs({ "jobs", "ledger", "store", "snapshot", "bins", "roles", "runner", "launcher", "intents", "notify", "tern_state", "session_tail", "validate", "ids" }) do
+for _, name in ipairs({ "jobs", "ledger", "store", "snapshot", "bins", "roles", "runner", "launcher", "intents", "notify", "tern_state", "session_tail", "validate", "ids", "cond_eval" }) do
 	rawset(__mods, name, nil)
 end
 jobs, runner, ledger = modules()

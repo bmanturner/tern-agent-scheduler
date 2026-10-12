@@ -138,7 +138,7 @@ ledger.save(run_late)
 jobs.save_state()
 
 fake.events = {}
-for _, name in ipairs({ "jobs", "ledger", "store", "snapshot", "bins", "roles", "runner", "launcher", "intents", "notify", "tern_state", "session_tail", "validate", "ids" }) do
+for _, name in ipairs({ "jobs", "ledger", "store", "snapshot", "bins", "roles", "runner", "launcher", "intents", "notify", "tern_state", "session_tail", "validate", "ids", "cond_eval" }) do
 	rawset(__mods, name, nil)
 end
 jobs, runner, ledger = modules()

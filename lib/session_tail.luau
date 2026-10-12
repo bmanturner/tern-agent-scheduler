@@ -16,6 +16,7 @@ export type Facts = {
 	tools: number,
 	requests: number,
 	tool: { id: string?, name: string, detail: string? }?, -- last toolCall with no later toolResult
+	quiet: boolean?,
 }
 
 local session_tail = {}
@@ -52,7 +53,7 @@ end
 
 -- summary + failure reason from a final assistant message (R6): the last `RESULT:` line, else the first
 -- non-empty line. `RESULT: FAILED - why` => failed_reason = why.
-function session_tail.summarize(message: string): (string, string?)
+function session_tail.summarize(message: string): (string, string?, boolean?)
 	local body = session_tail.body(message)
 	local result: string? = nil
 	for line in body:gmatch("[^\r\n]+") do
@@ -75,6 +76,10 @@ function session_tail.summarize(message: string): (string, string?)
 			-- The run's state already says it failed; the summary is the reason alone.
 			why = if why ~= "" then why else "the agent reported failure"
 			return clip(why, const.SUMMARY_MAX), why
+		end
+		local q = result:match("^%[[Qq][Uu][Ii][Ee][Tt]%]%s*[:%-]?%s*(.*)$")
+		if q ~= nil then
+			return clip(if q ~= "" then q else "nothing to report", const.SUMMARY_MAX), nil, true
 		end
 		return clip(result, const.SUMMARY_MAX), nil
 	end
@@ -260,12 +265,14 @@ function session_tail.parse(text: string, truncated: boolean, file: string): Fac
 	facts.completed_turn = last_is_final
 	if last_text ~= nil then
 		facts.last_message = clip(last_text, const.LAST_MESSAGE_MAX)
-		local summary, failed = session_tail.summarize(last_text)
+		local summary, failed, quiet = session_tail.summarize(last_text)
 		facts.summary = summary
 		facts.failed_reason = failed
+		facts.quiet = quiet
 	end
 	if model_error ~= nil then
 		-- the model call itself failed; an earlier narration message is not the outcome
+		facts.quiet = nil
 		facts.failed_reason = model_error
 		facts.summary = model_error
 		facts.completed_turn = true
