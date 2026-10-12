@@ -324,7 +324,7 @@ function status.diff(snap: { [string]: any }, hot: { [string]: any }?, now: numb
 					table.insert(out, { level = "error", text = tostring(r.job_name) .. " failed", sub = reason })
 				elseif r.state == "timed_out" then
 					table.insert(out, { level = "error", text = tostring(r.job_name) .. " timed out", sub = reason })
-				elseif r.state == "blocked" then
+				elseif r.state == "blocked" and r.incident_repeat ~= true then
 					table.insert(out, { level = "error", text = tostring(r.job_name) .. " is blocked", sub = reason })
 				end
 			end

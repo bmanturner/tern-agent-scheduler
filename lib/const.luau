@@ -85,6 +85,7 @@ const.INTENT_KINDS = {
 	ack_failed = true,
 	focus_manager = true,
 	carly_create = true,
+	check_conditions = true,
 } :: { [string]: boolean }
 
 -- Run states (EN §7.2)

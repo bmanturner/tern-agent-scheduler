@@ -4,6 +4,7 @@
 -- after applying. 13 allowlisted kinds (const.INTENT_KINDS); everything else (create/update/delete/
 -- settings included) is dropped at once. `carly_create` makes a job directly and answers through
 -- `replies/<reply>.json`.
+local conditions = require("./conditions")
 local const = require("./const")
 local jobs = require("./jobs")
 local notify = require("./notify")
@@ -21,6 +22,7 @@ export type Handlers = {
 	roles_request: (string) -> (),
 	focus_manager: () -> (),
 	changed: () -> (),
+	check_conditions: (string, (any) -> ()) -> (),
 }
 
 local intents = {}
@@ -29,7 +31,7 @@ local intents = {}
 local first_failed: { [string]: number } = {}
 
 local OBS_STATES: { [string]: boolean } = { working = true, idle = true, waiting_input = true, exited = true }
-local FIELD_ORDER = { "name", "prompt", "when", "role", "cwd", "approval", "max_runtime_s", "catch_up" }
+local FIELD_ORDER = { "name", "prompt", "when", "only_if", "role", "cwd", "approval", "max_runtime_s", "catch_up" }
 local function log_warn(...: any)
 	local args = table.pack(...)
 	pcall(function()
@@ -45,7 +47,7 @@ local APPROVAL_LABEL: { [string]: string } = {
 
 -- Kinds with an `expires` stamp (unix seconds) are dropped once it has passed: the window told its
 -- caller they failed, so applying them later would duplicate or surprise.
-local EXPIRING: { [string]: boolean } = { carly_create = true, run_now = true }
+local EXPIRING: { [string]: boolean } = { carly_create = true, run_now = true, check_conditions = true }
 
 local function home(): string
 	return ((tern :: any).getenv("HOME") :: string?) or ""
@@ -137,7 +139,11 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 		local folder = str(p.folder, 1100) or ""
 		local when = str(p.when, 200) or ""
 		local now = os.time()
-		local input = { name = name, prompt = prompt, when = when, role = role, cwd = folder }
+		local input: { [string]: any } = { name = name, prompt = prompt, when = when, role = role, cwd = folder }
+		local only_if = str(p.only_if, 300)
+		if only_if ~= nil then
+			input.only_if = only_if
+		end
 		local vok, errs, norm = validate.job(input, {
 			jobs = jobs.list(),
 			now = now,
@@ -147,6 +153,11 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 		})
 		if not vok or norm == nil then
 			return reply_error(reply, first_error(errs))
+		end
+		for _, c in ipairs((norm.conditions or {}) :: { any }) do
+			if c.type == "check" then
+				return reply_error(reply, "Carly can't add script checks. Add them in the manager.")
+			end
 		end
 		local cwd = norm.cwd :: string
 		-- the folder, checked asynchronously (user-controlled path)
@@ -200,6 +211,7 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 						folder = folder_label,
 						role = "@" .. tostring(job.role),
 						approval = approval,
+						only_if = if #conditions.describe(job.conditions) > 0 then conditions.describe(job.conditions) else "always",
 					})
 				end)
 				if not cok then
@@ -321,6 +333,28 @@ local function apply(kind: string, p: { [string]: any }, h: Handlers)
 		h.focus_manager()
 	elseif kind == "carly_create" then
 		carly_create(p, h)
+	elseif kind == "check_conditions" then
+		local reply = p.reply
+		if type(reply) ~= "string" or not reply:match("^[a-z0-9]+$") or #reply ~= 12 then
+			log_warn("intents: check_conditions without a valid reply id")
+			return
+		end
+		local id = job_id_of(p)
+		if id == nil then
+			return reply_error(reply, "That job no longer exists.")
+		end
+		h.check_conditions(id, function(v: any)
+			local ok, err = pcall(function()
+				local list: { any } = {}
+				for _, r in ipairs(v.results or {}) do
+					table.insert(list, { condition = r.label, result = r.result, text = r.text })
+				end
+				write_reply(reply, { ok = true, pass = v.ok == true, conditions = (tern :: any).json.array(list) })
+			end)
+			if not ok then
+				log_warn("intents: check_conditions failed", tostring(err))
+			end
+		end)
 	end
 end
 
