@@ -2,6 +2,15 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.4.0 (2026-10-12)
+
+Built and tested on Tern 0.8.3.
+
+### Added
+
+- **Ask an AI**, a fifth section on the Only when page: write a question, pick a model role (`@smol` by default), and before each due run omp answers run or skip after looking at the job's folder with read-only tools. It sees the job's facts and what the other conditions found, such as the new commits, and is asked last, so it only costs a model call when everything else says yes. A skip is listed in history with the model's reason (repeats on the same day fold into one row), a run passes the reason to the agent in `trigger.md`, and an answer it can't give blocks the run like a failing script. Its spend counts toward Limits.
+- Carly can add the question when she creates a job (`only_when = {ask = "…", ask_model = "smol"}`)
+
 ## 0.3.0 (2026-10-12)
 
 Built and tested on Tern 0.8.3.
