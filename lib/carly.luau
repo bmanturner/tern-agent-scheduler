@@ -140,7 +140,7 @@ local function last_text(j: any): string
 	return text
 end
 
-local ADD_DOC = "Create and start a scheduled omp agent job right away (no review step). `when` accepts: `daily 09:00`, `weekdays 9am`, `mon,thu 18:30`, `every 2h`, `every 15m` (min 5m), `hourly`, `every friday 4pm`, `monthly on the 1st 9am`, `in 30m`, `tomorrow 8am`, `2026-10-14 15:00`, `manual`, or a 5-field cron like `0 9 * * 1-5`. `folder` is an existing local folder (default: the focused pane's). `role` is an omp model role such as `@default` (default) or `@smol`. Jobs use the default approval mode (Hands-off unless changed in settings); Hands-off runs commands as the user. Returns the job's name, schedule and next run. `only_when` (optional) limits when due runs start, e.g. {new_commits=true, branch=\"main\"}, {days=\"weekdays\", from=\"09:00\", to=\"18:00\"}, {from=\"22:00\", to=\"07:00\", quiet_hours=true}, {max_runs=3, per=\"day\"}; a run that doesn't qualify is skipped and noted. Script checks are set in the manager only."
+local ADD_DOC = "Create and start a scheduled omp agent job right away (no review step). `when` accepts: `daily 09:00`, `weekdays 9am`, `mon,thu 18:30`, `every 2h`, `every 15m` (min 5m), `hourly`, `every friday 4pm`, `monthly on the 1st 9am`, `in 30m`, `tomorrow 8am`, `2026-10-14 15:00`, `manual`, or a 5-field cron like `0 9 * * 1-5`. `folder` is an existing local folder (default: the focused pane's). `role` is an omp model role such as `@default` (default) or `@smol`. Jobs use the default approval mode (Hands-off unless changed in settings); Hands-off runs commands as the user. Returns the job's name, schedule and next run. `only_when` (optional) limits when due runs start, e.g. {new_commits=true, branch=\"main\"}, {days=\"weekdays\", from=\"09:00\", to=\"18:00\"}, {from=\"22:00\", to=\"07:00\", quiet_hours=true}, {max_runs=3, per=\"day\"}, {ask=\"Only if there are open PRs to review\"}; a run that doesn't qualify is skipped and noted. Script checks are set in the manager only."
 carly.ADD_DOC = ADD_DOC
 
 function carly.job_add(...: any): any
@@ -266,7 +266,7 @@ function carly.register()
 	end)
 
 	tern.carly.export("job_add", {
-		sig = "(name: string, prompt: string, when: string, folder: string?, role: string?, only_when: {new_commits: boolean?, branch: string?, folders: {string}?, days: string?, from: string?, to: string?, quiet_hours: boolean?, max_runs: number?, max_usd: number?, per: string?}?) -> {name: string, when: string, next: string, folder: string, role: string, approval: string, only_when: string}",
+		sig = "(name: string, prompt: string, when: string, folder: string?, role: string?, only_when: {new_commits: boolean?, branch: string?, folders: {string}?, days: string?, from: string?, to: string?, quiet_hours: boolean?, max_runs: number?, max_usd: number?, per: string?, ask: string?, ask_model: string?}?) -> {name: string, when: string, next: string, folder: string, role: string, approval: string, only_when: string}",
 		doc = fit(ADD_DOC),
 	}, carly.job_add)
 

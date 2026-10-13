@@ -10,11 +10,12 @@ export type Cond = { [string]: any }
 -- {id="window",  type="window", days: {number} (0=Sun..6=Sat), from: number, to: number (minutes 0..1440), negate: boolean}
 -- {id="budget",  type="budget", per: "day"|"week", max_runs: number?, max_usd: number?}
 -- {id="check",   type="check", path: string, ack: string?}
+-- {id="ask",     type="ask", prompt: string (1..4000 bytes), role: string (model role, default "smol")}
 
 local DAY_NAMES = { [0] = "sun", "mon", "tue", "wed", "thu", "fri", "sat" }
 local NAME_PATTERN = "^[%w._/@%-]+$"
 local MAX_PATHS = 8
-local ORDER: { [string]: number } = { window = 1, budget = 2, commits = 3, check = 4 }
+local ORDER: { [string]: number } = { window = 1, budget = 2, commits = 3, check = 4, ask = 5 }
 
 local function has_dotdot(s: string): boolean
 	for seg in s:gmatch("[^/]+") do
@@ -63,6 +64,7 @@ export type Input = {
 	window: { days: { number }, from: number, to: number, outside: boolean? }?,
 	limits: { runs: number?, usd: number?, per: string? }?,
 	check: { path: string }?,
+	ask: { prompt: string, role: string? }?,
 }
 
 local function is_int(v: any, lo: number, hi: number): boolean
@@ -88,7 +90,7 @@ local function sorted_days(days: { number }): { number }
 	return out
 end
 
--- Structured input -> ordered condition list (window, budget, commits, check), or nil + errors keyed by field.
+-- Structured input -> ordered condition list (window, budget, commits, check, ask), or nil + errors keyed by field.
 function conditions.build(input: Input?): ({ Cond }?, { [string]: string }?)
 	local out: { Cond } = {}
 	if input == nil then
@@ -197,6 +199,26 @@ function conditions.build(input: Input?): ({ Cond }?, { [string]: string }?)
 		end
 	end
 
+	local a = input.ask
+	if a ~= nil then
+		local prompt = trim(tostring(a.prompt or ""))
+		if prompt == "" or prompt:find("\0", 1, true) ~= nil then
+			errs.ask = "Write the question the AI should answer."
+		elseif #prompt > 4000 then
+			errs.ask = "Keep the question under 4,000 characters."
+		end
+		local role = trim(tostring(a.role or "")):gsub("^@", "")
+		if role == "" then
+			role = "smol"
+		end
+		if role:match("^[%w_%-]+$") == nil or #role > 64 then
+			errs.ask_role = "Pick a model role from the list."
+		end
+		if errs.ask == nil and errs.ask_role == nil then
+			table.insert(out, { id = "ask", type = "ask", prompt = prompt, role = role })
+		end
+	end
+
 	if next(errs) ~= nil then
 		return nil, errs
 	end
@@ -218,6 +240,8 @@ function conditions.to_input(list: { Cond }?): Input
 			out.limits = { runs = c.max_runs, usd = c.max_usd, per = c.per }
 		elseif c.type == "check" then
 			out.check = { path = c.path }
+		elseif c.type == "ask" then
+			out.ask = { prompt = c.prompt, role = c.role }
 		end
 	end
 	return out
@@ -244,7 +268,8 @@ function conditions.days_label(days: { number }): string
 end
 
 local FIELD_KEYS = {
-	"new_commits", "branch", "folders", "days", "from", "to", "quiet_hours", "max_runs", "max_usd", "per",
+	"new_commits", "branch", "folders", "days", "from", "to", "quiet_hours", "max_runs", "max_usd", "per", "ask",
+	"ask_model",
 }
 
 local function parse_clock(s: string): number?
@@ -309,7 +334,7 @@ function conditions.from_fields(t: any): (Input?, string?)
 			return nil, wrong(k)
 		end
 	end
-	for _, k in { "branch", "days", "from", "to", "per" } do
+	for _, k in { "branch", "days", "from", "to", "per", "ask", "ask_model" } do
 		if t[k] ~= nil and type(t[k]) ~= "string" then
 			return nil, wrong(k)
 		end
@@ -370,6 +395,10 @@ function conditions.from_fields(t: any): (Input?, string?)
 	if t.max_runs ~= nil or t.max_usd ~= nil or t.per ~= nil then
 		out.limits = { runs = t.max_runs, usd = t.max_usd, per = t.per or "day" }
 	end
+
+	if t.ask ~= nil or t.ask_model ~= nil then
+		out.ask = { prompt = t.ask or "", role = t.ask_model }
+	end
 	return out, nil
 end
 
@@ -412,6 +441,15 @@ function conditions.describe_one(c: Cond): string
 		return string.format("max %s a %s", usd or "$0.00", per)
 	elseif t == "check" then
 		return tostring(c.path)
+	elseif t == "ask" then
+		local p = tostring(c.prompt or ""):gsub("%s+", " ")
+		p = trim(p)
+		if utf8.len(p) ~= nil and (utf8.len(p) :: number) > 40 then
+			p = p:sub(1, (utf8.offset(p, 41) :: number) - 1) .. "…"
+		elseif utf8.len(p) == nil and #p > 40 then
+			p = p:sub(1, 40) .. "…"
+		end
+		return string.format("the AI says run (“%s”)", p)
 	end
 	return ""
 end
@@ -444,7 +482,7 @@ end
 -- Structural check of stored conditions (load time). Returns an error sentence or nil.
 function conditions.check_stored(list: any): string?
 	local BAD = "Its conditions can't be read."
-	if type(list) ~= "table" or #list > 4 then
+	if type(list) ~= "table" or #list > 5 then
 		return BAD
 	end
 	local n = 0
@@ -503,6 +541,10 @@ function conditions.check_stored(list: any): string?
 				return BAD
 			end
 			if c.ack ~= nil and (type(c.ack) ~= "string" or c.ack:match("^ck1:%x+$") == nil) then
+				return BAD
+			end
+		elseif t == "ask" then
+			if id ~= "ask" or type(c.prompt) ~= "string" or type(c.role) ~= "string" then
 				return BAD
 			end
 		else
