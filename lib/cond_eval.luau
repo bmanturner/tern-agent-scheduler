@@ -668,7 +668,10 @@ local function eval_ask(job: Job, c: { [string]: any }, opts: { [string]: any },
 				return finish({ result = "error", text = "the AI check took longer than 60 s", error_code = "ask_timeout" })
 			end
 			if r.raised == true then
-				return finish(unstarted("couldn't start the AI check"))
+				-- e.g. "tern.process.run /opt/homebrew/bin/omp: No such file or directory (os error 2)"; a missing job
+				-- folder raises here too.
+				local why = tostring(r.stderr or ""):match(": ([^:]+)$")
+				return finish(unstarted(if why ~= nil then "couldn't start the AI check: " .. clip(why, 80) else "couldn't start the AI check"))
 			end
 			if r.status ~= 0 then
 				local text = string.format("the AI check failed (exit %s)", tostring(r.status))

@@ -136,8 +136,9 @@ local DAY_ORDER = { 1, 2, 3, 4, 5, 6, 0 }
 local DAY_NAMES = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }
 local SWITCH_ROWS: { [string]: boolean } = { active = true, quiet = true, c_commits = true, c_window = true, c_limits = true, c_check = true, c_ask = true }
 local TEXT_ROWS: { [string]: boolean } = { name = true, prompt = true, when = true, folder = true, c_paths = true, c_script = true, c_ask_prompt = true }
--- Text rows edited in the multi-line overlay editor (Enter adds a line, ctrl+Enter finishes).
-local MULTI_ROWS: { [string]: boolean } = { prompt = true, c_ask_prompt = true }
+-- Text rows edited in the multi-line overlay editor (Enter adds a line, ctrl+Enter finishes). The overlay sits at the
+-- top of the page, so only rows near the top may use it.
+local MULTI_ROWS: { [string]: boolean } = { prompt = true }
 local MENU_ROWS: { [string]: boolean } = { catch_up = true, approval = true, stop = true }
 -- Validation field -> form row, for the fields that don't share their row's name.
 local ERROR_ROW: { [string]: string } = {
@@ -1862,7 +1863,7 @@ end
 -- View -------------------------------------------------------------------------------------------------------
 
 local function base_hints(cols: number, editing: string?): string
-	if editing == "prompt" or editing == "c_ask_prompt" then
+	if editing == "prompt" then
 		return if cols < 56 then "^⏎ done · esc revert" else "⏎ newline · ^⏎ done · esc revert"
 	elseif editing ~= nil then
 		return if cols < 56 then "⏎ done · ^⏎ save" else "⏎ done · ^⏎ save · esc revert"
@@ -1916,18 +1917,17 @@ function F.view(state: State): (Node, Node)
 	local children: { Node } = {}
 	local mf: textfield.Field? = if e ~= nil and MULTI_ROWS[e.row] then field_of(form, e.row) else nil
 	if e ~= nil and mf ~= nil then
-		local is_ask = e.row == "c_ask_prompt"
 		local ed: { Node } = {
 			C.text({
-				ui.span(if is_ask then "Question" else "Prompt", "strong"),
-				ui.span(if is_ask then "  A yes/no question about the current state. The AI answers run or skip." else "  Markdown. Sent to the agent as an attached file.", "muted"),
+				ui.span("Prompt", "strong"),
+				ui.span("  Markdown. Sent to the agent as an attached file.", "muted"),
 			}, "title"),
 			ui.node("editor", {
 				key = "text",
 				text = mf.text,
 				cursor = textfield.utf16(mf),
 				maxLines = 14,
-				placeholder = if is_ask then "Run only if there are open pull requests that need a review." else "What should the agent do? Say what to do if something is unclear.",
+				placeholder = "What should the agent do? Say what to do if something is unclear.",
 			}),
 			C.text({ ui.span("⏎ newline · ^⏎ done · esc revert", "muted") }, "keys"),
 		}
@@ -1942,7 +1942,7 @@ function F.view(state: State): (Node, Node)
 	if state.notice ~= nil and tern.now() - state.notice_at < 6000 then
 		status = { ui.span(state.notice, "warning") }
 	elseif discard then
-		status = { ui.span(if e ~= nil and MULTI_ROWS[e.row] then (if e.row == "prompt" then "Discard prompt edits? esc again" else "Discard question edits? esc again") else "Discard changes? esc again", "warning") }
+		status = { ui.span(if e ~= nil and MULTI_ROWS[e.row] then "Discard prompt edits? esc again" else "Discard changes? esc again", "warning") }
 	elseif #failing_rows > 0 then
 		local names: { string } = {}
 		for _, row in failing_rows do
