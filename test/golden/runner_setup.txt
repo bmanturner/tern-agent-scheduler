@@ -1,0 +1,5 @@
+PASS no heartbeat alarm before the first tick
+PASS a manager that drew a setup problem redraws when it clears
+PASS no redraws while the setup rows stay the same
+PASS no heartbeat alarm right after a sleep
+PASS a tick stalled while awake still fails

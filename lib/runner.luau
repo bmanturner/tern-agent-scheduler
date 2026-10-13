@@ -83,6 +83,9 @@ local S = {
 	last_house = 0,
 	first_pump = true,
 	last_hb = 0,
+	last_hb_mono = 0, -- tern.now() at the last tick
+	loaded_mono = 0, -- tern.now() at load
+	health_seen = nil :: string?, -- the setup rows a manager last drew (rows_sig), until a tick sees them change
 	ls_busy = false,
 	ls_waiters = {} :: { (any?) -> () },
 	tstate = nil :: tern_state.State?,
@@ -1709,8 +1712,19 @@ end
 
 local handlers: intents.Handlers
 
+-- The setup rows as "id=ok" pairs, to notice when they change. setup_rows is assigned further down.
+local setup_rows: () -> { any }
+local function rows_sig(rows: { any }): string
+	local parts: { string } = {}
+	for _, r in rows do
+		table.insert(parts, tostring(r.id) .. "=" .. tostring(r.ok))
+	end
+	return table.concat(parts, " ")
+end
+
 local function slow_tick(now: number, gap: boolean)
 	S.last_hb = now
+	S.last_hb_mono = T().now()
 	prune_managers()
 	pcall(store.retry_dirty)
 	if S.ready then
@@ -1725,6 +1739,11 @@ local function slow_tick(now: number, gap: boolean)
 	end
 	poll_unobserved(now)
 	S.pub_dirty = true -- heartbeat
+	-- A manager drew the setup rows and they've changed since (a "needs attention" line drawn in the second after a
+	-- reload or a wake, or a real problem that cleared): redraw it now, not when someone next presses a key in it.
+	if S.health_seen ~= nil and next(S.subs) ~= nil and rows_sig(setup_rows()) ~= S.health_seen then
+		S.sub_dirty = true
+	end
 end
 
 local pump: () -> ()
@@ -2044,7 +2063,7 @@ local function version_at_least(v: string, major: number, minor: number, patch: 
 	return n >= major * 1000000 + minor * 1000 + patch
 end
 
-local function setup_rows(): { SetupRow }
+setup_rows = function(): { SetupRow }
 	local f = bins.found()
 	local rows: { SetupRow } = {}
 	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 8, 3)
@@ -2068,13 +2087,24 @@ local function setup_rows(): { SetupRow }
 		text = roles_ok == false and "Couldn't read your omp roles. Jobs still run, but role names aren't checked first. Run `omp config get modelRoles` in the job's folder."
 			or "omp roles are readable.",
 	})
-	local age = wall() - S.last_hb
-	local hb_ok = S.last_hb > 0 and age <= 120
+	-- Fails only when the tick missed its turn while this machine was awake. Before the first tick after a load it is
+	-- starting, not stalled. After a sleep the wall clock has jumped; tern.now() is monotonic and may not have, and the
+	-- first tick after the wake (within PUMP_MS) refreshes the heartbeat either way.
+	local mono = T().now()
+	local hb_ok: boolean
+	if S.last_hb == 0 then
+		hb_ok = mono - S.loaded_mono < 30000
+	else
+		hb_ok = wall() - S.last_hb <= 120 or mono - S.last_hb_mono <= 120000
+	end
 	table.insert(rows, {
 		id = "heartbeat",
 		label = "Scheduler heartbeat",
 		ok = hb_ok,
-		text = hb_ok and "The scheduler is ticking." or "The scheduler isn't ticking. Reload plugins (palette: Reload plugins).",
+		text = if not hb_ok
+			then "The scheduler isn't ticking. Reload plugins (palette: Reload plugins)."
+			elseif S.last_hb == 0 then "The scheduler is starting."
+			else "The scheduler is ticking.",
 	})
 	local health = store.health()
 	local data_ok = health == "ok" and S.data_probe ~= false
@@ -2103,7 +2133,9 @@ local function setup_rows(): { SetupRow }
 end
 
 function runner.health(): { health: string, hb: number, setup: { SetupRow } }
-	return { health = store.health(), hb = S.last_hb, setup = setup_rows() }
+	local rows = setup_rows()
+	S.health_seen = rows_sig(rows)
+	return { health = store.health(), hb = S.last_hb, setup = rows }
 end
 
 -- Re-runs the asynchronous checks (binaries, roles, keep-alive, data probe), then cb(rows).
@@ -2246,6 +2278,7 @@ function runner.load()
 		return
 	end
 	S.loaded = true
+	S.loaded_mono = T().now()
 	local now = wall()
 	local health = jobs.load(now)
 	if health ~= "ok" then

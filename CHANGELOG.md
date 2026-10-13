@@ -2,6 +2,14 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.3.2 (2026-10-13)
+
+Built and tested on Tern 0.8.3.
+
+### Fixed
+
+- The manager no longer says "Agent Scheduler needs attention · Check setup" when nothing is wrong. Right after Tern reloaded the plugin, and right after your Mac woke, the scheduler's heartbeat looked stale for a second, and the manager kept showing that until you pressed a key in it. The heartbeat now only counts as stopped when the scheduler misses its tick while your Mac is awake, and an open manager redraws by itself whenever its setup checks change.
+
 ## 0.3.1 (2026-10-13)
 
 Built and tested on Tern 0.8.3.
