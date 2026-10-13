@@ -29,11 +29,38 @@ export type Form = {
 	name: textfield.Field,
 	prompt: textfield.Field,
 	when: textfield.Field,
+	-- "job" | "only_when": the page of the form being shown.
+	page: string,
 	folder: textfield.Field,
 	role: string,
 	catch_up: string,
 	approval: string,
 	stop_s: number,
+	quiet_ok: boolean,
+	-- Only when page: one switch per condition and its values. c_branch "" = this folder's current branch;
+	-- c_runs / c_usd nil = no limit on that.
+	c_commits: boolean,
+	c_branch: string,
+	c_paths: textfield.Field,
+	c_window: boolean,
+	c_days: { number },
+	c_from: number,
+	c_to: number,
+	c_outside: boolean,
+	c_limits: boolean,
+	c_runs: number?,
+	c_usd: number?,
+	c_per: string,
+	c_check: boolean,
+	c_script: textfield.Field,
+	-- Branches of the form's folder (loaded like roles).
+	branches: { string }?,
+	branches_for: string?,
+	branches_err: string?,
+	-- Last "Check now" result on the Only when page; `checking` while it runs, `check_token` tells a stale answer.
+	verdict: any?,
+	checking: boolean?,
+	check_token: any?,
 	enabled: boolean,
 	focus: string?,
 	-- Text row being edited (name, prompt, when, folder) and its text when editing began.
@@ -63,7 +90,7 @@ export type Form = {
 }
 
 export type Sheet = {
-	kind: string, -- roles | presets | setup | settings | help | first_run | confirm_stop
+	kind: string, -- roles | presets | branches | time | setup | settings | help | first_run | confirm_stop | run_anyway | conditions
 	-- picker
 	query: textfield.Field?,
 	sel: string?,
@@ -77,6 +104,12 @@ export type Sheet = {
 	field: textfield.Field?,
 	warnings: { [string]: string }?,
 	checking: boolean?,
+	text: string?,
+	code: string?,
+	override: string?,
+	verdict: any?,
+	-- time sheet: which row it sets (c_from | c_to).
+	row: string?,
 }
 
 export type State = {

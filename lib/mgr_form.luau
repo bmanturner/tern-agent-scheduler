@@ -14,6 +14,9 @@ local jobs = require("./jobs")
 local runner = require("./runner")
 local ids = require("./ids")
 local platform = require("./platform")
+local conditions = require("./conditions")
+local cond_eval = require("./cond_eval")
+local R = require("./mgr_run")
 
 local F = {}
 
@@ -31,22 +34,117 @@ export type Seed = {
 	approval: string?,
 	stop_s: number?,
 	window_s: number?,
+	only_when: conditions.Input?,
+	quiet_ok: boolean?,
 }
 
-local ROW_ORDER = { "name", "prompt", "when", "catch_up", "folder", "role", "approval", "stop", "active" }
+local ROW_ORDER = {
+	"name",
+	"prompt",
+	"when",
+	"only_when",
+	"catch_up",
+	"folder",
+	"role",
+	"approval",
+	"stop",
+	"active",
+	"quiet",
+	"c_now",
+	"c_commits",
+	"c_branch",
+	"c_paths",
+	"c_window",
+	"c_days",
+	"c_from",
+	"c_to",
+	"c_outside",
+	"c_limits",
+	"c_runs",
+	"c_usd",
+	"c_per",
+	"c_check",
+	"c_script",
+}
 local ROW_LABEL: { [string]: string } = {
 	name = "Name",
 	prompt = "Prompt",
 	when = "When",
+	only_when = "Only when",
 	catch_up = "If your " .. platform.machine() .. " was asleep",
 	folder = "Folder",
 	role = "Role",
 	approval = "Approval",
 	stop = "Stop after",
 	active = "Active",
+	quiet = "Quiet when nothing to report",
+	c_now = "Right now",
+	c_commits = "Only when there are new commits",
+	c_branch = "Branch",
+	c_paths = "Only these folders",
+	c_window = "Only at certain times",
+	c_days = "Days",
+	c_from = "From",
+	c_to = "Until",
+	c_outside = "These hours are",
+	c_limits = "At most this many runs or this much spend",
+	c_runs = "Runs",
+	c_usd = "Spend",
+	c_per = "Per",
+	c_check = "Ask a script of yours",
+	c_script = "Script",
 }
-local TEXT_ROWS: { [string]: boolean } = { name = true, prompt = true, when = true, folder = true }
+-- The rows of the Only when page.
+local C_ROWS: { [string]: boolean } = {
+	c_now = true,
+	c_commits = true,
+	c_branch = true,
+	c_paths = true,
+	c_window = true,
+	c_days = true,
+	c_from = true,
+	c_to = true,
+	c_outside = true,
+	c_limits = true,
+	c_runs = true,
+	c_usd = true,
+	c_per = true,
+	c_check = true,
+	c_script = true,
+	c_commits_now = true,
+	c_window_now = true,
+	c_limits_now = true,
+	c_check_now = true,
+}
+-- The "Right now" rows that follow each switch after Check now.
+local NOW_ROWS: { [string]: boolean } = { c_commits_now = true, c_window_now = true, c_limits_now = true, c_check_now = true }
+-- Segmented choices (click or ←→ flips them, no menu), number steppers, and rows that open the time picker.
+local SEG_ROWS: { [string]: boolean } = { c_outside = true, c_per = true }
+local NUM_ROWS: { [string]: boolean } = { c_runs = true, c_usd = true }
+local TIME_ROWS: { [string]: boolean } = { c_from = true, c_to = true }
+local DAY_ORDER = { 1, 2, 3, 4, 5, 6, 0 }
+local DAY_NAMES = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }
+local SWITCH_ROWS: { [string]: boolean } = { active = true, quiet = true, c_commits = true, c_window = true, c_limits = true, c_check = true }
+local TEXT_ROWS: { [string]: boolean } = { name = true, prompt = true, when = true, folder = true, c_paths = true, c_script = true }
 local MENU_ROWS: { [string]: boolean } = { catch_up = true, approval = true, stop = true }
+-- Validation field -> form row, for the fields that don't share their row's name.
+local ERROR_ROW: { [string]: string } = {
+	cwd = "folder",
+	max_runtime_s = "stop",
+	["only_when.branch"] = "c_branch",
+	["only_when.folders"] = "c_paths",
+	["only_when.days"] = "c_days",
+	["only_when.hours"] = "c_to",
+	["only_when.limits"] = "c_runs",
+	["only_when.script"] = "c_script",
+}
+
+local function error_row(field: string): string
+	return ERROR_ROW[field] or field
+end
+
+-- Stands for "this folder's current branch" in the branch picker.
+F.CURRENT_BRANCH = "__current__"
 local EDITOR_ID = "main.prefs.pe.text"
 
 local function defaults(): { [string]: any }
@@ -72,6 +170,19 @@ local function expand(path: string): string
 	return validate.strip_slashes(p)
 end
 
+local function sorted_days(days: any): { number }
+	local out: { number } = {}
+	if type(days) == "table" then
+		for _, d in days do
+			if type(d) == "number" and table.find(out, d) == nil then
+				table.insert(out, d)
+			end
+		end
+	end
+	table.sort(out)
+	return out
+end
+
 local function snapshot_of(form: Form): { [string]: any }
 	return {
 		name = form.name.text,
@@ -83,6 +194,21 @@ local function snapshot_of(form: Form): { [string]: any }
 		approval = form.approval,
 		stop_s = form.stop_s,
 		enabled = form.enabled,
+		quiet_ok = form.quiet_ok,
+		c_commits = form.c_commits,
+		c_branch = form.c_branch,
+		c_paths = form.c_paths.text,
+		c_window = form.c_window,
+		c_days = table.concat(sorted_days(form.c_days), ","),
+		c_from = form.c_from,
+		c_to = form.c_to,
+		c_outside = form.c_outside,
+		c_limits = form.c_limits,
+		c_runs = form.c_runs or 0,
+		c_usd = form.c_usd or 0,
+		c_per = form.c_per,
+		c_check = form.c_check,
+		c_script = form.c_script.text,
 	}
 end
 
@@ -113,6 +239,8 @@ end
 
 function F.new(seed: Seed, id: string?, title: string): Form
 	local d = defaults()
+	local ow: any = seed.only_when or {}
+	local cm: any, wn: any, lm: any, ck: any = ow.commits, ow.window, ow.limits, ow.check
 	local form: Form = {
 		id = id,
 		title = title,
@@ -125,6 +253,22 @@ function F.new(seed: Seed, id: string?, title: string): Form
 		approval = seed.approval or (type(d.approval) == "string" and d.approval) or "yolo",
 		stop_s = seed.stop_s or (type(d.max_runtime_s) == "number" and d.max_runtime_s) or const.MAXRUN_DEFAULT_S,
 		enabled = seed.enabled ~= false,
+		quiet_ok = seed.quiet_ok == true,
+		page = "job",
+		c_commits = cm ~= nil,
+		c_branch = if cm ~= nil and type(cm.branch) == "string" then cm.branch else "",
+		c_paths = textfield.new(if cm ~= nil and type(cm.folders) == "table" then table.concat(cm.folders, " ") else nil),
+		c_window = wn ~= nil,
+		c_days = if wn ~= nil then sorted_days(wn.days) else { 1, 2, 3, 4, 5 },
+		c_from = if wn ~= nil and type(wn.from) == "number" then wn.from else 540,
+		c_to = if wn ~= nil and type(wn.to) == "number" then wn.to else 1080,
+		c_outside = wn ~= nil and wn.outside == true,
+		c_limits = lm ~= nil,
+		c_runs = if lm ~= nil then lm.runs else 3,
+		c_usd = if lm ~= nil then lm.usd else nil,
+		c_per = if lm ~= nil and lm.per == "week" then "week" else "day",
+		c_check = ck ~= nil,
+		c_script = textfield.new(if ck ~= nil and type(ck.path) == "string" then ck.path else nil),
 		focus = if seed.name == nil or seed.name == "" then "name" else "prompt",
 		editing = nil,
 		menu = nil,
@@ -198,6 +342,40 @@ function F.refresh_roles(state: State)
 	end)
 end
 
+-- Reads the branches of the form's folder when the Only when page is shown and the folder changed (or the last read failed).
+function F.refresh_branches(state: State)
+	local form = state.form
+	if form == nil or form.page ~= "only_when" then
+		return
+	end
+	local cwd = expand(form.folder.text)
+	if cwd == "" or string.sub(cwd, 1, 1) ~= "/" or validate.unsafe_path(cwd) then
+		form.branches_for = nil
+		form.branches = nil
+		form.branches_err = nil
+		return
+	end
+	if form.branches_for == cwd and form.branches_err == nil then
+		return
+	end
+	form.branches_for = cwd
+	form.branches = nil
+	form.branches_err = nil
+	runner.branches(cwd, function(list, err)
+		if state.form ~= form or form.branches_for ~= cwd then
+			return
+		end
+		if list ~= nil then
+			form.branches = list
+			form.branches_err = nil
+		else
+			form.branches = nil
+			form.branches_err = err or "Couldn't list this folder's branches."
+		end
+		C.render(state)
+	end)
+end
+
 -- Checks the folder exists (async, `/bin/test -d`); `cb(ok)` runs unless the form was closed.
 local function check_folder(state: State, cb: ((boolean) -> ())?)
 	local form = state.form
@@ -238,6 +416,28 @@ end
 
 -- Validation -------------------------------------------------------------------------------------
 
+-- The conditions the Only when page has switched on, as the structured input (always present, so Save clears the rest).
+function F.only_when_input(form: Form): conditions.Input
+	local input: any = {}
+	if form.c_commits then
+		local folders: { string } = {}
+		for word in string.gmatch(form.c_paths.text, "%S+") do
+			table.insert(folders, word)
+		end
+		input.commits = { branch = if form.c_branch ~= "" then form.c_branch else nil, folders = if #folders > 0 then folders else nil }
+	end
+	if form.c_window then
+		input.window = { days = sorted_days(form.c_days), from = form.c_from, to = form.c_to, outside = form.c_outside }
+	end
+	if form.c_limits then
+		input.limits = { runs = form.c_runs, usd = form.c_usd, per = form.c_per }
+	end
+	if form.c_check then
+		input.check = { path = C.trim(form.c_script.text) }
+	end
+	return input
+end
+
 function F.input(form: Form): validate.JobInput
 	local home = C.home()
 	local cwd = expand(form.folder.text)
@@ -250,6 +450,8 @@ function F.input(form: Form): validate.JobInput
 		approval = form.approval,
 		max_runtime_s = form.stop_s,
 		enabled = form.enabled,
+		only_when = F.only_when_input(form),
+		quiet_ok = form.quiet_ok,
 		catch_up = form.catch_up,
 		catch_up_window_s = form.catch_up_window_s,
 		allow_home = home ~= "" and cwd == validate.strip_slashes(home),
@@ -268,10 +470,11 @@ function F.errors(state: State): { [string]: string }
 	})
 	local out: { [string]: string } = {}
 	for field, msg in errs do
-		local row = if field == "cwd" then "folder" elseif field == "max_runtime_s" then "stop" else field
+		local row = error_row(field)
 		out[row] = msg
 	end
-	for row, msg in form.extra do
+	for field, msg in form.extra do
+		local row = error_row(field)
 		if out[row] == nil then
 			out[row] = msg
 		end
@@ -291,7 +494,7 @@ function F.errors(state: State): { [string]: string }
 end
 
 local function shown(form: Form, row: string): boolean
-	return form.touched[row] == true or form.submitted
+	return form.touched[row] == true or form.submitted or (C_ROWS[row] == true and form.touched.cond == true)
 end
 
 -- The rows with an error that should be shown, in form order.
@@ -368,6 +571,23 @@ function F.preview(form: Form): string
 	return string.format("%s · %s · %s", lead, next_pair(ups, now), tz)
 end
 
+local function only_when_on(form: Form): boolean
+	return form.c_commits or form.c_window or form.c_limits or form.c_check
+end
+
+-- The hint under the Only when row on the Job page: what the switched-on conditions read as.
+function F.only_when_summary(form: Form): string
+	if not only_when_on(form) then
+		return "Always runs when due."
+	end
+	local list = conditions.build(F.only_when_input(form))
+	if list == nil then
+		return "Some conditions need fixing."
+	end
+	local text = conditions.describe(list)
+	return string.upper(string.sub(text, 1, 1)) .. string.sub(text, 2)
+end
+
 -- Rows -------------------------------------------------------------------------------------------
 
 local function summary_line(text: string): string
@@ -379,10 +599,300 @@ local function summary_line(text: string): string
 	return clipped
 end
 
+-- Stepper labels for a number row: 0 reads "No limit"; a seeded value off the list is added.
+local function number_control(base: { number }, current: number?, label: (number) -> string): { [string]: any }
+	local nums = table.clone(base)
+	if current ~= nil and table.find(nums, current) == nil then
+		table.insert(nums, current)
+		table.sort(nums)
+	end
+	local labels: { [string]: string } = { ["0"] = "No limit" }
+	for _, n in nums do
+		labels[tostring(n)] = label(n)
+	end
+	return { k = "number", value = current or 0, min = 0, max = nums[#nums], labels = labels }
+end
+
+local function money_label(n: number): string
+	return if n == math.floor(n) then string.format("$%d", n) else string.format("$%.2f", n)
+end
+
+function F.time_label(row: string, m: number): string
+	return if row == "c_to" and m == 1440 then "Midnight" else conditions.hhmm(m)
+end
+
+-- The half-hour picks of the From / Until picker (From 00:00..23:30, Until 00:30..24:00), plus an off-grid value
+-- the form already holds (seeded from Carly).
+function F.time_entries(form: Form, row: string): { { id: string, label: string } }
+	local lo, hi = if row == "c_to" then 30 else 0, if row == "c_to" then 1440 else 1410
+	local current = if row == "c_to" then form.c_to else form.c_from
+	local mins: { number } = {}
+	for m = lo, hi, 30 do
+		table.insert(mins, m)
+	end
+	if table.find(mins, current) == nil then
+		table.insert(mins, current)
+		table.sort(mins)
+	end
+	local out: { { id: string, label: string } } = {}
+	for _, m in mins do
+		table.insert(out, { id = tostring(m), label = F.time_label(row, m) })
+	end
+	return out
+end
+
+-- The "Right now" row under a condition's switch once Check now has answered; nil before that.
+local function now_row(form: Form, row_id: string, kind: string): P.Row?
+	local v: any = form.verdict
+	if v == nil or type(v.results) ~= "table" then
+		return nil
+	end
+	for _, r in v.results do
+		if r.type == kind then
+			local hint: string? = nil
+			local warning: string? = nil
+			if r.result == "pass" then
+				hint = "✓ " .. tostring(r.text)
+			elseif r.result == "fail" then
+				hint = "✗ " .. tostring(r.text)
+			elseif r.result == "error" then
+				warning = "⚠ " .. tostring(r.text)
+			else
+				hint = "Not checked: an earlier condition said no."
+			end
+			return { id = row_id, label = "Right now", hint = hint, warning = warning, control = { k = "action", act = "c_now", label = "Check again" } }
+		end
+	end
+	return nil
+end
+
+-- The rows of the Only when page: one section per condition, each with its switch first.
+local function only_when_sections(state: State, errs: { [string]: string }?): { P.Section }
+	local form = state.form :: Form
+	local errors: { [string]: string } = errs or {}
+	local function warn(row: string): string?
+		return if shown(form, row) then errors[row] else nil
+	end
+	local function off(on: boolean, row: string): string?
+		return if on then nil else string.format("Turn on “%s” first.", ROW_LABEL[row])
+	end
+
+	local now_hint: string
+	local v: any = form.verdict
+	if form.checking == true then
+		now_hint = "Checking…"
+	elseif not only_when_on(form) then
+		now_hint = "Nothing to check: this job always runs when due."
+	elseif v ~= nil then
+		now_hint = if v.ok == true then "A run would start now." else "A run would not start now: " .. tostring(v.text or "a condition said no") .. "."
+	else
+		now_hint = "Check runs every condition that's on, without starting anything."
+	end
+
+	local branch_hint = "Enter picks one."
+	if form.branches_for == nil then
+		branch_hint = "Pick the job's folder on the Job page to list its branches."
+	elseif form.branches ~= nil then
+		branch_hint = string.format("%d %s in this folder.", #form.branches, if #form.branches == 1 then "branch" else "branches")
+	elseif form.branches_err == nil then
+		branch_hint = "Reading branches…"
+	end
+	local branch_warning = warn("c_branch")
+	if branch_warning == nil and form.c_commits then
+		branch_warning = form.branches_err
+	end
+
+	local days_values: { string } = {}
+	for _, d in sorted_days(form.c_days) do
+		table.insert(days_values, tostring(d))
+	end
+	local days_options: { any } = {}
+	for i, d in DAY_ORDER do
+		table.insert(days_options, { value = tostring(d), label = DAY_NAMES[i] })
+	end
+	local function time_control(row: string, m: number): { [string]: any }
+		return { k = "choice", style = "menu", value = tostring(m), options = { { value = tostring(m), label = F.time_label(row, m) } } }
+	end
+
+	local sections: { P.Section } = {
+		{
+			id = "now",
+			title = nil,
+			rows = {
+				{
+					id = "c_now",
+					label = ROW_LABEL.c_now,
+					hint = now_hint,
+					control = { k = "action", act = "c_now", label = "Check now" },
+				},
+			},
+		},
+		{
+			id = "commits",
+			title = "New commits",
+			rows = {
+				{
+					id = "c_commits",
+					label = ROW_LABEL.c_commits,
+					hint = "Checks git in the job's folder. The first run notes where the branch is and waits; after that a run starts only if something landed since the last successful run, and the agent gets the list.",
+					warning = warn("c_commits"),
+					control = { k = "switch", on = form.c_commits },
+				},
+				{
+					id = "c_branch",
+					label = ROW_LABEL.c_branch,
+					hint = branch_hint,
+					warning = branch_warning,
+					disabled = off(form.c_commits, "c_commits"),
+					control = {
+						k = "choice",
+						style = "menu",
+						value = form.c_branch,
+						options = { { value = form.c_branch, label = if form.c_branch == "" then "This folder's current branch" else form.c_branch } },
+					},
+				},
+				{
+					id = "c_paths",
+					label = ROW_LABEL.c_paths,
+					hint = "Space-separated, inside the job's folder, e.g. src docs.",
+					warning = warn("c_paths"),
+					disabled = off(form.c_commits, "c_commits"),
+					control = { k = "text", value = form.c_paths.text, placeholder = "Any folder", mono = true },
+				},
+			},
+		},
+		{
+			id = "time",
+			title = "Time",
+			rows = {
+				{
+					id = "c_window",
+					label = ROW_LABEL.c_window,
+					hint = "Uses your " .. platform.machine() .. "'s local time.",
+					warning = warn("c_window"),
+					control = { k = "switch", on = form.c_window },
+				},
+				{
+					id = "c_days",
+					label = ROW_LABEL.c_days,
+					warning = warn("c_days"),
+					disabled = off(form.c_window, "c_window"),
+					control = { k = "multi", values = days_values, options = days_options },
+				},
+				{
+					id = "c_from",
+					label = ROW_LABEL.c_from,
+					warning = warn("c_from"),
+					disabled = off(form.c_window, "c_window"),
+					control = time_control("c_from", form.c_from),
+				},
+				{
+					id = "c_to",
+					label = ROW_LABEL.c_to,
+					warning = warn("c_to"),
+					disabled = off(form.c_window, "c_window"),
+					control = time_control("c_to", form.c_to),
+				},
+				{
+					id = "c_outside",
+					label = ROW_LABEL.c_outside,
+					warning = warn("c_outside"),
+					disabled = off(form.c_window, "c_window"),
+					control = {
+						k = "choice",
+						style = "segmented",
+						value = if form.c_outside then "outside" else "inside",
+						options = { { value = "inside", label = "When it may run" }, { value = "outside", label = "Quiet hours" } },
+					},
+				},
+			},
+		},
+		{
+			id = "limits",
+			title = "Limits",
+			rows = {
+				{
+					id = "c_limits",
+					label = ROW_LABEL.c_limits,
+					hint = "Counts this job's runs since midnight (or since Monday). Test runs don't count; a run with unknown cost counts as the job's typical cost.",
+					warning = warn("c_limits"),
+					control = { k = "switch", on = form.c_limits },
+				},
+				{
+					id = "c_runs",
+					label = ROW_LABEL.c_runs,
+					warning = warn("c_runs"),
+					disabled = off(form.c_limits, "c_limits"),
+					control = number_control({ 1, 2, 3, 4, 5, 6, 8, 10, 12, 24 }, form.c_runs, function(n: number): string
+						return if n == 1 then "1 run" else string.format("%d runs", n)
+					end),
+				},
+				{
+					id = "c_usd",
+					label = ROW_LABEL.c_usd,
+					warning = warn("c_usd"),
+					disabled = off(form.c_limits, "c_limits"),
+					control = number_control({ 0.5, 1, 2, 3, 5, 10, 20, 50 }, form.c_usd, money_label),
+				},
+				{
+					id = "c_per",
+					label = ROW_LABEL.c_per,
+					warning = warn("c_per"),
+					disabled = off(form.c_limits, "c_limits"),
+					control = {
+						k = "choice",
+						style = "segmented",
+						value = form.c_per,
+						options = { { value = "day", label = "Day" }, { value = "week", label = "Week" } },
+					},
+				},
+			},
+		},
+		{
+			id = "check",
+			title = "Your own check",
+			rows = {
+				{
+					id = "c_check",
+					label = ROW_LABEL.c_check,
+					hint = "For anything the others can't express. It runs in the job's folder (30 s limit) with a JSON file describing the run as its argument. Exit 0 runs, 1 skips, anything else blocks the run and tells you. It may print REASON: (shown in history), CONTEXT: lines (given to the agent) and CURSOR: (handed back next time). Saving the job approves the script as it is; if it changes, runs are blocked until you save again.",
+					warning = warn("c_check"),
+					control = { k = "switch", on = form.c_check },
+				},
+				{
+					id = "c_script",
+					label = ROW_LABEL.c_script,
+					warning = warn("c_script"),
+					disabled = off(form.c_check, "c_check"),
+					control = { k = "text", value = form.c_script.text, placeholder = "./scripts/has-work.sh", mono = true },
+				},
+			},
+		},
+	}
+	-- After a Check now, each switched-on condition gets its own "Right now" row right after its switch.
+	local NOW_FOR = { c_commits = { "c_commits_now", "commits" }, c_window = { "c_window_now", "window" }, c_limits = { "c_limits_now", "budget" }, c_check = { "c_check_now", "check" } }
+	for _, sec in sections do
+		for i, r in sec.rows do
+			local nf = NOW_FOR[r.id]
+			if nf ~= nil and r.control.on == true then
+				local nr = now_row(form, nf[1], nf[2])
+				if nr ~= nil then
+					table.insert(sec.rows, i + 1, nr)
+				end
+				break
+			end
+		end
+	end
+	return sections
+end
+
 -- The form's rows. `errs` are the current errors (F.errors); nil builds the structure only (ids, options), which is
 -- all the key handlers need, so they skip validation and the schedule preview.
 function F.sections(state: State, errs: { [string]: string }?): { P.Section }
 	local form = state.form :: Form
+	if form.page == "only_when" then
+		return only_when_sections(state, errs)
+	end
 	local light = errs == nil
 	local errors: { [string]: string } = errs or {}
 	local function warn(row: string): string?
@@ -390,6 +900,13 @@ function F.sections(state: State, errs: { [string]: string }?): { P.Section }
 	end
 
 	local when_hint = if light then "" else F.preview(form)
+	local cond_warning: string? = nil
+	for _, row in ROW_ORDER do
+		if C_ROWS[row] and warn(row) ~= nil then
+			cond_warning = "Fix the conditions on the Only when page."
+			break
+		end
+	end
 	local prompt_hint = "Enter edits it · ctrl+o opens it as a file. Say what to do if something is unclear. Nobody is watching a scheduled run."
 	if #form.prompt.text > 4000 then
 		prompt_hint = string.format("%d characters · long prompts read better as a file (ctrl+o)", #form.prompt.text)
@@ -468,6 +985,13 @@ function F.sections(state: State, errs: { [string]: string }?): { P.Section }
 			control = { k = "text", value = form.when.text, placeholder = "weekdays 9am", mono = true },
 		},
 		{
+			id = "only_when",
+			label = ROW_LABEL.only_when,
+			hint = (if light then "" else F.only_when_summary(form)) .. " · Enter changes it",
+			warning = cond_warning,
+			control = { k = "action", act = "only_when", label = "Change…" },
+		},
+		{
 			id = "catch_up",
 			label = ROW_LABEL.catch_up,
 			hint = "Missed means Tern wasn't running or your " .. platform.machine() .. " was asleep. Several misses count as one.",
@@ -522,6 +1046,14 @@ function F.sections(state: State, errs: { [string]: string }?): { P.Section }
 			defaultLabel = "On",
 			control = { k = "switch", on = form.enabled },
 		},
+		{
+			id = "quiet",
+			label = ROW_LABEL.quiet,
+			hint = "The agent may end with RESULT: [quiet]; those runs show as ✓ quiet with nothing to read.",
+			changed = form.quiet_ok,
+			defaultLabel = "Off",
+			control = { k = "switch", on = form.quiet_ok },
+		},
 	}
 	return {
 		{ id = "job", title = "Job", rows = job_rows },
@@ -539,6 +1071,10 @@ local function field_of(form: Form, row: string): textfield.Field?
 		return form.prompt
 	elseif row == "when" then
 		return form.when
+	elseif row == "c_paths" then
+		return form.c_paths
+	elseif row == "c_script" then
+		return form.c_script
 	elseif row == "folder" then
 		return form.folder
 	end
@@ -548,6 +1084,66 @@ end
 local function set_focus(state: State, row: string?)
 	local form = state.form :: Form
 	form.focus = row
+	-- A row on the other page (Save's first failing row) brings its page with it.
+	if row ~= nil then
+		local page = if C_ROWS[row] then "only_when" else "job"
+		if page ~= form.page then
+			form.page = page
+			F.refresh_branches(state)
+		end
+	end
+end
+
+-- A Check now result stops applying as soon as anything it was based on changes.
+local function clear_verdict(form: Form)
+	form.verdict = nil
+	form.checking = nil
+	form.check_token = nil
+end
+
+-- A condition value changed: forget the last Check now, show its errors, drop its stale server errors.
+local function cond_changed(form: Form)
+	clear_verdict(form)
+	form.touched.cond = true
+	for row in C_ROWS do
+		form.extra[row] = nil
+	end
+	form.extra["only_when.script"] = nil
+end
+
+local function switch_get(form: Form, row: string): boolean
+	if row == "active" then
+		return form.enabled
+	elseif row == "quiet" then
+		return form.quiet_ok
+	elseif row == "c_commits" then
+		return form.c_commits
+	elseif row == "c_window" then
+		return form.c_window
+	elseif row == "c_limits" then
+		return form.c_limits
+	end
+	return form.c_check
+end
+
+local function switch_set(state: State, row: string, on: boolean)
+	local form = state.form :: Form
+	if row == "active" then
+		form.enabled = on
+	elseif row == "quiet" then
+		form.quiet_ok = on
+	else
+		if row == "c_commits" then
+			form.c_commits = on
+		elseif row == "c_window" then
+			form.c_window = on
+		elseif row == "c_limits" then
+			form.c_limits = on
+		elseif row == "c_check" then
+			form.c_check = on
+		end
+		cond_changed(form)
+	end
 end
 
 local function start_edit(state: State, row: string)
@@ -592,6 +1188,9 @@ local function stop_edit(state: State, revert: boolean)
 	if not revert and f ~= nil and f.text ~= e.initial then
 		form.touched[e.row] = true
 		form.extra[e.row] = nil
+		if C_ROWS[e.row] then
+			cond_changed(form)
+		end
 		if e.row == "when" and form.was_done == true then
 			-- A new time on a finished one-shot makes it active again (EN §6.6).
 			form.enabled = true
@@ -600,9 +1199,40 @@ local function stop_edit(state: State, revert: boolean)
 			form.folder_ok = nil
 			form.extra.role = nil
 			F.refresh_roles(state)
+			clear_verdict(form)
+			F.refresh_branches(state)
 			check_folder(state, nil)
 		end
 	end
+end
+
+-- The value of the option a menu row currently shows (what its menu opens on).
+local function menu_current(form: Form, row: string): string
+	if row == "catch_up" then
+		return form.catch_up
+	elseif row == "approval" then
+		return form.approval
+	end
+	return tostring(form.stop_s)
+end
+
+-- Shows the other page (Escape on Only when goes back to Job); stops any edit or menu first.
+local function switch_page(state: State, page: string)
+	local form = state.form :: Form
+	if page ~= "job" and page ~= "only_when" then
+		return
+	end
+	if form.editing ~= nil then
+		stop_edit(state, false)
+	end
+	form.menu = nil
+	form.esc_at = nil
+	if form.page == page then
+		return
+	end
+	form.page = page
+	form.focus = if page == "job" then "only_when" else "c_commits"
+	F.refresh_branches(state)
 end
 
 local function apply_choice(state: State, row: string, value: string)
@@ -613,9 +1243,22 @@ local function apply_choice(state: State, row: string, value: string)
 		form.approval = value
 	elseif row == "stop" then
 		form.stop_s = tonumber(value) or form.stop_s
+	elseif row == "c_outside" then
+		form.c_outside = value == "outside"
+	elseif row == "c_runs" then
+		local n = tonumber(value)
+		form.c_runs = if n ~= nil and n > 0 then n else nil
+	elseif row == "c_usd" then
+		local n = tonumber(value)
+		form.c_usd = if n ~= nil and n > 0 then n else nil
+	elseif row == "c_per" then
+		form.c_per = if value == "week" then "week" else "day"
 	end
 	form.touched[row] = true
 	form.extra[row] = nil
+	if C_ROWS[row] then
+		cond_changed(form)
+	end
 end
 
 local function choice_values(state: State, row: string): { string }
@@ -640,6 +1283,8 @@ local function reset_row(state: State, row: string)
 		apply_choice(state, row, tostring(default_for(form, row)))
 	elseif row == "active" then
 		form.enabled = true
+	elseif SWITCH_ROWS[row] then
+		switch_set(state, row, false)
 	end
 end
 
@@ -665,6 +1310,63 @@ function F.set_when(state: State, phrase: string)
 		form.enabled = true
 	end
 	form.focus = "when"
+end
+
+function F.set_branch(state: State, branch: string)
+	local form = state.form
+	if form == nil then
+		return
+	end
+	form.c_branch = branch
+	form.touched.c_branch = true
+	cond_changed(form)
+	form.focus = "c_branch"
+end
+
+function F.set_time(state: State, row: string, minutes: number)
+	local form = state.form
+	if form == nil then
+		return
+	end
+	if row == "c_to" then
+		form.c_to = minutes
+	else
+		form.c_from = minutes
+	end
+	form.touched[row] = true
+	cond_changed(form)
+	form.focus = row
+end
+
+-- Applies a new selection of the Days chips; at least one day must stay on.
+local function change_days(state: State, days: { number })
+	local form = state.form :: Form
+	local clean = sorted_days(days)
+	if #clean == 0 then
+		C.notice(state, "Pick at least one day.")
+		return
+	end
+	form.c_days = clean
+	form.touched.c_days = true
+	cond_changed(form)
+end
+
+-- Flips one weekday (0 = Sunday .. 6 = Saturday) in the Days chips.
+local function toggle_day(state: State, day: number)
+	local form = state.form :: Form
+	local days: { number } = {}
+	local found = false
+	for _, d in form.c_days do
+		if d == day then
+			found = true
+		else
+			table.insert(days, d)
+		end
+	end
+	if not found then
+		table.insert(days, day)
+	end
+	change_days(state, days)
 end
 
 -- Save -------------------------------------------------------------------------------------------------
@@ -721,8 +1423,76 @@ local function next_text(job_id: string): string
 	return "Manual only"
 end
 
-local function commit(state: State, form: Form, run_now: boolean)
+-- Dry-runs the conditions that are switched on without starting anything; the result shows on the Only when page.
+local function check_now(state: State)
+	local form = state.form
+	if form == nil or form.checking == true then
+		return
+	end
+	local list = conditions.build(F.only_when_input(form))
+	if list == nil then
+		form.submitted = true
+		local errs = F.errors(state)
+		for _, row in ROW_ORDER do
+			if C_ROWS[row] and errs[row] ~= nil then
+				set_focus(state, row)
+				break
+			end
+		end
+		return
+	end
+	local draft = {
+		id = form.id or "_draft",
+		name = form.name.text,
+		cwd = expand(form.folder.text),
+		conditions = list,
+	}
+	local token = {}
+	form.check_token = token
+	form.checking = true
+	form.verdict = nil
+	if NOW_ROWS[form.focus or ""] then
+		form.focus = "c_now"
+	end
+	runner.check_draft(draft, function(v: any)
+		if state.form ~= form or form.check_token ~= token then
+			return
+		end
+		form.checking = false
+		form.verdict = v
+		C.render(state)
+	end)
+end
+
+-- Reads the script check of the form and pins its hash, so a later edit of the script blocks runs until re-saved.
+local function pin_checks(state: State, form: Form, cb: ({ [string]: string }) -> ())
+	local acks: { [string]: string } = {}
+	if not form.c_check then
+		cb(acks)
+		return
+	end
+	local path = C.trim(form.c_script.text)
+	cond_eval.read_script(conditions.script_path(path, expand(form.folder.text), C.home()), function(text: string?, err_text: string?)
+		if state.form ~= form then
+			return
+		end
+		if text == nil then
+			local msg = err_text or "couldn't read your check"
+			form.busy = false
+			form.submitted = true
+			form.extra["only_when.script"] = string.upper(string.sub(msg, 1, 1)) .. string.sub(msg, 2) .. "."
+			set_focus(state, "c_script")
+			C.render(state)
+			return
+		end
+		acks[path] = "ck1:" .. ids.fnv64(text)
+		cb(acks)
+	end)
+end
+
+local function commit(state: State, form: Form, run_now: boolean, acks: { [string]: string })
 	local input = F.input(form)
+	input.check_acks = acks
 	local prompt = form.prompt.text
 	local now = C.now()
 	local was_empty = #jobs.list() == 0
@@ -738,7 +1508,7 @@ local function commit(state: State, form: Form, run_now: boolean)
 		local failed = false
 		if type(errs) == "table" then
 			for field, msg in errs do
-				local row = if field == "cwd" then "folder" elseif field == "max_runtime_s" then "stop" else field
+				local row = error_row(field)
 				form.extra[row] = msg
 				failed = true
 			end
@@ -769,10 +1539,7 @@ local function commit(state: State, form: Form, run_now: boolean)
 		C.toast(state, "success", "Saved " .. job.name, next_text(id))
 	end
 	if run_now then
-		local ok, err = runner.run_now(id, { focus_override = "front" })
-		if not ok then
-			C.notice(state, err or "Couldn't start the run.")
-		end
+		R.run_now(state, id, { override = "front", toast = false })
 	elseif was_empty and not editing and job.enabled ~= false then
 		state.sheet = { kind = "first_run", job_id = id }
 	end
@@ -789,6 +1556,7 @@ function F.save(state: State, run_now: boolean)
 		stop_edit(state, false)
 	end
 	sync_draft(form)
+	form.extra["only_when.script"] = nil -- a script-read error from the last Save is re-checked by pin_checks
 	local errs = F.errors(state)
 	if next(errs) ~= nil then
 		form.submitted = true
@@ -807,7 +1575,9 @@ function F.save(state: State, run_now: boolean)
 			set_focus(state, "folder")
 			return
 		end
-		commit(state, fm, run_now)
+		pin_checks(state, fm, function(acks)
+			commit(state, fm, run_now, acks)
+		end)
 	end)
 end
 
@@ -820,6 +1590,7 @@ local function start(state: State, form: Form)
 	state.sheet = nil
 	state.armed = nil
 	F.refresh_roles(state)
+	F.refresh_branches(state)
 	check_folder(state, nil)
 	-- A job without a name opens ready to type it.
 	if form.focus == "name" then
@@ -845,6 +1616,8 @@ function F.open_edit(state: State, job_id: string)
 		cwd = job.cwd,
 		role = job.role,
 		enabled = job.enabled ~= false,
+		only_when = conditions.to_input(job.conditions),
+		quiet_ok = job.quiet_ok == true,
 	}
 	seed.catch_up = job.catch_up
 	seed.approval = job.approval
@@ -871,6 +1644,22 @@ function F.snapshot(form: Form): { [string]: any }
 		approval = form.approval,
 		stop_s = form.stop_s,
 		enabled = form.enabled,
+		page = form.page,
+		c_commits = form.c_commits,
+		c_branch = form.c_branch,
+		c_paths = form.c_paths.text,
+		c_window = form.c_window,
+		c_days = table.clone(form.c_days),
+		c_from = form.c_from,
+		c_to = form.c_to,
+		c_outside = form.c_outside,
+		c_limits = form.c_limits,
+		c_runs = form.c_runs or 0,
+		c_usd = form.c_usd or 0,
+		c_per = form.c_per,
+		c_check = form.c_check,
+		c_script = form.c_script.text,
+		quiet_ok = form.quiet_ok,
 		window_s = form.catch_up_window_s,
 		draft_path = form.draft_path,
 		draft_seed = form.draft_seed,
@@ -900,12 +1689,68 @@ function F.restore(state: State, saved: any): boolean
 		cwd = str(s.folder),
 		role = str(s.role),
 		enabled = if type(s.enabled) == "boolean" then s.enabled else nil,
+		quiet_ok = if type(s.quiet_ok) == "boolean" then s.quiet_ok else nil,
 		catch_up = str(s.catch_up),
 		approval = str(s.approval),
 		stop_s = if type(s.stop_s) == "number" then s.stop_s else nil,
 		window_s = if type(s.window_s) == "number" then s.window_s else nil,
 	}
 	local form = F.new(seed, id, str(s.title) or (if id ~= nil then "Edit job" else "New job"))
+	-- The condition values of a saved form override the defaults F.new made (0 stands for "no limit").
+	if type(s.c_commits) == "boolean" then
+		form.c_commits = s.c_commits
+	end
+	if type(s.c_branch) == "string" then
+		form.c_branch = s.c_branch
+	end
+	if type(s.c_paths) == "string" then
+		textfield.set(form.c_paths, s.c_paths)
+	end
+	if type(s.c_window) == "boolean" then
+		form.c_window = s.c_window
+	end
+	if type(s.c_days) == "table" then
+		local days: { number } = {}
+		for _, d in s.c_days do
+			if type(d) == "number" then
+				table.insert(days, d)
+			end
+		end
+		if #days > 0 then
+			form.c_days = days
+		end
+	end
+	if type(s.c_from) == "number" then
+		form.c_from = s.c_from
+	end
+	if type(s.c_to) == "number" then
+		form.c_to = s.c_to
+	end
+	if type(s.c_outside) == "boolean" then
+		form.c_outside = s.c_outside
+	end
+	if type(s.c_limits) == "boolean" then
+		form.c_limits = s.c_limits
+	end
+	if type(s.c_runs) == "number" then
+		form.c_runs = if s.c_runs > 0 then s.c_runs else nil
+	end
+	if type(s.c_usd) == "number" then
+		form.c_usd = if s.c_usd > 0 then s.c_usd else nil
+	end
+	if type(s.c_per) == "string" then
+		form.c_per = s.c_per
+	end
+	if type(s.c_check) == "boolean" then
+		form.c_check = s.c_check
+	end
+	if type(s.c_script) == "string" then
+		textfield.set(form.c_script, s.c_script)
+	end
+	if s.page == "only_when" then
+		form.page = "only_when"
+		form.focus = "c_commits"
+	end
 	if type(s.orig) == "table" then
 		local orig: { [string]: any } = {}
 		for k, v in s.orig do
@@ -928,7 +1773,7 @@ end
 
 -- View -------------------------------------------------------------------------------------------------------
 
-function F.hints(cols: number, editing: string?): string
+local function base_hints(cols: number, editing: string?): string
 	if editing == "prompt" then
 		return if cols < 56 then "^⏎ done · esc revert" else "⏎ newline · ^⏎ done · esc revert"
 	elseif editing ~= nil then
@@ -937,6 +1782,14 @@ function F.hints(cols: number, editing: string?): string
 		return "^⏎ save · esc cancel"
 	end
 	return "↑↓ move · ←→ change · ⏎ edit · ^⏎ save · esc cancel"
+end
+
+function F.hints(cols: number, editing: string?, page: string?): string
+	local text = base_hints(cols, editing)
+	if page == "only_when" and editing == nil then
+		text = (string.gsub(text, "esc cancel$", "esc back to Job"))
+	end
+	return text
 end
 
 function F.view(state: State): (Node, Node)
@@ -959,10 +1812,15 @@ function F.view(state: State): (Node, Node)
 	local props: { [string]: any } = {
 		key = "prefs",
 		title = "Agent Scheduler",
-		lead = if form.id ~= nil then "Change this job. Saved changes apply from its next run." else "Run an omp agent on a schedule.",
-		-- One page, so the header reads "01 · Job" rather than an empty label.
-		pages = C.arr({ { id = "job", label = "Job", icon = "timer" } }),
-		page = "job",
+		lead = if form.page == "only_when"
+			then "A due run starts only if every condition that's on says yes. Otherwise it's skipped and noted in the job's history, and you aren't notified. Run now asks before it ignores them."
+			elseif form.id ~= nil then "Change this job. Saved changes apply from its next run."
+			else "Run an omp agent on a schedule.",
+		pages = C.arr({
+			{ id = "job", label = "Job", icon = "timer" },
+			{ id = "only_when", label = "Only when", icon = "funnel" },
+		}),
+		page = form.page,
 		sections = P.node_sections(sections),
 		focus = form.focus,
 		editing = editing,
@@ -1011,7 +1869,7 @@ function F.view(state: State): (Node, Node)
 	local dock = ui.col({
 		C.text(status, "status"),
 		C.with(ui.row(acts), { key = "acts" }),
-		C.text({ ui.span(F.hints(cx.cols, if e ~= nil then e.row else nil), "muted") }, "hints"),
+		C.text({ ui.span(F.hints(cx.cols, if e ~= nil then e.row else nil, form.page), "muted") }, "hints"),
 	})
 	return main, dock
 end
@@ -1074,8 +1932,27 @@ end
 local function key_menu(state: State, k: Key): boolean
 	local form = state.form :: Form
 	local m = form.menu :: { row: string, option: string }
-	local values = choice_values(state, m.row)
 	local name = k.name
+	if m.row == "c_days" then
+		-- Days chips: ←→ move the highlight, space toggles that day, Enter or Escape closes.
+		local at = table.find(DAY_ORDER, tonumber(m.option) or 1) or 1
+		if name == "left" or name == "right" then
+			local j = math.clamp(at + (if name == "left" then -1 else 1), 1, #DAY_ORDER)
+			if j == at then
+				return false
+			end
+			m.option = tostring(DAY_ORDER[j])
+			return true
+		elseif name == "space" then
+			toggle_day(state, DAY_ORDER[at])
+			return true
+		elseif name == "enter" or name == "escape" then
+			form.menu = nil
+			return true
+		end
+		return false
+	end
+	local values = choice_values(state, m.row)
 	if name == "up" or name == "down" then
 		local at = table.find(values, m.option) or 0
 		local j = math.clamp(at + (if name == "up" then -1 else 1), 1, math.max(#values, 1))
@@ -1102,15 +1979,43 @@ local function activate(state: State, row: string): boolean
 		start_edit(state, row)
 		return true
 	elseif MENU_ROWS[row] then
-		local current = if row == "catch_up" then form.catch_up elseif row == "approval" then form.approval else tostring(form.stop_s)
-		form.menu = { row = row, option = current }
+		form.menu = { row = row, option = menu_current(form, row) }
+		return true
+	elseif row == "c_days" then
+		local first = 1
+		for _, d in DAY_ORDER do
+			if table.find(form.c_days, d) ~= nil then
+				first = d
+				break
+			end
+		end
+		form.menu = { row = row, option = tostring(first) }
+		return true
+	elseif TIME_ROWS[row] then
+		state.sheet = { kind = "time", row = row, query = textfield.new(), sel = tostring(if row == "c_to" then form.c_to else form.c_from) }
+		return true
+	elseif SEG_ROWS[row] then
+		apply_choice(state, row, if row == "c_outside" then (if form.c_outside then "inside" else "outside") else (if form.c_per == "day" then "week" else "day"))
+		return true
+	elseif NOW_ROWS[row] then
+		check_now(state)
 		return true
 	elseif row == "role" then
 		state.sheet = { kind = "roles", query = textfield.new(), sel = form.role }
 		F.refresh_roles(state)
 		return true
-	elseif row == "active" then
-		form.enabled = not form.enabled
+	elseif row == "c_branch" then
+		state.sheet = { kind = "branches", query = textfield.new(), sel = if form.c_branch == "" then F.CURRENT_BRANCH else form.c_branch }
+		F.refresh_branches(state)
+		return true
+	elseif SWITCH_ROWS[row] then
+		switch_set(state, row, not switch_get(form, row))
+		return true
+	elseif row == "only_when" then
+		switch_page(state, "only_when")
+		return true
+	elseif row == "c_now" then
+		check_now(state)
 		return true
 	end
 	return false
@@ -1158,7 +2063,11 @@ local function key_inner(state: State, k: Key): boolean?
 		F.save(state, k.shift)
 		return true
 	elseif name == "escape" then
-		F.request_cancel(state)
+		if form.page == "only_when" then
+			switch_page(state, "job")
+		else
+			F.request_cancel(state)
+		end
 		return true
 	end
 	form.esc_at = nil
@@ -1167,6 +2076,9 @@ local function key_inner(state: State, k: Key): boolean?
 		open_file(state)
 		return true
 	elseif name == "p" and k.ctrl then
+		if form.page ~= "job" then
+			return false
+		end
 		state.sheet = { kind = "presets", sel = nil }
 		return true
 	elseif name == "up" or name == "down" or name == "tab" then
@@ -1188,7 +2100,7 @@ local function key_inner(state: State, k: Key): boolean?
 	if name == "left" or name == "right" then
 		if MENU_ROWS[row] then
 			local values = choice_values(state, row)
-			local cur = if row == "catch_up" then form.catch_up elseif row == "approval" then form.approval else tostring(form.stop_s)
+			local cur = menu_current(form, row)
 			local at = table.find(values, cur) or 0
 			local j = math.clamp(at + (if name == "left" then -1 else 1), 1, math.max(#values, 1))
 			if values[j] == nil or values[j] == cur then
@@ -1196,12 +2108,34 @@ local function key_inner(state: State, k: Key): boolean?
 			end
 			apply_choice(state, row, values[j])
 			return true
-		elseif row == "active" then
-			local want = name == "right"
-			if form.enabled == want then
+		elseif SEG_ROWS[row] then
+			local want_second = name == "right"
+			if row == "c_outside" then
+				if form.c_outside == want_second then
+					return false
+				end
+				apply_choice(state, row, if want_second then "outside" else "inside")
+			else
+				if (form.c_per == "week") == want_second then
+					return false
+				end
+				apply_choice(state, row, if want_second then "week" else "day")
+			end
+			return true
+		elseif NUM_ROWS[row] then
+			local r = P.find(F.sections(state), row)
+			local n = if r ~= nil then P.step_number(r.control, if name == "left" then -1 else 1) else nil
+			if n == nil then
 				return false
 			end
-			form.enabled = want
+			apply_choice(state, row, tostring(n))
+			return true
+		elseif SWITCH_ROWS[row] then
+			local want = name == "right"
+			if switch_get(form, row) == want then
+				return false
+			end
+			switch_set(state, row, want)
 			return true
 		end
 		return false
@@ -1239,6 +2173,12 @@ function F.event(state: State, ev: UiEvent)
 			F.save(state, true)
 		elseif act == "cancel" then
 			F.request_cancel(state)
+		elseif act == "page" and type(ev.value) == "string" then
+			switch_page(state, ev.value)
+		elseif act == "only_when" then
+			switch_page(state, "only_when")
+		elseif act == "c_now" then
+			check_now(state)
 		elseif act == "close" then
 			-- Close on an open menu's button (it carries a row) closes the menu; the header's Close leaves the form.
 			if form.menu ~= nil and ev.value ~= nil and ev.value ~= tern.json.null then
@@ -1255,8 +2195,21 @@ function F.event(state: State, ev: UiEvent)
 		form.focus = item
 		if ev.value == nil or ev.value == tern.json.null then
 			reset_row(state, item)
-		elseif item == "active" and type(ev.value) == "boolean" then
-			form.enabled = ev.value
+		elseif SWITCH_ROWS[item] and type(ev.value) == "boolean" then
+			switch_set(state, item, ev.value)
+		elseif SEG_ROWS[item] and type(ev.value) == "string" then
+			apply_choice(state, item, ev.value)
+		elseif NUM_ROWS[item] and type(ev.value) == "number" then
+			apply_choice(state, item, tostring(ev.value))
+		elseif item == "c_days" and type(ev.value) == "table" then
+			local days: { number } = {}
+			for _, v in ev.value :: { any } do
+				local n = tonumber(v)
+				if n ~= nil then
+					table.insert(days, n)
+				end
+			end
+			change_days(state, days)
 		elseif MENU_ROWS[item] and type(ev.value) == "string" then
 			apply_choice(state, item, ev.value)
 		end

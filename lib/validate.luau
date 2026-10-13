@@ -3,6 +3,7 @@
 local cron = require("./cron")
 local schedule = require("./schedule")
 local const = require("./const")
+local conditions = require("./conditions")
 
 local validate = {}
 
@@ -10,6 +11,9 @@ export type JobInput = {
 	name: string?,
 	prompt: string?,
 	when: string?,
+	only_when: conditions.Input?,
+	check_acks: { [string]: string }?,
+	quiet_ok: boolean?,
 	role: string?,
 	cwd: string?,
 	approval: string?,
@@ -244,6 +248,31 @@ function validate.job(fields: JobInput, ctx: Ctx): (boolean, { [string]: string 
 		end
 	end
 
+	-- only_when
+	if fields.only_when ~= nil then
+		local list, cerrs = conditions.build(fields.only_when)
+		if list == nil then
+			for k, msg in (cerrs or {}) do
+				errs["only_when." .. k] = msg
+			end
+		else
+			for _, c in list do
+				if c.type == "check" and fields.check_acks ~= nil then
+					c.ack = fields.check_acks[c.path]
+					if c.ack == nil then
+						errs["only_when.script"] = string.format("Couldn't read %s to approve it.", c.path)
+					end
+				end
+			end
+			if errs["only_when.script"] == nil then
+				out.conditions = list
+			end
+		end
+	end
+	if fields.quiet_ok ~= nil then
+		out.quiet_ok = fields.quiet_ok == true
+	end
+
 	-- role
 	if fields.role ~= nil then
 		local role = trim(fields.role):gsub("^@", "")
@@ -388,6 +417,20 @@ function validate.stored(job: any): string?
 	end
 	if job.max_runtime_s ~= nil and int_in(job.max_runtime_s, const.MAXRUN_MIN_S, const.MAXRUN_MAX_S) == nil then
 		return "Invalid time limit."
+	end
+	if job.conditions ~= nil then
+		local cerr = conditions.check_stored(job.conditions)
+		if cerr ~= nil then
+			return cerr
+		end
+		for _, c in job.conditions do
+			if c.type == "check" and c.ack == nil then
+				return "Its script check isn't approved."
+			end
+		end
+	end
+	if job.quiet_ok ~= nil and type(job.quiet_ok) ~= "boolean" then
+		return "Invalid quiet setting."
 	end
 	return nil
 end

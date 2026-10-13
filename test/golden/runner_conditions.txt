@@ -1,0 +1,17 @@
+PASS first slot records the baseline and waits
+PASS repeated skips fold into one row
+PASS new commits launch with trigger.md
+PASS finished run moves the watermark
+PASS failed run keeps the watermark
+PASS window outside => skipped
+PASS budget reached => skipped
+PASS check says no => skipped with its reason
+PASS check errors alert once per incident
+PASS three errors in a row pause the job
+PASS changed script is blocked, not run
+PASS Run now asks the conditions; Run anyway bypasses them
+PASS check_conditions is a dry run
+PASS jobs without conditions are unchanged
+PASS RESULT: [quiet] => finished, quiet
+PASS check_conditions intent replies
+PASS no errors

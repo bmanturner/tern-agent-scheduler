@@ -69,4 +69,23 @@ function ids.reply_id(): string
 	return rand(12)
 end
 
+-- A random 16-character nonce.
+function ids.nonce(): string
+	return rand(16)
+end
+
+-- FNV-1a 64-bit hash as 16 hex chars, computed on two 32-bit lanes.
+function ids.fnv64(s: string): string
+	local hi, lo = 0xcbf29ce4, 0x84222325
+	for i = 1, #s do
+		lo = bit32.bxor(lo, string.byte(s, i))
+		local x = lo * 0x1b3
+		local nlo = x % 4294967296
+		local carry = (x - nlo) / 4294967296
+		hi = (hi * 0x1b3 + carry + lo * 256) % 4294967296
+		lo = nlo
+	end
+	return string.format("%08x%08x", hi, lo)
+end
+
 return ids

@@ -1,10 +1,22 @@
 # Agent Scheduler _(tern-agent-scheduler)_
 
+[![test](https://github.com/bmanturner/tern-agent-scheduler/actions/workflows/test.yml/badge.svg)](https://github.com/bmanturner/tern-agent-scheduler/actions/workflows/test.yml)
+
 Scheduled [omp](https://github.com/can1357/oh-my-pi) agent runs for [Tern](https://stencil.so/tern): cron, presets, plain English or one-shot, each launched into its own tab while you keep working.
 
 ![The Agent Scheduler manager: a run in progress showing its model, tool calls, cost, running time and the tool it is using now, above four upcoming jobs with their schedules, last results and next run times](docs/screenshots/manager.png)
 
 Write a prompt, pick a folder and say when ("weekdays 9am", "every 2h", `0 9 * * 1-5`). At that time Agent Scheduler starts omp in a background **Scheduled runs** session, watches it, and records how the run ended. Your focus never moves. The status line, toasts and desktop notifications tell you when something needs you or fails, and every run keeps its session so you can open it and carry on.
+
+A job can also wait for something worth doing: new commits on a branch, working hours, a daily run or spend limit, or a script of yours. Runs that don't qualify are skipped quietly and noted in the job's history.
+
+- [Install](#install)
+- [Create a job](#create-a-job): [Schedules](#schedules), [Only when](#only-when)
+- [The manager](#the-manager): [Carly](#carly)
+- [Good to know](#good-to-know)
+- [Your data](#your-data)
+- [Develop](#develop)
+- [License](#license)
 
 ## Install
 
@@ -26,11 +38,13 @@ Press `n` in the manager, or `ctrl+alt+shift+j` anywhere. The folder starts as t
 | --- | --- |
 | Prompt | What the agent should do, in Markdown. `ctrl+o` opens it in an editor. Images it links to are attached to every run. |
 | When | The schedule, with a preview of the next three runs. `ctrl+p` picks a preset. |
+| Only when | Conditions a due run must meet, or it's skipped. **Change…** opens the Only when page (see below). |
 | If your computer was asleep | Run once when you're back if under 3 h late (default), always catch up, or skip. |
 | Folder | Where every run starts. |
 | Role | An omp model role such as `@default` or `@smol`, including your project's roles. |
 | Approval | **Hands-off** (default), **Ask before commands** or **Ask for everything**. |
 | Stop after | The time limit for one run, 5 minutes to 8 hours (default 30 minutes). |
+| Quiet when nothing to report | Lets the agent end with `RESULT: [quiet]` when there's nothing worth reading; those runs are marked quiet in the history. |
 
 `ctrl+enter` saves. `ctrl+shift+enter` saves and runs it once in front of you, so you can watch the first run.
 
@@ -53,6 +67,27 @@ Times are local, and daylight-saving changes are handled.
 
 Each run is told it is unattended and to end with a `RESULT:` line, which becomes the run's summary in the manager.
 
+### Only when
+
+The form's second page, **Only when**, has one section per kind of condition. Each is off until you turn it on, and a due run starts only if every condition that's on says yes:
+
+| Section | A due run starts only when |
+| --- | --- |
+| New commits | The branch you pick (or the folder's current one) has commits since the last successful run, optionally only in some folders. The agent gets the new commits in an attached `trigger.md`. |
+| Time | It's on the days and between the times you pick, or, as quiet hours, outside them. |
+| Limits | The job is under that many runs or that much spend today, or this week. |
+| Your own check | Your script says yes. |
+
+**Check now** at the top of the page runs every condition that's on without starting anything, and shows each answer in a **Right now** row under that condition.
+
+For example, a nightly review that should only run after someone pushed: set **When** to `daily 02:00`, then on **Only when** turn on **New commits** and pick `main`. Nights with nothing new show up in history as one folded "Skipped N times" row.
+
+A run that doesn't qualify is listed in the job's history as **skipped** with the reason; repeats fold into one row, and nothing notifies you. The first run of a new-commits job notes where the branch is and waits for something new. If a condition can't be checked (not a git folder, a script that fails), the run is blocked and you're told once; after three in a row the job pauses.
+
+Your own check runs in the job's folder with a 30 s limit and gets a JSON file describing the run as its argument. Exit 0 runs, 1 skips, anything else blocks the run. It can print `REASON: …` (shown in history), `CONTEXT: …` lines (passed to the agent) and `CURSOR: …` (handed back to it next time). Saving the job approves the script as it is then; if it changes, runs are blocked until you open the job and save again. Carly can set every condition except your own check.
+
+**Run now** checks the conditions first and asks **Run anyway?** when one says no. `i` checks them without running anything.
+
 ## The manager
 
 Jobs are grouped into **Needs you**, **Needs fixing**, **Running**, **Upcoming** and **Paused & finished**. A run in progress shows its model, tool calls, cost and running time, with what it is doing now underneath.
@@ -66,6 +101,7 @@ Press `enter` on a job for its details: the prompt, a bar per recent run (red fo
 | `enter` | Open the job, or the tab of a run that needs you |
 | `n` / `e` / `c` | New / edit / duplicate |
 | `r` | Run now |
+| `i` | Check the job's conditions now |
 | `o` | Open the run's tab, or resume its session if the tab is gone |
 | `space` | Pause or resume |
 | `d` `d` | Delete (`u` undoes it for 10 s) |
@@ -75,7 +111,7 @@ From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+
 
 ### Carly
 
-Ask Tern's assistant to create, list, run or pause jobs, for example *"Schedule a job called standup-notes in ~/Dev/app every weekday at 9am that summarises yesterday's commits."*
+Ask Tern's assistant to create, list, run or pause jobs, or to check a job's conditions, for example *"Schedule a job called standup-notes in ~/Dev/app every weekday at 9am that summarises yesterday's commits, only when there are new commits on main."*
 
 > [!NOTE]
 > Jobs Carly creates are active immediately with the default approval (Hands-off). You get a toast and a desktop notification, and the manager marks them `by Carly`.
@@ -111,7 +147,9 @@ tern plugin link .   # Tern reloads the plugin when a file changes
 bun install && bun run test
 ```
 
-The host half (`host.luau`, `lib/runner.luau`) owns the clock and launching; the window half (`window.luau`) adds palette commands, the status line, run observation and Carly. Design notes are in [`docs/design/`](docs/design/).
+The host half (`host.luau`, `lib/runner.luau`) owns the clock and launching, and `lib/cond_eval.luau` checks a job's Only when conditions; the window half (`window.luau`) adds palette commands, the status line, run observation and Carly. Design notes are in [`docs/design/`](docs/design/).
+
+Bug reports and pull requests are welcome in [GitHub issues](https://github.com/bmanturner/tern-agent-scheduler/issues). CI runs `bun run test` on every pull request.
 
 ## License
 

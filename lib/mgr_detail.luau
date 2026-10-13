@@ -9,6 +9,7 @@ local runner = require("./runner")
 local cron = require("./cron")
 local jobs = require("./jobs")
 local ledger = require("./ledger")
+local conditions = require("./conditions")
 
 local D = {}
 
@@ -146,10 +147,15 @@ local function run_item(run: any, now: number, tier: number): Node
 	local detail: string
 	if run.state == "finished" then
 		local parts: { string } = {}
+		local quiet = run.outcome_flag == "quiet"
+		if quiet then
+			table.insert(parts, "quiet")
+			props.tone = "muted"
+		end
 		if type(run.model) == "string" then
 			table.insert(parts, run.model)
 		end
-		if type(run.summary) == "string" and run.summary ~= "" then
+		if type(run.summary) == "string" and run.summary ~= "" and not (quiet and run.summary == "nothing to report") then
 			table.insert(parts, "“" .. clip(run.summary, 80) .. "”")
 		elseif run.reason_code == "ok_unobserved" then
 			table.insert(parts, "finished (no window was open to watch it)")
@@ -168,6 +174,9 @@ local function run_item(run: any, now: number, tier: number): Node
 		if not_attached ~= "" then
 			detail ..= " · " .. not_attached
 		end
+	end
+	if run.cond_bypass ~= nil then
+		detail ..= " · ran without checking conditions"
 	end
 	if tier >= 2 and detail ~= "" then
 		props.detail = { ui.span(detail, "muted") }
@@ -391,7 +400,11 @@ function D.view(state: State): (Node, Node)
 	local status: string
 	local next_secs: number? = nil
 	if job.enabled == false then
-		status = if js.paused_reason == "failures" then "Paused after failures" elseif js.done == true then "Finished" else "Paused"
+		status = if js.paused_reason == "failures"
+			then "Paused after failures"
+			elseif js.paused_reason == "conditions" then "Paused: its conditions couldn't be checked"
+			elseif js.done == true then "Finished"
+			else "Paused"
 	elseif type(js.next_run) == "number" then
 		if js.next_run - now < 3600 and js.next_run - now > 0 then
 			status = "Active · next in"
@@ -458,22 +471,62 @@ function D.view(state: State): (Node, Node)
 	if job.created_by == "carly" and type(job.created_at) == "number" then
 		table.insert(children, C.text({ ui.span("Added by Carly · " .. (string.gsub(os.date("%a %d %b", job.created_at), "^(%a+) 0", "%1 ")), "muted") }, "carly"))
 	end
+	local has_conditions = type(job.conditions) == "table" and #job.conditions > 0
+	local facts: { { Spans } } = {
+		kv("When", when_text(job)),
+	}
+	if has_conditions then
+		table.insert(facts, kv("Only when", conditions.describe(job.conditions)))
+	end
+	for _, row in {
+		kv("If asleep", C.catch_up_label(job.catch_up, job.catch_up_window_s or tonumber(jobs.settings().catchup_window_s))),
+		kv("Next", next_times(job, js, now)),
+		kv("Role", "@" .. tostring(job.role)),
+		kv("Folder", C.tilde(job.cwd)),
+		kv("Appears", appears_text()),
+		kv("Safety", safety_text(job)),
+		kv("After", after_text()),
+	} do
+		table.insert(facts, row)
+	end
 	table.insert(
 		children,
 		C.with(
-			ui.kv({
-				kv("When", when_text(job)),
-				kv("If asleep", C.catch_up_label(job.catch_up, job.catch_up_window_s or tonumber(jobs.settings().catchup_window_s))),
-				kv("Next", next_times(job, js, now)),
-				kv("Role", "@" .. tostring(job.role)),
-				kv("Folder", C.tilde(job.cwd)),
-				kv("Appears", appears_text()),
-				kv("Safety", safety_text(job)),
-				kv("After", after_text()),
-			}),
+			ui.kv(facts),
 			{ key = "facts" }
 		)
 	)
+	if not has_conditions then
+		local recent: { any } = {}
+		for _, r in runs do
+			if r.started ~= nil then
+				table.insert(recent, r)
+				if #recent >= 10 then
+					break
+				end
+			end
+		end
+		local quiet_n, quiet_sum = 0, 0
+		for _, r in recent do
+			if r.outcome_flag == "quiet" then
+				quiet_n += 1
+			end
+			if type(r.cost) == "number" then
+				quiet_sum += r.cost
+			end
+		end
+		if quiet_n >= 8 then
+			table.insert(
+				children,
+				C.text({
+					ui.span(
+						string.format("Quiet %d of the last 10 runs (%s spent). Turn on “Only when: new commits”? Press e.", quiet_n, C.cost_text(quiet_sum)),
+						"muted"
+					),
+				}, "nudge")
+			)
+		end
+	end
 	local prompt = jobs.prompt(d.job_id) or ""
 	table.insert(children, C.text({ ui.span("Prompt", "muted"), ui.span("   "), ui.span("p", "key"), ui.span(" opens the file", "muted") }, "prompt-h"))
 	if string.match(prompt, "%S") ~= nil then
@@ -537,6 +590,9 @@ function D.view(state: State): (Node, Node)
 		add(if closed then "Resume run" else "Open run", "accent", "open_run", "open", sel.run_id)
 	end
 	add("Run now", "neutral", "run", "run", job.id)
+	if type(job.conditions) == "table" and #job.conditions > 0 then
+		add("Check conditions", "neutral", "check_conditions", "check", job.id)
+	end
 	add("Edit", "neutral", "edit", "edit", job.id)
 	add(if job.enabled == false then "Resume" else "Pause", "neutral", "pause", "pause", job.id)
 	local armed = state.armed == job.id
@@ -623,6 +679,14 @@ local function key_inner(state: State, k: Key): boolean?
 	elseif name == "r" then
 		A.run_now(state, id)
 		return true
+	elseif name == "i" then
+		local job: any = jobs.get(id)
+		if job ~= nil and type(job.conditions) == "table" and #job.conditions > 0 then
+			S.check_conditions(state, id)
+		else
+			C.notice(state, "This job has no conditions. Press e and open Only when.")
+		end
+		return true
 	elseif name == "space" then
 		A.toggle_pause(state, id)
 		return true
@@ -680,6 +744,8 @@ function D.event(state: State, ev: UiEvent)
 		elseif type(value) == "string" then
 			if act == "run" then
 				A.run_now(state, value)
+			elseif act == "check_conditions" then
+				S.check_conditions(state, value)
 			elseif act == "edit" then
 				A.edit(state, value)
 			elseif act == "pause" then

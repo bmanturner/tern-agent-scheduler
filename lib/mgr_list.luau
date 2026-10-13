@@ -11,6 +11,8 @@ local jobs = require("./jobs")
 local Live = require("./mgr_live")
 local runner = require("./runner")
 local store = require("./store")
+local conditions = require("./conditions")
+local cond_eval = require("./cond_eval")
 
 local L = {}
 
@@ -109,8 +111,16 @@ function L.model(state: State): Model
 		local job: any = j
 		local js: any = jobs.state(job.id)
 		local last: any = js.last_run
+		local watch_err: any = if type(js.watch) == "table" and type(js.watch.conditions) == "table" then js.watch.conditions.err else nil
 		local blocked = js.paused_reason == "blocked"
-			or (job.enabled ~= false and type(last) == "table" and last.state == "blocked" and not inflight_jobs[job.id])
+			or js.paused_reason == "conditions"
+			or (
+				job.enabled ~= false
+				and type(last) == "table"
+				and last.state == "blocked"
+				and not inflight_jobs[job.id]
+				and not (last.reason_code == "cond_error" and watch_err == nil)
+			)
 		local sec: string
 		if blocked then
 			sec = "fix"
@@ -261,7 +271,7 @@ local function last_text(last: any, now: number): string
 	end
 	local t: number = last.ended or last.started or last.slot or now
 	local glyph = GLYPH[last.state] or "·"
-	local tail = OUTCOME[last.state]
+	local tail = if last.quiet == true then "quiet" else OUTCOME[last.state]
 	return string.format("%s %s%s", glyph, C.when_text(t, now), if tail ~= nil then " " .. tail else "")
 end
 
@@ -284,6 +294,14 @@ local function job_label(job: any, tier: number): Spans
 		table.insert(spans, ui.span(if tier >= 3 then "  by Carly" else "  ✦", "muted"))
 	end
 	return spans
+end
+
+-- "only when <conditions>" for a job row, or nil when the job has none.
+local function only_when_part(job: any): string?
+	if type(job.conditions) == "table" and #job.conditions > 0 then
+		return "only when " .. conditions.describe(job.conditions)
+	end
+	return nil
 end
 
 local function item_node(row: Row, now: number, tier: number): Node
@@ -337,10 +355,30 @@ local function item_node(row: Row, now: number, tier: number): Node
 		local js: any = row.js or {}
 		if tier >= 2 then
 			table.insert(detail_parts, jobs.describe(job))
+			local cond = only_when_part(job)
+			if cond ~= nil then
+				table.insert(detail_parts, cond)
+				if tier >= 3 then
+					local ok, s = pcall(cond_eval.spend, job.id, "day", now)
+					if ok and type(s) == "table" and s.runs > 0 then
+						table.insert(detail_parts, string.format("$%.2f today", s.usd))
+					end
+				end
+			end
 			table.insert(detail_parts, last_text(js.last_run, now))
 		end
 		if tier >= 4 then
 			table.insert(detail_parts, C.tilde(job.cwd))
+		end
+		local W: any = if type(js.watch) == "table" then js.watch.conditions else nil
+		if type(W) == "table" and type(W.skips) == "table" and (tonumber(W.skips.n) or 0) >= 50 then
+			local last_run: any = js.last_run
+			local since: number = (type(last_run) == "table" and last_run.ended) or job.created_at or now
+			if now - since >= 14 * 86400 then
+				detail_parts = {
+					string.format("Hasn't run since %s: %s (%d checks)", os.date("%b %d", since), tostring(W.skips.text), W.skips.n),
+				}
+			end
 		end
 		if sec == "fix" then
 			props.icon = "shield-alert"
@@ -644,6 +682,10 @@ local function upcoming_detail(row: Row, now: number, tier: number): string
 	local parts: { string } = {}
 	if tier >= 2 then
 		table.insert(parts, jobs.describe(row.job))
+		local cond = only_when_part(row.job)
+		if cond ~= nil then
+			table.insert(parts, cond)
+		end
 		table.insert(parts, last_text((row.js :: any).last_run, now))
 	end
 	if tier >= 4 then
@@ -829,6 +871,14 @@ local function key_inner(state: State, k: Key): boolean?
 		return true
 	elseif name == "r" then
 		A.run_now(state, jid)
+		return true
+	elseif name == "i" then
+		local job: any = jobs.get(jid)
+		if job ~= nil and type(job.conditions) == "table" and #job.conditions > 0 then
+			S.check_conditions(state, jid)
+		else
+			C.notice(state, "This job has no conditions. Press e and open Only when.")
+		end
 		return true
 	elseif name == "space" then
 		A.toggle_pause(state, jid)

@@ -5,6 +5,7 @@ local jobs = require("./jobs")
 local ledger = require("./ledger")
 local store = require("./store")
 local validate = require("./validate")
+local conditions = require("./conditions")
 
 local snapshot = {}
 
@@ -69,6 +70,7 @@ local function job_entries(paused_all: boolean, home: string): ({ any }, { id: s
 			folder = validate.tilde(tostring(j.cwd), home),
 			enabled = enabled,
 			paused_reason = (not enabled) and st.paused_reason or nil,
+			only_when = if type(j.conditions) == "table" and #j.conditions > 0 then conditions.describe(j.conditions) else nil,
 			created_by = j.created_by or "user",
 			last = last_of(st),
 		})
@@ -109,6 +111,7 @@ local function recent_entries(now: number): ({ any }, number)
 					summary = r.summary,
 					ended = r.ended,
 					trigger = r.trigger,
+					incident_repeat = r.incident_repeat,
 				})
 			end
 			if
