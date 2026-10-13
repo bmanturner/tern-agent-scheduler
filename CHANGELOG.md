@@ -2,7 +2,7 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
-## 0.4.0 (2026-10-12)
+## 0.3.1 (2026-10-13)
 
 Built and tested on Tern 0.8.3.
 
