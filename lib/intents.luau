@@ -34,6 +34,7 @@ local OBS_STATES: { [string]: boolean } = { working = true, idle = true, waiting
 local FIELD_ORDER = {
 	"name", "prompt", "when",
 	"only_when.branch", "only_when.folders", "only_when.days", "only_when.hours", "only_when.limits", "only_when.script",
+	"only_when.ask", "only_when.ask_role",
 	"role", "cwd", "approval", "max_runtime_s", "catch_up",
 }
 local function log_warn(...: any)

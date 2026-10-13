@@ -8,7 +8,7 @@ Scheduled [omp](https://github.com/can1357/oh-my-pi) agent runs for [Tern](https
 
 Write a prompt, pick a folder and say when ("weekdays 9am", "every 2h", `0 9 * * 1-5`). At that time Agent Scheduler starts omp in a background **Scheduled runs** session, watches it, and records how the run ended. Your focus never moves. The status line, toasts and desktop notifications tell you when something needs you or fails, and every run keeps its session so you can open it and carry on.
 
-A job can also wait for something worth doing: new commits on a branch, working hours, a daily run or spend limit, or a script of yours. Runs that don't qualify are skipped quietly and noted in the job's history.
+A job can also wait for something worth doing: new commits on a branch, working hours, a daily run or spend limit, a script of yours, or a model's answer to a question you write. Runs that don't qualify are skipped quietly and noted in the job's history.
 
 - [Install](#install)
 - [Create a job](#create-a-job): [Schedules](#schedules), [Only when](#only-when)
@@ -77,6 +77,7 @@ The form's second page, **Only when**, has one section per kind of condition. Ea
 | Time | It's on the days and between the times you pick, or, as quiet hours, outside them. |
 | Limits | The job is under that many runs or that much spend today, or this week. |
 | Your own check | Your script says yes. |
+| Ask an AI | A model you pick reads your question, looks at the job's folder (read-only) and answers run. It's checked last, so it's only asked when everything else says yes. |
 
 **Check now** at the top of the page runs every condition that's on without starting anything, and shows each answer in a **Right now** row under that condition.
 
@@ -85,6 +86,8 @@ For example, a nightly review that should only run after someone pushed: set **W
 A run that doesn't qualify is listed in the job's history as **skipped** with the reason; repeats fold into one row, and nothing notifies you. The first run of a new-commits job notes where the branch is and waits for something new. If a condition can't be checked (not a git folder, a script that fails), the run is blocked and you're told once; after three in a row the job pauses.
 
 Your own check runs in the job's folder with a 30 s limit and gets a JSON file describing the run as its argument. Exit 0 runs, 1 skips, anything else blocks the run. It can print `REASON: …` (shown in history), `CONTEXT: …` lines (passed to the agent) and `CURSOR: …` (handed back to it next time). Saving the job approves the script as it is then; if it changes, runs are blocked until you open the job and save again. Carly can set every condition except your own check.
+
+**Ask an AI** is for judgement calls a script can't easily make, such as *"Are there open pull requests that still need a review?"* Before a due run, omp runs in the background with your question, the job's name, folder, time and last run, and whatever the other conditions found (for example the new commits). It can read and search files (and read web pages) but can't change anything or run commands, and it has 60 s to end with `ANSWER: run` or `ANSWER: skip` and a reason. A skip is listed in history with that reason, and a run hands the reason to the job's agent in `trigger.md`. An answer it can't give blocks the run like a failing script. Each check is one model call (about $0.001 with `@smol`) and counts toward Limits; **Check now** asks it too.
 
 **Run now** checks the conditions first and asks **Run anyway?** when one says no. `i` checks them without running anything.
 

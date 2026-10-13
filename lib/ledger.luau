@@ -195,6 +195,11 @@ local function day_time(t: number): string
 	return string.format("%s %02d:%02d", DAYS[(w.wday or 1)] or "", w.hour, w.min)
 end
 ledger.day_time = day_time
+-- Local calendar day of a time, e.g. "2026-10-12"; folding of AI skips never crosses it.
+function ledger.day_key(t: number): string
+	local w = cron.clock.date("*t", t)
+	return string.format("%04d-%02d-%02d", w.year, w.month, w.day)
+end
 
 local function dur(s: number): string
 	s = math.max(0, math.floor(s))
@@ -325,7 +330,7 @@ function ledger.reason_text(code: string?, run: Run): string
 		return tostring(run.cond_text or "")
 	elseif c == "cond_error" then
 		return string.format("Blocked: %s.", tostring(run.cond_text or "a condition couldn't be checked"))
-	elseif c == "cond_commits" or c == "cond_window" or c == "cond_budget" or c == "cond_check" then
+	elseif c == "cond_commits" or c == "cond_window" or c == "cond_budget" or c == "cond_check" or c == "cond_ask" then
 		local text = tostring(run.cond_text or "a condition said no")
 		local count = tonumber(run.count) or 1
 		if count > 1 then
@@ -448,6 +453,10 @@ function ledger.fold(prev: Run, run: Run, now: number): boolean
 	end
 	prev.count = (tonumber(prev.count) or 1) + 1
 	prev.first = prev.first or prev.slot
+	prev.cond_text = run.cond_text
+	if tonumber(prev.cond_cost) ~= nil or tonumber(run.cond_cost) ~= nil then
+		prev.cond_cost = (tonumber(prev.cond_cost) or 0) + (tonumber(run.cond_cost) or 0)
+	end
 	prev.last = run.slot
 	prev.ended = tonumber(run.ended) or now
 	prev.reason = ledger.reason_text(prev.reason_code, prev)

@@ -577,7 +577,7 @@ local function respond(argv, opts)
 	elseif base == "tern" then
 		key = argv[2]
 	elseif base == "omp" then
-		key = "config"
+		key = if argv[2] == "-p" then "omp_print" else "config"
 	else
 		key = base
 	end

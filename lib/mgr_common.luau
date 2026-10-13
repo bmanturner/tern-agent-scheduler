@@ -53,6 +53,10 @@ export type Form = {
 	c_per: string,
 	c_check: boolean,
 	c_script: textfield.Field,
+	-- Ask an AI: the question (edited like the prompt) and the model role that answers it ("smol" default).
+	c_ask: boolean,
+	c_ask_prompt: textfield.Field,
+	c_ask_role: string,
 	-- Branches of the form's folder (loaded like roles).
 	branches: { string }?,
 	branches_for: string?,
@@ -108,7 +112,8 @@ export type Sheet = {
 	code: string?,
 	override: string?,
 	verdict: any?,
-	-- time sheet: which row it sets (c_from | c_to).
+	-- time sheet: which row it sets (c_from | c_to); roles sheet: c_ask_role when it picks the Ask an AI model
+	-- (nil = the job's own role).
 	row: string?,
 }
 

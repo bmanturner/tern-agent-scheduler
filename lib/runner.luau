@@ -927,12 +927,18 @@ local function run_admission(run: Run, rt: RT, now: number)
 	end
 end
 
--- A skipped run that repeats the previous skip (same reason and text) folds into that row.
+-- A skipped run that repeats the previous skip (same reason and text) folds into that row. An AI skip also folds
+-- when its reason differs, as long as both slots fall on the same local day.
 local function fold_skip(run: Run)
 	local list = ledger.recent(tostring(run.job_id), 3)
 	for _, prev in ipairs(list) do
 		if prev.run_id ~= run.run_id then
-			if prev.state == "skipped" and prev.reason_code == run.reason_code and prev.cond_text == run.cond_text then
+			local same = prev.cond_text == run.cond_text
+			if not same and run.reason_code == "cond_ask" then
+				local a, b = tonumber(prev.last) or tonumber(prev.slot), tonumber(run.slot)
+				same = a ~= nil and b ~= nil and ledger.day_key(a) == ledger.day_key(b)
+			end
+			if prev.state == "skipped" and prev.reason_code == run.reason_code and same then
 				ledger.fold(prev, run, wall())
 				mark(nil)
 			end
@@ -958,6 +964,7 @@ local function evaluate_run(run: Run, rt: RT, job: { [string]: any })
 		if v.ok then
 			cond_eval.note_pass(st)
 			run.cond_passed = true
+			run.cond_cost = v.cost
 			run.cursor_next = if next(v.proposals) ~= nil then v.proposals else nil
 			rt.cond_context = v.context
 			rt.cond_done = true
@@ -966,7 +973,7 @@ local function evaluate_run(run: Run, rt: RT, job: { [string]: any })
 			jobs.save_state()
 		elseif v.code == "cond_error" then
 			local before = cond_eval.note_error(st, v.error_code)
-			transition(run, "blocked", "cond_error", { cond_text = v.text, incident_repeat = if before > 0 then true else nil })
+			transition(run, "blocked", "cond_error", { cond_text = v.text, cond_cost = v.cost, incident_repeat = if before > 0 then true else nil })
 			if before == 0 then
 				alert(run, "cond_error", v.alert or clip(tostring(run.reason), 120))
 			end
@@ -978,7 +985,7 @@ local function evaluate_run(run: Run, rt: RT, job: { [string]: any })
 			jobs.save_state()
 		else
 			cond_eval.note_skip(st, v.code, v.text, run.slot)
-			transition(run, "skipped", v.code, { cond_text = v.text, count = 1, first = run.slot, last = run.slot })
+			transition(run, "skipped", v.code, { cond_text = v.text, cond_cost = v.cost, count = 1, first = run.slot, last = run.slot })
 			fold_skip(run)
 			jobs.save_state()
 		end

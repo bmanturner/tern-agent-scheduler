@@ -75,6 +75,22 @@ from_fields limits none => build errors {limits="Set a number of runs, an amount
 from_fields limits bad => build errors {limits="Runs must be 1 to 100."}
 from_fields per bad => build errors {limits="Per must be a day or a week."}
 sig/check_stored/script_path => ok
+build ask default role => [the AI says run (“Are there open PRs?”)]
+build ask role @ => [the AI says run (“x”)]
+build ask long prompt => [the AI says run (“Run only if there are open pull requests…”)]
+build ask empty => errors {ask="Write the question the AI should answer."}
+build ask nul => errors {ask="Write the question the AI should answer."}
+build ask too long => errors {ask="Keep the question under 4,000 characters."}
+build ask bad role => errors {ask_role="Pick a model role from the list."}
+build ask both bad => errors {ask="Write the question the AI should answer.",ask_role="Pick a model role from the list."}
+build ask last => [Mon and max 3 runs a day and new commits and /opt/c.sh and the AI says run (“go?”)]
+to_input ask => {ask={prompt="Open PRs?",role="judge"}}
+from_fields ask => {ask={prompt="Open PRs?"}} => [the AI says run (“Open PRs?”)]
+from_fields ask with model => {ask={prompt="Open PRs?",role="@tiny"}} => [the AI says run (“Open PRs?”)]
+from_fields ask wrong type => error: ask in only_when has the wrong type.
+from_fields ask_model alone => build errors {ask="Write the question the AI should answer."}
+ask => ok
+untrusted => ok
 fnv64 "" => cbf29ce484222325
 fnv64 "a" => af63dc4c8601ec8c
 fnv64 "foobar" => 85944171f73967e8
@@ -83,4 +99,4 @@ summarize "RESULT: [QUIET] - nothing new" => nothing new | failed=nil | quiet=tr
 summarize "RESULT: FAILED - x" => x | failed=x | quiet=nil
 summarize "RESULT: done" => done | failed=nil | quiet=nil
 ADD_DOC fits => true
-ADD_DOC bytes	914
+ADD_DOC bytes	960

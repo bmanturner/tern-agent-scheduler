@@ -175,6 +175,42 @@ assert(
 )
 assert(conditions.script_path("./a.sh", "/w", "/h") == "/w/a.sh" and conditions.script_path("~/a.sh", "/w", "/h") == "/h/a.sh" and conditions.script_path("/a.sh", "/w", "/h") == "/a.sh", "script_path")
 print("sig/check_stored/script_path => ok")
+-- ask: build, errors, describe, round trip, from_fields, check_stored
+local a1 = show("ask default role", { ask = { prompt = "  Are there open PRs?  " } }, "[the AI says run (“Are there open PRs?”)]")
+assert(a1 and a1[1].id == "ask" and a1[1].type == "ask" and a1[1].prompt == "Are there open PRs?" and a1[1].role == "smol", "ask defaults")
+local a2 = show("ask role @", { ask = { prompt = "x", role = "@judge" } }, "[the AI says run (“x”)]")
+assert(a2 and a2[1].role == "judge", "leading @ stripped")
+show("ask long prompt", { ask = { prompt = "Run only if there are open pull requests that need a review today.\nReally." } }, "[the AI says run (“Run only if there are open pull requests…”)]")
+show("ask empty", { ask = { prompt = "   " } }, 'errors {ask="Write the question the AI should answer."}')
+show("ask nul", { ask = { prompt = "a\0b" } }, 'errors {ask="Write the question the AI should answer."}')
+show("ask too long", { ask = { prompt = string.rep("a", 4001) } }, 'errors {ask="Keep the question under 4,000 characters."}')
+show("ask bad role", { ask = { prompt = "x", role = "bad role" } }, 'errors {ask_role="Pick a model role from the list."}')
+show("ask both bad", { ask = { prompt = "", role = "a/b" } }, nil)
+local a3 = show("ask last", {
+	ask = { prompt = "go?" },
+	check = { path = "/opt/c.sh" },
+	commits = {},
+	limits = { runs = 3 },
+	window = { days = { 1 }, from = 0, to = 1440 },
+}, "[Mon and max 3 runs a day and new commits and /opt/c.sh and the AI says run (“go?”)]")
+assert(a3 and #a3 == 5 and a3[5].id == "ask" and conditions.check_stored(a3) == nil, "ask is last and passes the stored check")
+assert(conditions.sig(a3[5]) == "", "ask has no sig")
+round("ask", { ask = { prompt = "Open PRs?", role = "judge" } })
+ff("ask", { ask = "Open PRs?" }, nil)
+local fa = ff("ask with model", { ask = "Open PRs?", ask_model = "@tiny" }, nil)
+assert(fa and fa.ask and fa.ask.prompt == "Open PRs?" and fa.ask.role == "@tiny", "ask_model passes through")
+ff("ask wrong type", { ask = 5 }, "error: ask in only_when has the wrong type.")
+ff("ask_model alone", { ask_model = "smol" }, nil)
+assert(conditions.check_stored({ { id = "ask", type = "ask", prompt = "x", role = "smol" } }) == nil, "stored ask ok")
+assert(conditions.check_stored({ { id = "ask", type = "ask", prompt = "x" } }) == "Its conditions can't be read.", "stored ask needs a role")
+assert(conditions.check_stored({ { id = "ask", type = "ask", prompt = 5, role = "smol" } }) == "Its conditions can't be read.", "stored ask needs a prompt")
+print("ask => ok")
+
+-- untrusted
+local untrusted = __mods.untrusted
+assert(untrusted.clean("a\27[31mb\r\nc\1d\xE2\x80\xAEe") == "ab\nc de", "clean")
+assert(untrusted.fence("n1", "commits", "git", "T") == "----- BEGIN UNTRUSTED DATA n1 [name=commits source=git] -----\nT\n----- END UNTRUSTED DATA n1 -----", "fence")
+print("untrusted => ok")
 
 -- FNV-1a 64
 for _, v in ipairs({ { "", "cbf29ce484222325" }, { "a", "af63dc4c8601ec8c" }, { "foobar", "85944171f73967e8" } }) do

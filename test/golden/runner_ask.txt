@@ -1,0 +1,8 @@
+PASS run => launches with the reason; gate argv, prompt file and cost
+PASS skip => skipped/cond_ask; same-day skips fold with the latest reason and summed cost
+PASS a window that says no never calls the model
+PASS commits + ask: commit subjects reach the prompt as untrusted data
+PASS unclear answer and timeout => blocked/cond_error, one alert
+PASS Limits count AI check spend
+PASS check_conditions calls the model and records nothing
+PASS no errors

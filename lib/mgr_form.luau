@@ -65,6 +65,9 @@ local ROW_ORDER = {
 	"c_per",
 	"c_check",
 	"c_script",
+	"c_ask",
+	"c_ask_prompt",
+	"c_ask_role",
 }
 local ROW_LABEL: { [string]: string } = {
 	name = "Name",
@@ -93,6 +96,9 @@ local ROW_LABEL: { [string]: string } = {
 	c_per = "Per",
 	c_check = "Ask a script of yours",
 	c_script = "Script",
+	c_ask = "Ask an AI first",
+	c_ask_prompt = "Question",
+	c_ask_role = "Model",
 }
 -- The rows of the Only when page.
 local C_ROWS: { [string]: boolean } = {
@@ -111,21 +117,28 @@ local C_ROWS: { [string]: boolean } = {
 	c_per = true,
 	c_check = true,
 	c_script = true,
+	c_ask = true,
+	c_ask_prompt = true,
+	c_ask_role = true,
 	c_commits_now = true,
 	c_window_now = true,
 	c_limits_now = true,
 	c_check_now = true,
+	c_ask_now = true,
 }
 -- The "Right now" rows that follow each switch after Check now.
-local NOW_ROWS: { [string]: boolean } = { c_commits_now = true, c_window_now = true, c_limits_now = true, c_check_now = true }
+local NOW_ROWS: { [string]: boolean } = { c_commits_now = true, c_window_now = true, c_limits_now = true, c_check_now = true, c_ask_now = true }
 -- Segmented choices (click or ←→ flips them, no menu), number steppers, and rows that open the time picker.
 local SEG_ROWS: { [string]: boolean } = { c_outside = true, c_per = true }
 local NUM_ROWS: { [string]: boolean } = { c_runs = true, c_usd = true }
 local TIME_ROWS: { [string]: boolean } = { c_from = true, c_to = true }
 local DAY_ORDER = { 1, 2, 3, 4, 5, 6, 0 }
 local DAY_NAMES = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }
-local SWITCH_ROWS: { [string]: boolean } = { active = true, quiet = true, c_commits = true, c_window = true, c_limits = true, c_check = true }
-local TEXT_ROWS: { [string]: boolean } = { name = true, prompt = true, when = true, folder = true, c_paths = true, c_script = true }
+local SWITCH_ROWS: { [string]: boolean } = { active = true, quiet = true, c_commits = true, c_window = true, c_limits = true, c_check = true, c_ask = true }
+local TEXT_ROWS: { [string]: boolean } = { name = true, prompt = true, when = true, folder = true, c_paths = true, c_script = true, c_ask_prompt = true }
+-- Text rows edited in the multi-line overlay editor (Enter adds a line, ctrl+Enter finishes). The overlay sits at the
+-- top of the page, so only rows near the top may use it.
+local MULTI_ROWS: { [string]: boolean } = { prompt = true }
 local MENU_ROWS: { [string]: boolean } = { catch_up = true, approval = true, stop = true }
 -- Validation field -> form row, for the fields that don't share their row's name.
 local ERROR_ROW: { [string]: string } = {
@@ -137,6 +150,8 @@ local ERROR_ROW: { [string]: string } = {
 	["only_when.hours"] = "c_to",
 	["only_when.limits"] = "c_runs",
 	["only_when.script"] = "c_script",
+	["only_when.ask"] = "c_ask_prompt",
+	["only_when.ask_role"] = "c_ask_role",
 }
 
 local function error_row(field: string): string
@@ -209,6 +224,9 @@ local function snapshot_of(form: Form): { [string]: any }
 		c_per = form.c_per,
 		c_check = form.c_check,
 		c_script = form.c_script.text,
+		c_ask = form.c_ask,
+		c_ask_prompt = form.c_ask_prompt.text,
+		c_ask_role = form.c_ask_role,
 	}
 end
 
@@ -240,7 +258,7 @@ end
 function F.new(seed: Seed, id: string?, title: string): Form
 	local d = defaults()
 	local ow: any = seed.only_when or {}
-	local cm: any, wn: any, lm: any, ck: any = ow.commits, ow.window, ow.limits, ow.check
+	local cm: any, wn: any, lm: any, ck: any, ak: any = ow.commits, ow.window, ow.limits, ow.check, ow.ask
 	local form: Form = {
 		id = id,
 		title = title,
@@ -269,6 +287,9 @@ function F.new(seed: Seed, id: string?, title: string): Form
 		c_per = if lm ~= nil and lm.per == "week" then "week" else "day",
 		c_check = ck ~= nil,
 		c_script = textfield.new(if ck ~= nil and type(ck.path) == "string" then ck.path else nil),
+		c_ask = ak ~= nil,
+		c_ask_prompt = textfield.new(if ak ~= nil and type(ak.prompt) == "string" then ak.prompt else nil),
+		c_ask_role = if ak ~= nil and type(ak.role) == "string" and ak.role ~= "" then ak.role else "smol",
 		focus = if seed.name == nil or seed.name == "" then "name" else "prompt",
 		editing = nil,
 		menu = nil,
@@ -435,6 +456,9 @@ function F.only_when_input(form: Form): conditions.Input
 	if form.c_check then
 		input.check = { path = C.trim(form.c_script.text) }
 	end
+	if form.c_ask then
+		input.ask = { prompt = form.c_ask_prompt.text, role = form.c_ask_role }
+	end
 	return input
 end
 
@@ -572,7 +596,7 @@ function F.preview(form: Form): string
 end
 
 local function only_when_on(form: Form): boolean
-	return form.c_commits or form.c_window or form.c_limits or form.c_check
+	return form.c_commits or form.c_window or form.c_limits or form.c_check or form.c_ask
 end
 
 -- The hint under the Only when row on the Job page: what the switched-on conditions read as.
@@ -686,7 +710,7 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 	elseif v ~= nil then
 		now_hint = if v.ok == true then "A run would start now." else "A run would not start now: " .. tostring(v.text or "a condition said no") .. "."
 	else
-		now_hint = "Check runs every condition that's on, without starting anything."
+		now_hint = "Check runs every condition that's on, without starting anything." .. (if form.c_ask then " The AI check costs one model call." else "")
 	end
 
 	local branch_hint = "Enter picks one."
@@ -868,9 +892,40 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 				},
 			},
 		},
+		{
+			id = "ask",
+			title = "Ask an AI",
+			rows = {
+				{
+					id = "c_ask",
+					label = ROW_LABEL.c_ask,
+					hint = "For judgement calls. After the other conditions say yes, a model reads your question, can look at the job's folder (read-only), and answers run or skip. It also sees what the other conditions found, like the new commits. Each check is one model call; its cost counts toward Limits.",
+					warning = warn("c_ask"),
+					control = { k = "switch", on = form.c_ask },
+				},
+				{
+					id = "c_ask_prompt",
+					label = ROW_LABEL.c_ask_prompt,
+					hint = "Write it as a yes/no question about the current state. It gets the job's name, folder, time and last run.",
+					warning = warn("c_ask_prompt"),
+					disabled = off(form.c_ask, "c_ask"),
+					control = { k = "text", value = summary_line(form.c_ask_prompt.text), placeholder = "Run only if there are open pull requests that need a review." },
+				},
+				{
+					id = "c_ask_role",
+					label = ROW_LABEL.c_ask_role,
+					hint = "A small, fast model is usually enough.",
+					warning = warn("c_ask_role"),
+					disabled = off(form.c_ask, "c_ask"),
+					changed = form.c_ask_role ~= "smol",
+					defaultLabel = "@smol",
+					control = { k = "choice", value = form.c_ask_role, options = { { value = form.c_ask_role, label = "@" .. form.c_ask_role } }, style = "menu" },
+				},
+			},
+		},
 	}
 	-- After a Check now, each switched-on condition gets its own "Right now" row right after its switch.
-	local NOW_FOR = { c_commits = { "c_commits_now", "commits" }, c_window = { "c_window_now", "window" }, c_limits = { "c_limits_now", "budget" }, c_check = { "c_check_now", "check" } }
+	local NOW_FOR = { c_commits = { "c_commits_now", "commits" }, c_window = { "c_window_now", "window" }, c_limits = { "c_limits_now", "budget" }, c_check = { "c_check_now", "check" }, c_ask = { "c_ask_now", "ask" } }
 	for _, sec in sections do
 		for i, r in sec.rows do
 			local nf = NOW_FOR[r.id]
@@ -1075,6 +1130,8 @@ local function field_of(form: Form, row: string): textfield.Field?
 		return form.c_paths
 	elseif row == "c_script" then
 		return form.c_script
+	elseif row == "c_ask_prompt" then
+		return form.c_ask_prompt
 	elseif row == "folder" then
 		return form.folder
 	end
@@ -1109,6 +1166,8 @@ local function cond_changed(form: Form)
 		form.extra[row] = nil
 	end
 	form.extra["only_when.script"] = nil
+	form.extra["only_when.ask"] = nil
+	form.extra["only_when.ask_role"] = nil
 end
 
 local function switch_get(form: Form, row: string): boolean
@@ -1122,6 +1181,9 @@ local function switch_get(form: Form, row: string): boolean
 		return form.c_window
 	elseif row == "c_limits" then
 		return form.c_limits
+	end
+	if row == "c_ask" then
+		return form.c_ask
 	end
 	return form.c_check
 end
@@ -1141,6 +1203,8 @@ local function switch_set(state: State, row: string, on: boolean)
 			form.c_limits = on
 		elseif row == "c_check" then
 			form.c_check = on
+		elseif row == "c_ask" then
+			form.c_ask = on
 		end
 		cond_changed(form)
 	end
@@ -1159,11 +1223,11 @@ local function start_edit(state: State, row: string)
 	form.focus = row
 	form.menu = nil
 	form.editing = { row = row, initial = f.text }
-	if row == "prompt" then
+	if MULTI_ROWS[row] then
 		-- The editor node exists only after the next render.
 		tern.timer(50, function()
 			local fm = state.form
-			if fm ~= nil and fm.editing ~= nil and fm.editing.row == "prompt" then
+			if fm ~= nil and fm.editing ~= nil and MULTI_ROWS[fm.editing.row] then
 				C.focus(state.cx, EDITOR_ID)
 			end
 		end)
@@ -1182,7 +1246,7 @@ local function stop_edit(state: State, revert: boolean)
 		textfield.set(f, e.initial)
 	end
 	form.editing = nil
-	if e.row == "prompt" then
+	if MULTI_ROWS[e.row] then
 		C.focus(state.cx, nil)
 	end
 	if not revert and f ~= nil and f.text ~= e.initial then
@@ -1281,6 +1345,8 @@ local function reset_row(state: State, row: string)
 		apply_choice(state, row, default_for(form, row) :: string)
 	elseif row == "stop" then
 		apply_choice(state, row, tostring(default_for(form, row)))
+	elseif row == "c_ask_role" then
+		F.set_ask_role(state, "smol")
 	elseif row == "active" then
 		form.enabled = true
 	elseif SWITCH_ROWS[row] then
@@ -1296,6 +1362,17 @@ function F.set_role(state: State, role: string)
 	form.role = role
 	form.touched.role = true
 	form.extra.role = nil
+end
+
+function F.set_ask_role(state: State, role: string)
+	local form = state.form
+	if form == nil then
+		return
+	end
+	form.c_ask_role = role
+	form.touched.c_ask_role = true
+	cond_changed(form)
+	form.focus = "c_ask_role"
 end
 
 function F.set_when(state: State, phrase: string)
@@ -1659,6 +1736,9 @@ function F.snapshot(form: Form): { [string]: any }
 		c_per = form.c_per,
 		c_check = form.c_check,
 		c_script = form.c_script.text,
+		c_ask = form.c_ask,
+		c_ask_prompt = form.c_ask_prompt.text,
+		c_ask_role = form.c_ask_role,
 		quiet_ok = form.quiet_ok,
 		window_s = form.catch_up_window_s,
 		draft_path = form.draft_path,
@@ -1747,6 +1827,15 @@ function F.restore(state: State, saved: any): boolean
 	if type(s.c_script) == "string" then
 		textfield.set(form.c_script, s.c_script)
 	end
+	if type(s.c_ask) == "boolean" then
+		form.c_ask = s.c_ask
+	end
+	if type(s.c_ask_prompt) == "string" then
+		textfield.set(form.c_ask_prompt, s.c_ask_prompt)
+	end
+	if type(s.c_ask_role) == "string" and s.c_ask_role ~= "" then
+		form.c_ask_role = s.c_ask_role
+	end
 	if s.page == "only_when" then
 		form.page = "only_when"
 		form.focus = "c_commits"
@@ -1800,7 +1889,7 @@ function F.view(state: State): (Node, Node)
 
 	local editing: any = nil
 	local e = form.editing
-	if e ~= nil and e.row ~= "prompt" then
+	if e ~= nil and not MULTI_ROWS[e.row] then
 		local f = field_of(form, e.row)
 		if f ~= nil then
 			editing = { row = e.row, draft = f.text, cursor = textfield.utf16(f) }
@@ -1826,13 +1915,17 @@ function F.view(state: State): (Node, Node)
 		editing = editing,
 	}
 	local children: { Node } = {}
-	if e ~= nil and e.row == "prompt" then
+	local mf: textfield.Field? = if e ~= nil and MULTI_ROWS[e.row] then field_of(form, e.row) else nil
+	if e ~= nil and mf ~= nil then
 		local ed: { Node } = {
-			C.text({ ui.span("Prompt", "strong"), ui.span("  Markdown. Sent to the agent as an attached file.", "muted") }, "title"),
+			C.text({
+				ui.span("Prompt", "strong"),
+				ui.span("  Markdown. Sent to the agent as an attached file.", "muted"),
+			}, "title"),
 			ui.node("editor", {
 				key = "text",
-				text = form.prompt.text,
-				cursor = textfield.utf16(form.prompt),
+				text = mf.text,
+				cursor = textfield.utf16(mf),
 				maxLines = 14,
 				placeholder = "What should the agent do? Say what to do if something is unclear.",
 			}),
@@ -1849,7 +1942,7 @@ function F.view(state: State): (Node, Node)
 	if state.notice ~= nil and tern.now() - state.notice_at < 6000 then
 		status = { ui.span(state.notice, "warning") }
 	elseif discard then
-		status = { ui.span(if e ~= nil and e.row == "prompt" then "Discard prompt edits? esc again" else "Discard changes? esc again", "warning") }
+		status = { ui.span(if e ~= nil and MULTI_ROWS[e.row] then "Discard prompt edits? esc again" else "Discard changes? esc again", "warning") }
 	elseif #failing_rows > 0 then
 		local names: { string } = {}
 		for _, row in failing_rows do
@@ -1881,7 +1974,7 @@ local function key_text(state: State, k: Key): boolean
 	local e = form.editing :: { row: string, initial: string }
 	local f = field_of(form, e.row) :: textfield.Field
 	local name = k.name
-	local multi = e.row == "prompt"
+	local multi = MULTI_ROWS[e.row] == true
 	if name == "escape" then
 		-- A multi-line prompt can hold minutes of typing: ask before throwing it away.
 		if multi and f.text ~= e.initial and not (form.esc_at ~= nil and tern.now() - form.esc_at < 3000) then
@@ -1904,7 +1997,7 @@ local function key_text(state: State, k: Key): boolean
 				stop_edit(state, false)
 				return true
 			end
-			form.touched.prompt = true
+			form.touched[e.row] = true
 			textfield.insert(f, "\n")
 			return true
 		end
@@ -1999,6 +2092,10 @@ local function activate(state: State, row: string): boolean
 		return true
 	elseif NOW_ROWS[row] then
 		check_now(state)
+		return true
+	elseif row == "c_ask_role" then
+		state.sheet = { kind = "roles", query = textfield.new(), sel = form.c_ask_role, row = "c_ask_role" }
+		F.refresh_roles(state)
 		return true
 	elseif row == "role" then
 		state.sheet = { kind = "roles", query = textfield.new(), sel = form.role }

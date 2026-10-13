@@ -170,7 +170,7 @@ local function picker_node(state: State, sheet: Sheet): Node
 		end
 		local form = state.form
 		if form ~= nil then
-			current = { form.role }
+			current = { if sheet.row == "c_ask_role" then form.c_ask_role else form.role }
 		end
 	elseif sheet.kind == "branches" then
 		local entries, note = branch_entries(state, query)
@@ -208,7 +208,7 @@ local function picker_node(state: State, sheet: Sheet): Node
 	local props: { [string]: any } = {
 		key = "picker",
 		size = "md",
-		title = if sheet.kind == "roles" then "Role" elseif sheet.kind == "branches" then "Branch" elseif sheet.kind == "time" then (if sheet.row == "c_to" then "Until" else "From") else "When",
+		title = if sheet.kind == "roles" then (if sheet.row == "c_ask_role" then "Model" else "Role") elseif sheet.kind == "branches" then "Branch" elseif sheet.kind == "time" then (if sheet.row == "c_to" then "Until" else "From") else "When",
 		subtitle = if sheet.kind == "roles"
 			then message
 			elseif sheet.kind == "branches" then (message or "Runs start only when this branch has new commits.")
@@ -255,7 +255,11 @@ end
 
 local function choose(state: State, sheet: Sheet, id: string)
 	if sheet.kind == "roles" then
-		F.set_role(state, id)
+		if sheet.row == "c_ask_role" then
+			F.set_ask_role(state, id)
+		else
+			F.set_role(state, id)
+		end
 	elseif sheet.kind == "branches" then
 		F.set_branch(state, if id == F.CURRENT_BRANCH then "" else id)
 	elseif sheet.kind == "time" then
