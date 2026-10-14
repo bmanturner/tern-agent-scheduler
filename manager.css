@@ -1,4 +1,17 @@
 /* Native Tern, theme-owned colors. Selection stays native; no follower overlay. */
+/* prefs has no search-less prop or documented search-focus event. Hide its inert
+   search only in the job form; Settings and other plugins keep their native UI. */
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] .pf-search { display: none; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] .pf { font-family: var(--sans); }
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.form-dock'] { font-family: var(--sans); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] [data-row='when'] .h,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] [data-row='stop'] .pf-pick,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] [data-row='c_from'] .pf-pick,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] [data-row='c_to'] .pf-pick,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] .pf-step .v { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+/* Essential policy values must remain readable even on the native narrow rail. */
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] [data-row='catch_up'] .pf-pick { white-space: normal; height: auto; }
+
 .sf-region[data-surface='plugin.tern-agent-scheduler.manager'] { font-family: var(--sans); --sf-sel: rgb(from var(--accent) r g b / 8%); }
 .sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.split'] { align-items: flex-start; min-width: 0; }
 .sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.timeline'],

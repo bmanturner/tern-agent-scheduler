@@ -1,0 +1,4 @@
+PASS all-off conditions collapse; Check now absent and inert
+PASS every toggle reveals dependents, preserves drafts and keyboard order
+PASS collapsing clears stale Check now results
+PASS compact missed-run labels preserve threshold and policy
