@@ -93,11 +93,15 @@ Your own check runs in the job's folder with a 30 s limit and gets a JSON file d
 
 ## The manager
 
-Jobs are grouped into **Needs you**, **Needs fixing**, **Running**, **Upcoming** and **Paused & finished**. A run in progress shows its model, tool calls, cost and running time, with what it is doing now underneath.
+The default **Timeline** shows results since you last looked, a **Now** rule, then each active job at its next run. Running jobs stay at Now with their next time inline; paused, manual-only and broken jobs sit at the bottom. More than eight new results fold into one summary per job, with failures still listed individually. Enter opens the job, not an expanding row.
 
-Press `enter` on a job for its details: the prompt, a bar per recent run (red for failures), and each run's summary, duration and cost.
+At 150 columns or wider, details sit beside the list and follow selection. Enter focuses the selected job’s runs; Escape returns to the job list. In narrower panes, Enter opens details full-width. **Settings › Manager › Layout** can restore the **Classic job list**, grouped into Needs you, Needs fixing, Running, Upcoming and Paused & finished.
 
-![A job's detail view: schedule, folder, safety and the prompt, then a bar chart of recent run durations with one failed run in red, and the run list with summaries, durations and costs](docs/screenshots/job-detail.png)
+Job details show the latest result, settings, prompt and a one-line history of each run’s outcome, duration and cost. Failed and missed counts are separate. Every run timestamp uses its start time (or created/scheduled time when it never started), with duration shown separately. **Settings › Manager › Time format** offers **Automatic**, **12-hour** and **24-hour**. Automatic follows the host’s cached system preference, with a 24-hour fallback; the same format applies to schedules, previews, notifications, status and Carly.
+
+New results fade after three seconds in the manager by default; choose **Stay until marked seen** in Settings › Manager to keep them highlighted. Press `s` or click **Mark all seen** to clear them. A failure marker stays on the job until its next success. Tern does not expose a block visibility/close callback, so the last-looked checkpoint advances after the three-second fallback rather than on tab departure. See [manager behavior](docs/design/manager-timeline.md) for limitations.
+
+The screenshots above predate the timeline redesign.
 
 | Key | Does |
 | --- | --- |
@@ -108,9 +112,10 @@ Press `enter` on a job for its details: the prompt, a bar per recent run (red fo
 | `o` | Open the run's tab, or resume its session if the tab is gone |
 | `space` | Pause or resume |
 | `d` `d` | Delete (`u` undoes it for 10 s) |
+| `s` | Mark all results seen |
 | `?` | Every key |
 
-From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+alt+shift+m`), **New job…** (`ctrl+alt+shift+j`), **Run a job now…** (`ctrl+alt+shift+r`) and **Go to run that needs you** (`ctrl+alt+shift+a`).
+From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+alt+shift+m`), **New job…** (`ctrl+alt+shift+j`), **Run a job now…** (`ctrl+alt+shift+r`) and **Go to run that needs you** (`ctrl+alt+shift+a`). **Agent Scheduler: Settings** opens the manager’s Manager settings page.
 
 ### Carly
 

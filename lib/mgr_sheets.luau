@@ -42,14 +42,15 @@ local PRESETS: { Preset } = {
 
 local HELP_KEYS: { { string } } = {
 	{ "j k ↑ ↓", "Move the selection (g / G first / last)" },
-	{ "enter", "Open the job (a run that needs you: open its terminal)" },
+	{ "enter", "Open the job; wide panes focus its runs (esc returns to jobs). Needs you: open its terminal" },
 	{ "n", "New job" },
 	{ "e", "Edit the job" },
 	{ "r", "Run now" },
 	{ "i", "Check a job's conditions now" },
 	{ "space", "Pause or resume the job" },
-	{ "d d", "Delete the job (any other key cancels)" },
+	{ "dd", "Delete the job (any other key cancels)" },
 	{ "u", "Undo the last delete (10 s)" },
+	{ "s", "Mark all results seen" },
 	{ "c", "Duplicate the job" },
 	{ "h", "History" },
 	{ "o", "Open the job's run terminal" },
@@ -521,7 +522,13 @@ local function settings_sections(state: State, sheet: Sheet): { P.Section }
 	local window_s = if type(s.catchup_window_s) == "number" then s.catchup_window_s else const.CATCHUP_DEFAULT_S
 	local panes = if type(s.max_finished_panes) == "number" then s.max_finished_panes else const.MAX_FINISHED_PANES
 	local session_name = if type(s.session_name) == "string" then s.session_name else const.SESSION_NAME_DEFAULT
-	if sheet.page == "setup" then
+	if sheet.page == "manager" then
+		return { { id = "manager", title = "Manager", rows = {
+			{ id = "time_format", label = "Time format", hint = "Automatic follows your system, with a 24-hour fallback.", control = { k = "choice", style = "menu", value = s.time_format or "automatic", options = { { value = "automatic", label = "Automatic (default)" }, { value = "12h", label = "12-hour" }, { value = "24h", label = "24-hour" } } } },
+			{ id = "manager_layout", label = "Layout", control = { k = "choice", style = "menu", value = s.manager_layout or "timeline", options = { { value = "timeline", label = "Timeline (default)" }, { value = "classic", label = "Classic job list" } } } },
+			{ id = "manager_results", label = "New results", hint = "Fade after three seconds in the manager, or keep highlights until you mark all seen.", control = { k = "choice", style = "menu", value = s.manager_results or "fade", options = { { value = "fade", label = "Fade once seen (default)" }, { value = "stay", label = "Stay until marked seen" } } } },
+		} } }
+	elseif sheet.page == "setup" then
 		return {
 			{
 				id = "setup",
@@ -621,6 +628,7 @@ end
 
 local function settings_pages(): { any }
 	return C.arr({
+		{ id = "manager", label = "Manager", icon = "list" },
 		{ id = "runs", label = "Runs", icon = "timer" },
 		{ id = "setup", label = "Setup", icon = "shield-alert" },
 	})
@@ -644,7 +652,7 @@ local function settings_node(state: State, sheet: Sheet): Node
 		title = "Settings",
 		pages = settings_pages(),
 		page = sheet.page,
-		lead = if sheet.page == "setup" then "Is Agent Scheduler able to run jobs?" else "How scheduled runs start and what Tern keeps.",
+		lead = if sheet.page == "manager" then "How you review scheduled work." elseif sheet.page == "setup" then "Is Agent Scheduler able to run jobs?" else "How scheduled runs start and what Tern keeps.",
 		sections = P.node_sections(sections),
 		focus = sheet.focus,
 		editing = editing,
@@ -654,7 +662,9 @@ end
 -- Applies the settings row `id` with `value`; a problem is shown on the row.
 local function apply_setting(state: State, sheet: Sheet, id: string, value: any)
 	local patch: { [string]: any }
-	if id == "placement" then
+	if id == "manager_layout" or id == "manager_results" or id == "time_format" then
+		patch = { [id] = value }
+	elseif id == "placement" then
 		patch = { defaults = { placement = { where = value } } }
 	elseif id == "focus" then
 		patch = { defaults = { focus = if value == true then "front" else "keep" } }
@@ -776,7 +786,7 @@ local function key_settings(state: State, sheet: Sheet, k: Key): boolean?
 		sheet.focus = target
 		return true
 	elseif name == "tab" then
-		sheet.page = if sheet.page == "runs" then "setup" else "runs"
+		sheet.page = if sheet.page == "runs" then "setup" elseif sheet.page == "setup" then "manager" else "runs"
 		sheet.focus = nil
 		return true
 	end

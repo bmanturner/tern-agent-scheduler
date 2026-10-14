@@ -1,0 +1,5 @@
+PASS timeline order, manual group, running deduplication, missed != failed
+PASS backlog counts independent of retention
+PASS host checkpoint and mark-all-seen
+PASS cron steps and manager setting validation
+PASS stay/fade settings, sheet guard and live-pane timer

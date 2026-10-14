@@ -1,0 +1,4 @@
+PASS midnight/noon and shared schedule, manager, condition and notification clocks
+PASS macOS preferences, locale detection, fallback and persisted probe cache
+PASS setting default, validation, persistence and in-flight preference change
+PASS snapshot carries resolved format; window consumes it without spawning

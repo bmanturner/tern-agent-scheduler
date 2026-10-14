@@ -1,135 +1,52 @@
-/* Agent Scheduler manager: job history bar chart (Detail view). */
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bars {
-	display: flex;
-	flex-direction: row;
-	align-items: flex-end;
-	gap: 3px;
-	/* The main region is a flex column that shrinks its children; keep the track its full height. */
-	flex: 0 0 56px;
-	height: 56px;
-	min-height: 56px;
-	padding: 2px 0;
-	box-sizing: border-box;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar {
-	flex: 0 0 14px;
-	width: 14px;
-	min-height: 2px;
-	border-radius: 2px 2px 0 0;
-	background: var(--sf-ok, var(--ok));
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-o='fail'] {
-	background: var(--sf-bad, var(--bad));
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-o='none'] {
-	background: var(--sf-muted);
-	opacity: 0.6;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='0'] {
-	height: 2px;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='1'] {
-	height: 5%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='2'] {
-	height: 10%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='3'] {
-	height: 15%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='4'] {
-	height: 20%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='5'] {
-	height: 25%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='6'] {
-	height: 30%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='7'] {
-	height: 35%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='8'] {
-	height: 40%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='9'] {
-	height: 45%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='10'] {
-	height: 50%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='11'] {
-	height: 55%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='12'] {
-	height: 60%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='13'] {
-	height: 65%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='14'] {
-	height: 70%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='15'] {
-	height: 75%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='16'] {
-	height: 80%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='17'] {
-	height: 85%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='18'] {
-	height: 90%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='19'] {
-	height: 95%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='20'] {
-	height: 100%;
-}
-
-/* Upcoming row with a live countdown: a `row`, not an `item` (an item can't hold an `elapsed`), so it borrows
-   the item's metrics, hover and selection styling to sit flush with its neighbours. */
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'] {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	min-width: 0;
-	min-height: calc(var(--sf-lh) + 6px);
-	padding: 0 8px 0 10px;
-	white-space: pre;
-	color: var(--t1);
-	cursor: pointer;
-	transition:
-		background-color 0.12s var(--ease),
-		box-shadow 0.12s var(--ease);
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'] > * {
-	flex: none;
-	min-width: 0;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'] > .sf-text:nth-child(3) {
-	flex: 1 1 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'] > .sf-text:nth-child(2) {
-	flex: 0 1 auto;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon']:hover {
-	background-color: var(--l1);
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'][data-mark='pick'],
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'][data-mark='pick']:hover {
-	background-color: var(
-		--sf-sel,
-		light-dark(rgb(from var(--accent) r g b/10%), rgb(from var(--accent) r g b/16%))
-	);
-	box-shadow: inset 2px 0 0 var(--accent);
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'][data-mark='pick']::after {
-	display: none;
+/* Native Tern, theme-owned colors. Selection stays native; no follower overlay. */
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] { font-family: var(--sans); --sf-sel: rgb(from var(--accent) r g b / 8%); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.split'] { align-items: flex-start; min-width: 0; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.timeline'],
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.detail'] { flex: 1 1 0; min-width: 0; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.detail'] { background: var(--card); border: 1px solid var(--l3); border-radius: var(--r-card); padding: 16px; box-shadow: 0 8px 24px -10px rgb(from var(--t1) r g b / 16%); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.detail-title'] { font-size: 17px; font-weight: 650; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-item { border-radius: var(--r-ctl); margin: 2px 0; padding-top: 7px; padding-bottom: 7px; border-left: 2px solid transparent; transition: border-color 600ms var(--out), background-color 180ms var(--out); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.new'] { border-left-color: var(--accent); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.new-failed'] { border-left-color: var(--bad); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.seen'] { border-left-color: transparent; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-mark='pick'] { background: rgb(from var(--accent) r g b / 12%); box-shadow: inset 0 0 0 1px var(--accent); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-t-mono,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-t-num,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-elapsed { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--t2); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-t-mono { -stencil-text-effect: numeric; -stencil-text-duration: 300ms; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-icon { font-size: 15px; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.now-rule'] { display: flex; align-items: center; position: relative; margin: 12px 0; min-height: 24px; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.now-rule']::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--accent); box-shadow: 0 0 8px rgb(from var(--accent) r g b / 40%); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.now-pill'] { position: relative; margin-left: 10px; padding: 3px 9px; border-radius: var(--r-chip); background: var(--accent); color: var(--panel); font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; -stencil-text-effect: numeric; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.live-row'] { position: relative; padding-left: 14px; border-radius: var(--r-ctl); background: linear-gradient(to right, rgb(from var(--live) r g b / 14%), transparent); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.live-row']::before { content: ''; position: absolute; left: 4px; top: 14px; width: 6px; height: 6px; border-radius: 50%; background: var(--live); animation: tas-live-pulse 3s var(--ease) infinite; }
+@keyframes tas-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.latest'],
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.latest-failed'] { padding: 10px 12px; border-radius: var(--r-ctl); border: 1px solid var(--l2); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.latest-failed'] { background: rgb(from var(--bad) r g b / 10%); border-color: rgb(from var(--bad) r g b / 40%); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.detail-settings'] { background: var(--l1); padding: 12px; border-radius: var(--r-ctl); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.prompt-action'],
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.failure-badge'] { align-self: flex-start; flex: none; }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] button { display: inline-flex; align-items: center; gap: 8px; color: var(--t1); background: transparent; border: 1px solid var(--l2); border-radius: var(--r-ctl); padding: 5px 9px; font-family: var(--sans); cursor: pointer; }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] button:hover { background: var(--l2); }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] button:focus-visible { outline: 1px solid var(--accent); }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] button kbd { font-family: var(--mono); font-size: 11px; color: var(--t2); background: var(--l1); border-radius: 3px; padding: 1px 3px; }
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row { flex-wrap: wrap; row-gap: 6px; }
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.dock-actions'] { gap: 20px; align-items: center; }
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.dock-job'] { padding: 3px; gap: 2px; border: 1px solid var(--l2); border-radius: var(--r-ctl); background: var(--l1); }
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.dock-job'] button { border-color: transparent; }
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.dock-global'] { border-left: 1px solid var(--l3); padding-left: 16px; gap: 6px; }
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.dock-danger'] { margin-left: 10px; border-color: var(--l3); color: var(--t2); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.soon'] { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: calc(var(--sf-lh) + 6px); padding: 7px 8px 7px 10px; white-space: pre; color: var(--t1); cursor: pointer; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.soon'] > * { flex: none; min-width: 0; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.soon'] > .sf-text:nth-child(3) { flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.soon'] > .sf-text:nth-child(2) { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.soon']:hover { background: var(--l1); }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'].sf-still *,
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'].sf-still *::before { animation: none !important; transition: none !important; -stencil-text-effect: none !important; -stencil-follow: none !important; }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'].sf-paused *,
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'].sf-covered * { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+ .sf-region[data-surface='plugin.tern-agent-scheduler.manager'] *,
+ .sf-region[data-surface='plugin.tern-agent-scheduler.manager'] *::before { animation: none !important; transition: none !important; -stencil-text-effect: none !important; -stencil-follow: none !important; }
 }

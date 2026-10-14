@@ -53,6 +53,9 @@ assert(opened[1].args[2] == "/home/needz/app", "remote pane's folder: " .. tostr
 defs["new-job"].run(window("remote", "/home/needz/app"))
 assert(opened[2].args[1] == "new" and opened[2].args[2] == "/home/needz/app", "new job in the remote folder")
 
+defs["settings"].run(window("remote", "/home/needz/app"))
+assert(opened[3].args[1] == "settings" and opened[3].how == "tab", "Settings opens its manager sheet")
+
 -- Carly creates jobs on this machine, so a remote pane's folder is still refused there.
 local cwd, why = commands.focused_cwd(window("remote", "/home/needz/app"))
 assert(cwd == "" and why ~= nil, "focused_cwd refuses a remote pane")

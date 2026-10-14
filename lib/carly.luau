@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- Window half: Carly exports (list, add, run, pause jobs) and a short request context. Creation is
 -- done by the host (`carly_create` intent + reply file); this half only pre-validates and relays.
 
@@ -118,7 +119,7 @@ local function next_text(at: any, j: any, paused_all: boolean): string
 	elseif paused_all then
 		return "all jobs paused"
 	elseif type(at) == "number" then
-		return os.date("%a %d %b %H:%M", at)
+		return timefmt.date("%a %d %b %H:%M", at)
 	end
 	return "manual only"
 end

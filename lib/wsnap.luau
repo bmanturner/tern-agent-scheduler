@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- Window half: the host's published snapshot, cached. snapshot.json is re-read only when the kv key
 -- `hot` reports a new `rev`. Nothing here runs at load time.
 
@@ -18,6 +19,7 @@ local function read(): boolean
 	local okd, value = pcall(tern.json.decode, text)
 	if okd and type(value) == "table" and (value :: any).format == 1 then
 		snap = value :: any
+		timefmt.set((value :: any).time_format)
 		return true
 	end
 	return false

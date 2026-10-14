@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- lib/launcher.luau : LA §2-§4, §7.2. Single-flight FIFO launch queue: stage the images the prompt links, write the run
 -- files, ensure the run session, `tern new tab|session … --keep-open -- omp …`, parse ids as strings, best-effort
 -- rename/focus. omp gets `@<run dir>/prompt.md` plus one `@<run dir>/images/<n>.<ext>` per staged image.
@@ -143,7 +144,7 @@ end
 
 local function local_time(t: number): string
 	local ok, s = pcall(function()
-		return os.date("%a %Y-%m-%d %H:%M %Z", t)
+		return timefmt.date("%a %Y-%m-%d %H:%M %Z", t)
 	end)
 	if ok and type(s) == "string" then
 		return s

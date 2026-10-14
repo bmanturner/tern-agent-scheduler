@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- lib/cond_eval.luau : evaluates a job's "Only when" conditions (git, window, budget, script check, AI question), keeps the
 -- per-job watermarks in state.json (`watch.conditions`), never requires runner. Host only.
 local ids = require("./ids")
@@ -279,7 +280,7 @@ end
 -- ---------- evaluation ----------
 
 local function hhmm(m: number): string
-	return string.format("%02d:%02d", m // 60, m % 60)
+	return timefmt.clock(m // 60, m % 60)
 end
 
 local function eval_window(c: { [string]: any }, label: string, now: number): Out
@@ -593,7 +594,7 @@ local function eval_ask(job: Job, c: { [string]: any }, opts: { [string]: any },
 		"",
 		"- Job: " .. one_line(tostring(job.name or "")),
 		"- Folder: " .. one_line(tostring(job.cwd or "")),
-		"- Now: " .. os.date("%a %Y-%m-%d %H:%M %Z", now),
+		"- Now: " .. timefmt.date("%a %Y-%m-%d %H:%M %Z", now),
 		"- Started by: " .. started_by,
 		"- Last run: " .. last_line,
 	}

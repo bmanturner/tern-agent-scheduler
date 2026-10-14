@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- Manager form mode (UX §4.11): the 9-row New job / Edit form as a `prefs` page in `main`, with a multi-line
 -- Prompt editor card, a live schedule preview, a role picker (sheets) and Save / Save & run now.
 
@@ -568,7 +569,7 @@ function F.preview(form: Form): string
 	if rec == nil then
 		return ""
 	end
-	local tz = os.date("%Z", now)
+	local tz = timefmt.date("%Z", now)
 	if rec.kind == "manual" then
 		return "Manual only · runs when you press r. Never on a schedule."
 	elseif rec.kind == "once" then

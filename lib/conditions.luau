@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- lib/conditions.luau : job conditions (pure): structured build, describe, sig, stored-shape check. Loaded by both halves.
 local schedule = require("./schedule")
 local ids = require("./ids")
@@ -39,7 +40,7 @@ local function path_ok(p: string): boolean
 end
 
 local function hhmm(m: number): string
-	return string.format("%02d:%02d", m // 60, m % 60)
+	return timefmt.clock(m // 60, m % 60)
 end
 conditions.hhmm = hhmm
 

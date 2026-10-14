@@ -149,16 +149,15 @@ function M.countdown_row(row: Row, now: number, tier: number, selected: boolean,
 	local soon = nxt - now < 300
 	local tone = if soon then "accent" else "muted"
 	local last: any = js.last_run
-	local failed = type(last) == "table" and (last.state == "failed" or last.state == "timed_out")
+	local failed = require("./mgr_history").ensure((row.job :: any).id).failed
 	-- Same parts as a list `item` (icon, label, detail, value); manager.css gives the row an item's metrics.
 	local parts: { Node } = {
 		ui.node("icon", { key = "i", name = if failed then "x-circle" else "clock", tone = if failed then "error" else "muted" }),
 		C.with(ui.text(label), { key = "l" }),
 		C.with(ui.text({ ui.span(detail or "", "muted") }), { key = "d", grow = 1, shrink = 1 }),
 	}
-	local when = if tier >= 3 then C.when_text(nxt, now) .. " · in " else "in "
-	table.insert(parts, C.with(ui.text({ ui.span(when, tone) }), { key = "w" }))
-	table.insert(parts, ui.node("elapsed", { key = "t", age = -math.floor((nxt - now) * 1000), format = "clock", tone = tone }))
+	local when = (if tier >= 3 then C.when_text(nxt, now) .. " · " else "") .. C.in_text(nxt, now)
+	table.insert(parts, C.with(ui.text({ ui.span(when, tone .. " mono") }), { key = "w" }))
 	return ui.node("row", {
 		key = row.key,
 		role = "tas.soon",

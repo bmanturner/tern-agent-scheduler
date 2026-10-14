@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- lib/runner.luau : the clock (EN §5-§7, LA §8-§10). Host only; outlives every manager block.
 --   pump (PUMP_MS, armed first): intents -> events -> [slow tick: due scan, liveness, housekeeping,
 --   heartbeat] -> advance runs (admission, timeouts, debounce) -> flush dirty state.
@@ -210,6 +211,7 @@ local function record_outcome(run: Run)
 	if job == nil then
 		return
 	end
+	require("./mgr_history").record(run)
 	local st = jobs.state(job.id)
 	local test = run.trigger == "test"
 	local launched_like = state == "finished" or state == "failed" or state == "timed_out" or state == "cancelled" or state == "blocked"
@@ -802,7 +804,7 @@ end
 
 local function slot_local(slot: number): string?
 	local ok, s = pcall(function()
-		return os.date("%a %Y-%m-%d %H:%M", slot)
+		return timefmt.date("%a %Y-%m-%d %H:%M", slot)
 	end)
 	return ok and s :: string or nil
 end

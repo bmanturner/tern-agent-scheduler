@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- Formatting shared by API-backed blocks: timestamps, relative ages, counts, durations, clipping.
 -- Both halves.
 
@@ -37,9 +38,9 @@ function fmt.ago(t: number?, now: number): string
 	elseif os.date("%Y-%m-%d", t) == os.date("%Y-%m-%d", now - 86400) then
 		return "yesterday"
 	elseif os.date("%Y", t) == os.date("%Y", now) then
-		return (string.gsub(os.date("%d %b", t), "^0", ""))
+		return (string.gsub(timefmt.date("%d %b", t), "^0", ""))
 	end
-	return (string.gsub(os.date("%d %b %Y", t), "^0", ""))
+	return (string.gsub(timefmt.date("%d %b %Y", t), "^0", ""))
 end
 
 -- 950, 1.2k, 34k, 1.5M: keeps the count column narrow.

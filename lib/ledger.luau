@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- lib/ledger.luau : run records, state transitions, reason sentences, retention (EN §7).
 -- One JSONL file per job under ledger/<job id>.jsonl (backup-then-write through store). Host only.
 local const = require("./const")
@@ -192,7 +193,7 @@ local DAYS = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" }
 
 local function day_time(t: number): string
 	local w = cron.clock.date("*t", t)
-	return string.format("%s %02d:%02d", DAYS[(w.wday or 1)] or "", w.hour, w.min)
+	return string.format("%s %s", DAYS[(w.wday or 1)] or "", timefmt.clock(w.hour, w.min))
 end
 ledger.day_time = day_time
 -- Local calendar day of a time, e.g. "2026-10-12"; folding of AI skips never crosses it.

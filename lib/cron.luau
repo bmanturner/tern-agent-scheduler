@@ -1,3 +1,4 @@
+local timefmt = require("./timefmt")
 -- lib/cron.luau : pure, no tern.* calls. Local time zone only.
 local cron = {}
 -- cron.clock = { time, date }: injectable for tests; the default is set after civil_secs below.
@@ -264,7 +265,7 @@ cron.MIN_INTERVAL_S = MIN_INTERVAL_S
 
 -- ---------- describe ----------
 local DOWN = { [0]="Sun","Mon","Tue","Wed","Thu","Fri","Sat" }
-local function hhmm(h, m) return string.format("%02d:%02d", h, m) end
+local function hhmm(h, m) return timefmt.clock(h, m) end
 local function ranges(list: { number }, name: (number) -> string): string
   local out, i = {}, 1
   while i <= #list do
@@ -285,9 +286,18 @@ function cron.describe(spec): string
   -- times phrase
   local every: string? = nil
   local when: string
-  if nm == 1 and nh == 24 then every = "Every hour at :" .. string.format("%02d", spec.minutes[1]); when = every
-  elseif nm >= 2 and 60 % nm == 0 and spec.minutes[1] == 0 and spec.minutes[2] == 60 // nm then
-    every = "Every " .. (60 // nm) .. " minutes" .. (nh < 24 and (" during hours " .. ranges(spec.hours, tostring)) or ""); when = every
+  local function step(xs, limit)
+    if #xs < 2 or xs[1] ~= 0 then return nil end
+    local n = xs[2]
+    for i, v in xs do if v ~= (i - 1) * n then return nil end end
+    return if xs[#xs] + n >= limit then n else nil
+  end
+  local hs, ms = step(spec.hours, 24), step(spec.minutes, 60)
+  if nm == 1 and hs ~= nil and hs > 1 then
+    every = "Every " .. hs .. " hours" .. (if spec.minutes[1] == 0 then "" else " at :" .. string.format("%02d", spec.minutes[1])); when = every
+  elseif nm == 1 and nh == 24 then every = "Every hour at :" .. string.format("%02d", spec.minutes[1]); when = every
+  elseif ms ~= nil then
+    every = "Every " .. ms .. " minutes" .. (nh < 24 and (" during hours " .. ranges(spec.hours, tostring)) or ""); when = every
   elseif nh * nm <= 6 then
     local ts = {}
     for _, h in ipairs(spec.hours) do for _, m in ipairs(spec.minutes) do table.insert(ts, hhmm(h, m)) end end
