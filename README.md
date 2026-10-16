@@ -15,7 +15,7 @@ A job can also wait for something worth doing: new commits on a branch, working 
 
 - [Install](#install)
 - [Create a job](#create-a-job): [Schedules](#schedules), [Only when](#only-when)
-- [The manager](#the-manager): [Carly](#carly)
+- [The manager](#the-manager): [Settings](#settings), [Carly](#carly)
 - [Good to know](#good-to-know)
 - [Your data](#your-data)
 - [Develop](#develop)
@@ -24,6 +24,9 @@ A job can also wait for something worth doing: new commits on a branch, working 
 ## Install
 
 Built and tested on Tern 0.9.0. Runs on macOS or Linux (not Windows yet) and needs [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
+
+> [!IMPORTANT]
+> Jobs run while Tern's session service is running. It keeps running after you close every window, as long as a terminal or a run tab is open. Nothing runs while your computer is asleep, or after a restart until you open Tern; missed runs then follow each job's **If your Mac was asleep** setting.
 
 ```sh
 tern plugin install github.com/bmanturner/tern-agent-scheduler
@@ -45,12 +48,14 @@ Press `n` in the manager, or `ctrl+alt+shift+j` anywhere. The folder starts as t
 | Prompt | What the agent should do, in Markdown. `ctrl+o` opens it in an editor. Images it links to are attached to every run. |
 | When | The schedule, with a preview of the next three runs. `ctrl+p` picks a preset. |
 | Only when | Conditions a due run must meet, or it's skipped. **Change…** opens the Only when page (see below). |
-| If your computer was asleep | Run once when you're back if under 3 h late (default), always catch up, or skip. |
+| If your Mac was asleep | Run once when you're back if under 3h late (default), run once however late, or skip missed runs. On Linux it reads *If your computer was asleep*. |
 | Folder | Where every run starts. |
 | Role | An omp model role such as `@default` or `@smol`, including your project's roles. |
 | Approval | **Hands-off** (default), **Ask before commands** or **Ask for everything**. |
 | Stop after | The time limit for one run, 5 minutes to 8 hours (default 30 minutes). |
 | Quiet when nothing to report | Lets the agent end with `RESULT: [quiet]` when there's nothing worth reading; those runs are marked quiet in the history. |
+
+Each run is told it is unattended and to end with a `RESULT:` line, which becomes the run's summary in the manager.
 
 `ctrl+enter` saves. `ctrl+shift+enter` saves and runs it once in front of you, so you can watch the first run.
 
@@ -71,8 +76,6 @@ Press `n` in the manager, or `ctrl+alt+shift+j` anywhere. The folder starts as t
 
 Times are local, and daylight-saving changes are handled.
 
-Each run is told it is unattended and to end with a `RESULT:` line, which becomes the run's summary in the manager.
-
 ### Only when
 
 The form's second page, **Only when**, has one section per kind of condition. Each is off until you turn it on, and a due run starts only if every condition that's on says yes:
@@ -85,15 +88,30 @@ The form's second page, **Only when**, has one section per kind of condition. Ea
 | Your own check | Your script says yes. |
 | Ask an AI | A model you pick reads your question, looks at the job's folder (read-only) and answers run. It's checked last, so it's only asked when everything else says yes. |
 
-**Check now** at the top of the page runs every condition that's on without starting anything, and shows each answer in a **Right now** row under that condition.
+Once a condition is on, **Check now** at the top of the page runs every condition that's on without starting anything, and shows each answer in a **Right now** row under that condition.
 
 For example, a nightly review that should only run after someone pushed: set **When** to `daily 02:00`, then on **Only when** turn on **New commits** and pick `main`. Nights with nothing new show up in history as one folded "Skipped N times" row.
 
 A run that doesn't qualify is listed in the job's history as **skipped** with the reason; repeats fold into one row, and nothing notifies you. The first run of a new-commits job notes where the branch is and waits for something new. If a condition can't be checked (not a git folder, a script that fails), the run is blocked and you're told once; after three in a row the job pauses.
 
-Your own check runs in the job's folder with a 30 s limit and gets a JSON file describing the run as its argument. Exit 0 runs, 1 skips, anything else blocks the run. It can print `REASON: …` (shown in history), `CONTEXT: …` lines (passed to the agent) and `CURSOR: …` (handed back to it next time). Saving the job approves the script as it is then; if it changes, runs are blocked until you open the job and save again. Carly can set every condition except your own check.
+**Your own check** runs your script in the job's folder with a 30 s limit, passing a JSON file that describes the run as its argument:
 
-**Ask an AI** is for judgement calls a script can't easily make, such as *"Are there open pull requests that still need a review?"* Before a due run, omp runs in the background with your question, the job's name, folder, time and last run, and whatever the other conditions found (for example the new commits). It can read and search files (and read web pages) but can't change anything or run commands, and it has 60 s to end with `ANSWER: run` or `ANSWER: skip` and a reason. A skip is listed in history with that reason, and a run hands the reason to the job's agent in `trigger.md`. An answer it can't give blocks the run like a failing script. Each check is one model call (about $0.001 with `@smol`) and counts toward Limits; **Check now** asks it too.
+| Your script | Means |
+| --- | --- |
+| Exits 0 | Run |
+| Exits 1 | Skip |
+| Exits with anything else | The run is blocked |
+| Prints `REASON: …` | Shown in history |
+| Prints `CONTEXT: …` lines | Passed to the agent |
+| Prints `CURSOR: …` | Handed back to your script next time |
+
+Saving the job approves the script as it is then; if it changes, runs are blocked until you open the job and save again. Carly can set every condition except your own check.
+
+**Ask an AI** is for judgement calls a script can't easily make, such as *"Are there open pull requests that still need a review?"* Before a due run, omp runs in the background with your question, the job's name, folder, time and last run, and whatever the other conditions found (for example the new commits).
+
+- It can read and search files (and read web pages) but can't change anything or run commands.
+- It has 60 s to end with `ANSWER: run` or `ANSWER: skip` and a reason. A skip is listed in history with that reason; a run hands the reason to the job's agent in `trigger.md`. An answer it can't give blocks the run, like a failing script.
+- Each check is one model call (about $0.001 with `@smol`) and counts toward Limits. **Check now** asks it too.
 
 **Run now** checks the conditions first and asks **Run anyway?** when one says no. `i` checks them without running anything.
 
@@ -124,7 +142,19 @@ New results fade three seconds after you open the manager; choose **Stay until m
 | `s` | Mark all results seen |
 | `?` | Help: every key, and when jobs run |
 
-From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+alt+shift+m`), **New job…** (`ctrl+alt+shift+j`), **Run a job now…** (`ctrl+alt+shift+r`) and **Go to run that needs you** (`ctrl+alt+shift+a`). **Agent Scheduler: Settings** opens the manager’s Settings.
+From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+alt+shift+m`), **New job…** (`ctrl+alt+shift+j`), **Run a job now…** (`ctrl+alt+shift+r`) and **Go to run that needs you** (`ctrl+alt+shift+a`).
+
+### Settings
+
+Press `,` in the manager, or pick **Agent Scheduler: Settings** in the palette.
+
+| Section | What's there |
+| --- | --- |
+| Status | Whether Agent Scheduler is ready to run jobs, and what to fix if it isn't. **Check again** checks again. |
+| Display | Time format, layout, and how new results are shown. |
+| Where runs start | Which session runs appear in, its name, and whether it comes to the front. |
+| Limits | How many jobs run at once (2), how many finished run tabs to keep (5), and how late a missed run may still start. |
+| Setup | omp's path, if it's somewhere unusual, and the data folder. |
 
 ### Carly
 
@@ -135,14 +165,12 @@ Ask Tern's assistant to create, list, run or pause jobs, or to check a job's con
 
 ## Good to know
 
-- **Jobs run while Tern's session service is running.** It keeps running after you close every window, as long as a terminal or a run tab is open. Nothing runs while your computer is asleep or after a restart until you open Tern; missed runs follow the job's **If your computer was asleep** setting.
 - **A run waiting for your approval** is only noticed while a desktop Tern window is open.
 - **In the browser (`tern web serve`) and on iPhone and iPad,** the manager works, but palette commands, the status line, notices of runs that need you and Carly's job tools need a desktop Tern window.
 - **With several Tern windows,** runs go to the first window's **Scheduled runs** session.
 - **Remote hosts:** jobs run on the machine the plugin is installed on. To schedule runs on a remote host you've attached in Tern, install the plugin there too (run the install command in a pane on that host); it keeps its own jobs and manager, which **Open manager** and **New job…** open while you're in one of that host's sessions. This computer's status line, notifications, Carly and the other palette commands cover only this computer's jobs, and a run on the remote host that waits for your approval isn't noticed.
 - **Failures:** a run that hits its time limit is stopped. After three failures in a row the job pauses itself and tells you.
-- **Finished run tabs:** the 5 most recent are kept and older ones are closed; their sessions can still be resumed.
-- **Settings** (`,` in the manager) is one page with five sections. **Status** says whether Agent Scheduler is ready to run jobs and what to fix if it isn't (**Check again** checks again). **Display** sets the time format, the layout and how new results are shown. **Where runs start** covers which session runs appear in, its name, and whether it comes to the front. **Limits** covers how many jobs run at once (2), how many finished tabs to keep, and how late a missed run may still start. **Setup** lets you set omp's path if it's somewhere unusual and opens the data folder.
+- **Finished run tabs:** the 5 most recent are kept and older ones are closed (**Settings › Limits** changes the number); their sessions can still be resumed.
 
 ## Your data
 
@@ -164,7 +192,7 @@ tern plugin link .   # Tern reloads the plugin when a file changes
 bun install && bun run test
 ```
 
-The host half (`host.luau`, `lib/runner.luau`) owns the clock and launching, and `lib/cond_eval.luau` checks a job's Only when conditions; the window half (`window.luau`) adds palette commands, the status line, run observation and Carly. Design notes are in [`docs/design/`](docs/design/).
+The host half (`host.luau`, `lib/runner.luau`) owns the clock and launching, and `lib/cond_eval.luau` checks a job's Only when conditions; the window half (`window.luau`) adds palette commands, the status line, run observation and Carly. The manager is a block (`blocks/manager.luau`, with `lib/mgr_*.luau` and `manager.css`). Design notes are in [`docs/design/`](docs/design/).
 
 Bug reports and pull requests are welcome in [GitHub issues](https://github.com/bmanturner/tern-agent-scheduler/issues). CI runs `bun run test` on every pull request.
 
