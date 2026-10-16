@@ -12,6 +12,7 @@ local jobs = require("./jobs")
 local Live = require("./mgr_live")
 local runner = require("./runner")
 local store = require("./store")
+local platform = require("./platform")
 local conditions = require("./conditions")
 local cond_eval = require("./cond_eval")
 
@@ -34,6 +35,8 @@ export type Model = {
 	total: number,
 	next_job: any?,
 	next_at: number?,
+	quiet: string?,
+	unseen: boolean,
 }
 
 -- Setup checks that inform but never mean the scheduler is broken (UX §6.2).
@@ -174,6 +177,8 @@ function L.model(state: State, frame_now: number?): Model
 		total = #jobs.list() + #jobs.invalid(),
 		next_job = nil,
 		next_at = nil,
+		quiet = nil,
+		unseen = false,
 	}
 	if #upcoming > 0 and upcoming[1].at ~= math.huge then
 		model.next_job = upcoming[1].row.job
@@ -192,7 +197,13 @@ function L.model(state: State, frame_now: number?): Model
 			end
 		end
 	end
-	return if jobs.settings().manager_layout == "classic" then model else T.model(state, model, now)
+	if jobs.settings().manager_layout == "classic" then
+		for _, j in jobs.list() do
+			if H.ensure(j.id).pending.total > 0 then model.unseen = true; break end
+		end
+		return model
+	end
+	return T.model(state, model, now)
 end
 
 local function find_selected(state: State, model: Model): Row?
@@ -491,7 +502,7 @@ local function data_problem(): string?
 	return nil
 end
 
-local function row_badges(state: State, row: Row?): { Node }
+local function row_badges(state: State, row: Row?, model: Model): { Node }
 	local out: { Node } = {}
 	local function add(label, key, act, value, tone)
 		table.insert(out, C.action_button(label, key, tone or "neutral", act, act, value))
@@ -515,7 +526,7 @@ local function row_badges(state: State, row: Row?): { Node }
 	out = {}
 	add("New job", "n", "new", nil)
 	add("Settings", ",", "settings", nil)
-	add("Mark all seen", "s", "seen", nil)
+	if model.unseen then add("Mark all seen", "s", "seen", nil) end
 	add(if jobs.paused_all() then "Resume all" else "Pause all", "P", "pause_all", nil, "warning")
 	add("Help", "?", "help", nil)
 	if state.undo_until ~= nil and tern.now() < state.undo_until then add("Undo", "u", "undo", nil, "accent") end
@@ -615,15 +626,29 @@ end
 
 local function example_view(state: State): (Node, Node)
 	local items: { Node } = {}
+	local split = state.cx.cols >= C.SPLIT_COLS
+	local narrow = C.tier(if split then state.cx.cols / 2 else state.cx.cols) < 3
 	for i, ex in EXAMPLES do
+		local selected_row = i == state.example_sel
+		local label = { ui.span(ex.name, "strong") }
+		local detail: { Node }
+		local value: { Node }?
+		if narrow then
+			detail = { ui.span(ex.about, "muted") }
+			value = if selected_row then { ui.span("  ⏎ use", "key") } else nil
+		else
+			detail = { ui.span(string.format("%s · @smol · %s", ex.when, ex.cost), "muted") }
+			value = { ui.span(ex.about, "muted") }
+			if selected_row then table.insert(value, ui.span("  ⏎ use", "key")) end
+		end
 		table.insert(
 			items,
 			ui.node("item", {
 				key = tostring(i),
-				label = { ui.span(ex.name, "strong") },
-				detail = { ui.span(string.format("%s · @smol · %s", ex.when, ex.cost), "muted") },
-				value = { ui.span(ex.about, "muted") },
-				icon = "timer",
+				label = label,
+				detail = detail,
+				value = value,
+				icon = "lightbulb",
 			})
 		)
 	end
@@ -631,31 +656,45 @@ local function example_view(state: State): (Node, Node)
 	local main = ui.col({
 		C.text({ ui.span("Run an omp agent on a schedule.", "strong") }, "title"),
 		C.text({ ui.span("Pick a time, write a prompt, point it at a folder. Runs show up here when they need you.", "muted") }, "body"),
-		C.text({ ui.span("START FROM AN EXAMPLE", "dim") }, "head"),
+		C.with(ui.rule({ ui.span("Start from an example", "muted") }), { key = "head", role = "tas.timeline-heading" }),
 		ui.node("list", { key = "examples", selected = selected }, items),
 		C.with(
-			ui.text({ ui.span(C.AVAILABILITY .. "  ", "muted"), ui.span("Details", "key") }),
+			ui.text({ ui.span("Jobs run while Tern's session service is running, never while your " .. platform.machine() .. " is asleep.  ", "muted"), ui.span("Details", "key") }),
 			{ key = "avail", actions = { click = "setup" } }
 		),
 	})
-	local acts: { Node } = {}
+	local job_actions: { Node } = {}
 	local problem = data_problem()
 	if problem ~= nil then
-		table.insert(acts, C.badge("Start fresh", "error", "start_fresh", "fresh"))
-		table.insert(acts, C.badge("Open data folder", "neutral", "open_data", "data"))
+		table.insert(job_actions, C.action_button("Start fresh", "", "error", "start_fresh", "start_fresh"))
+		table.insert(job_actions, C.action_button("Open data folder", "", "neutral", "open_data", "open_data"))
 	end
-	table.insert(acts, C.badge("+ New", "accent", "new", "new"))
-	table.insert(acts, C.badge("Settings", "neutral", "settings", "settings"))
-	table.insert(acts, C.badge("?", "neutral", "help", "help"))
-	local dock_children: { Node } = {}
+	table.insert(job_actions, C.action_button("Use example", "enter", "accent", "example", "example"))
+	local global_actions: { Node } = {
+		C.action_button("New job", "n", "neutral", "new", "new"),
+		C.action_button("Settings", ",", "neutral", "settings", "settings"),
+		C.action_button("Help", "?", "neutral", "help", "help"),
+	}
+	local ctx: Node
 	if problem ~= nil then
-		table.insert(dock_children, C.text({ ui.span(DATA_TEXT[problem], "warning") }, "ctx"))
+		ctx = C.text({ ui.span(DATA_TEXT[problem], "warning") }, "ctx")
 	elseif setup_failing() then
-		table.insert(dock_children, setup_line())
+		ctx = setup_line()
+	else
+		local ex = EXAMPLES[state.example_sel]
+		ctx = C.text({
+			ui.span("No jobs yet. ⏎ opens ", "muted"),
+			ui.span(if ex ~= nil then ex.name else "an example", "strong"),
+			ui.span(" as a draft; nothing is saved until you save it.", "muted"),
+		}, "ctx")
 	end
-	table.insert(dock_children, C.with(ui.row(acts), { key = "acts" }))
-
-	local dock = ui.col(dock_children)
+	local dock = ui.col({
+		ctx,
+		C.with(ui.row({
+			ui.node("row", { key = "job-actions", role = "tas.dock-job", gap = "sm" }, job_actions),
+			ui.node("row", { key = "global-actions", role = "tas.dock-global", gap = "sm" }, global_actions),
+		}), { key = "acts", role = "tas.dock-actions" }),
+	})
 	return main, dock
 end
 
@@ -697,13 +736,16 @@ function L.view(state: State): (Node, Node)
 	local tier = C.tier(if split then state.cx.cols / 2 else state.cx.cols)
 	local timeline = jobs.settings().manager_layout ~= "classic"
 	local children: { Node } = { header_node(model, now) }
+	if timeline and model.quiet ~= nil then
+		table.insert(children, C.with(C.text({ ui.span(model.quiet, "muted") }, "quiet"), { key = "quiet", role = "tas.quiet" }))
+	end
 	for _, sec in model.sections do
 		if timeline and sec.id == "now" then
 			table.insert(children, ui.el("div", { key = "h-now", role = "tas.now-rule" }, { ui.el("span", { role = "tas.now-pill", text = sec.title }) }))
 		else
 			table.insert(children, if timeline then C.with(ui.rule({ ui.span(sec.title, "muted") }), { key = "h-" .. sec.id, role = if sec.id == "results" then "tas.last-looked" else "tas.timeline-heading" }) else section_header(sec))
 		end
-		if not sec.collapsed then
+		if not sec.collapsed and #sec.rows > 0 then
 			local selected: string? = nil
 			if sec.id == "needs" or sec.id == "running" then
 				-- In-flight runs are `agent` nodes, which a `list` can't select: keep them in a col.
@@ -738,8 +780,7 @@ function L.view(state: State): (Node, Node)
 	end
 	local dock = ui.col({
 		context_line(state, model, row),
-		C.with(ui.row(row_badges(state, row)), { key = "acts", role = "tas.dock-actions" }),
-
+		C.with(ui.row(row_badges(state, row, model)), { key = "acts", role = "tas.dock-actions" }),
 	})
 	if split and row ~= nil and row.kind ~= "invalid" then
 		local id = (row.job :: any).id
@@ -821,6 +862,7 @@ local function key_inner(state: State, k: Key): boolean?
 		S.open_help(state)
 		return true
 	elseif name == "s" then
+		if not model.unseen then return false end
 		T.clear(state)
 		return true
 	elseif name == "," then
@@ -1014,7 +1056,9 @@ function L.event(state: State, ev: UiEvent)
 				if state.split_focus then D.key(state, { name = "enter" } :: any) else enter(state, row) end
 			end
 		elseif act == "seen" then
-			T.clear(state)
+			if L.model(state).unseen then T.clear(state) end
+		elseif act == "example" then
+			use_example(state, state.example_sel)
 		elseif act == "settings" then
 			S.open_settings(state)
 		elseif act == "help" then

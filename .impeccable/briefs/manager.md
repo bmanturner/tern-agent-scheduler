@@ -7,7 +7,7 @@ Approved by Brendan 2026-10-13 after shape (sketch: .impeccable/mocks/decision/h
 Tern users checking agent work. First question answered: what happened since I last looked; then what needs me; then what runs next. Typical 3–10 jobs, rarely >20.
 
 ## Structure
-- **Default list layout: Timeline.** Results since the user last looked above a "now" rule; every active recurring job exactly once below it, at its next run (time-ordered). Running / needs-you runs sit on the now rule (running job shows "next HH:MM" inline instead of a second row). One-shot jobs below until they run. Bottom group: paused, needs fixing, manual-only.
+- **Default list layout: Timeline.** Results since the user last looked above a "now" rule; every active recurring job exactly once below it, at its next run (time-ordered). The now rule appears only when there are results above it or runs in progress at it; sections with no rows are never shown. When nothing is new, a single muted quiet line follows the header ("Nothing new since 08:00." / "Nothing has run yet. <job> runs first, 18:00 (in 9h 52m)."). Running / needs-you runs sit on the now rule (running job shows "next HH:MM" inline instead of a second row). One-shot jobs below until they run. Bottom group: paused, needs fixing, manual-only.
 - **Classic layout (setting):** today's grouped job list (Needs you, Needs fixing, Running, Upcoming, Paused & finished), with the shared row/toolbar fixes.
 - **Job details:** layout-3 detail: header (name, state, next run), latest result line called out (failure tone when failed), settings as key/value, run list with one-line summary, duration, cost. No chart.
 - **Width:** at ≥ ~150 cols (cx.cols; tune with screenshots) details sit beside the list and follow selection, in both layouts. Narrower: Enter opens details full-width.
@@ -16,7 +16,7 @@ Tern users checking agent work. First question answered: what happened since I l
 - New results highlighted until visible in the open manager briefly, then fade (default). Setting "New results": fade once seen | stay until cleared.
 - A failure keeps its ✗ on the job until its next success.
 - Last-looked marker advances when leaving the manager.
-- Backlog: ≤ ~8 new results → one row each. More → one row per job ("PR triage · 84 runs since Mon · 70 ✓ · 12 ↷ · 2 ✗ · latest …"); failures and needs-you always get their own rows above. Rows do NOT expand; opening the job shows all its runs. "Mark all seen" key. Counts tracked independently of the 50-run retention; run lists say "latest 50 of N" when truncated.
+- Backlog: ≤ ~8 new results → one row each. More → one row per job ("PR triage · 84 runs since Mon · 70 ✓ · 12 ↷ · 2 ✗ · latest …"); failures and needs-you always get their own rows above. Rows do NOT expand; opening the job shows all its runs. "Mark all seen" key and button appear only when something is unseen. Counts tracked independently of the 50-run retention; run lists say "latest 50 of N" when truncated.
 
 ## Toolbar
 Job actions grouped, global actions apart; keys shown inside buttons; Pause all and Delete set apart; separate hint row removed.
@@ -28,7 +28,7 @@ Manager Settings sheet gains a "Manager" page: Layout (Timeline default | Classi
 - UI font (--sans) for names/summaries; mono with tabular digits for times/durations/costs.
 - New results: thin left-edge marker (accent; --bad for failures), not full-row wash; fades once seen.
 - Selection: accent outline + light tint; glides between rows (spring-follow).
-- Now rule: accent rule with soft glow and a filled "now · HH:MM" pill; countdown digits roll (-stencil-text-effect: numeric).
+- Now rule: accent rule (no glow) with a filled "now · HH:MM" pill; countdown digits roll (-stencil-text-effect: numeric).
 - Running row on the now rule: --live gradient wash + slow pulsing dot.
 - Details: raised card (--card, --r-card, soft shadow); failure called out in a bordered --bad tint block + "Last run failed" badge; settings in a recessed --l1 block.
 - Dock: job actions as one grouped segment, global actions as outlined buttons.

@@ -87,8 +87,6 @@ local def: BlockDef<State> = {
 			-- An open New/Edit form survives a plugin reload or restart.
 		elseif saved == nil and args[1] == "settings" then
 			S.open_settings(state)
-			local sheet: any = state.sheet
-			sheet.page = "manager"
 		elseif saved == nil and args[1] == "new" then
 			F.open_new(state, { cwd = cwd })
 		elseif s.mode == "detail" and type(s.selected_id) == "string" then

@@ -1,0 +1,7 @@
+PASS settings layer: no lead, five sections, segmented controls, key legend
+PASS rejected text stays editing with a warning; Esc cancels and clears
+PASS reset restores the default
+PASS segmented rows: Right selects next, Left stops at the start, Enter wraps
+PASS number rows: typing validates, Esc cancels, a whole number saves
+PASS Tab and Shift+Tab move row focus
+PASS open_setup opens Settings at Status; Esc closes

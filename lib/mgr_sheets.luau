@@ -1,12 +1,14 @@
 --!strict
--- Manager layer: role and presets pickers, stop confirm, "Run it now and watch?", key help, the Setup sheet and
--- the Settings sheet. State lives in `state.sheet`; the manager routes keys and events here while a sheet is open.
+-- Manager layer: role and presets pickers, stop confirm, "Run it now and watch?", key help and the Settings sheet
+-- (one page: setup status, display, where runs start, limits). State lives in `state.sheet`; the manager routes
+-- keys and events here while a sheet is open.
 
 local ui = tern.ui
 local C = require("./mgr_common")
 local P = require("./mgr_prefs")
 local F = require("./mgr_form")
 local textfield = require("./textfield")
+local timefmt = require("./timefmt")
 local schedule = require("./schedule")
 local cron = require("./cron")
 local const = require("./const")
@@ -422,6 +424,9 @@ local function help_node(_state: State, _sheet: Sheet): Node
 	return dialog("Keys", "md", {
 		ui.kv(rows),
 		C.text({ ui.span("Most actions also have a button under the list. esc closes this.", "muted") }, "foot"),
+		C.text({ ui.span("When jobs run", "strong") }, "when_head"),
+		C.text({ ui.span(C.AVAILABILITY) }, "when_avail"),
+		C.text({ ui.span(C.NO_WINDOW) }, "when_window"),
 	})
 end
 
@@ -441,43 +446,10 @@ local function heartbeat_text(): string
 	if ok and type(health) == "table" then
 		local hb: any = (health :: any).hb
 		if type(hb) == "number" and hb > 0 then
-			return "Last scheduler tick " .. C.span_text(C.now() - hb) .. " ago."
+			return "Scheduler heartbeat " .. C.span_text(C.now() - hb) .. " ago."
 		end
 	end
-	return "The scheduler hasn't ticked yet."
-end
-
-local function setup_node(_state: State, sheet: Sheet): Node
-	local body: { Node } = {}
-	for i, row in setup_rows() do
-		local glyph, tone
-		if row.ok == true then
-			glyph, tone = "✓ ", "muted"
-		elseif row.ok == false and INFO_ROWS[row.id] then
-			glyph, tone = "! ", "warning"
-		elseif row.ok == false then
-			glyph, tone = "✗ ", "error"
-		else
-			glyph, tone = "· ", "muted"
-		end
-		table.insert(body, C.text({ ui.span(glyph, tone), ui.span(tostring(row.label), "strong"), ui.span("  " .. tostring(row.text), "muted") }, "row" .. i))
-	end
-	if #body == 0 then
-		table.insert(body, C.text({ ui.span("No results yet. Press c to check.", "muted") }, "none"))
-	end
-	table.insert(body, C.text({ ui.span(heartbeat_text(), "muted") }, "hb"))
-	table.insert(body, C.text({ ui.span(C.AVAILABILITY, "muted") }, "avail"))
-	table.insert(body, C.text({ ui.span(C.NO_WINDOW, "muted") }, "nowin"))
-	table.insert(body, C.text({ ui.span(C.WINDOWS, "muted") }, "wins"))
-	table.insert(
-		body,
-		C.with(ui.row({
-			C.badge(if sheet.checking == true then "Checking…" else "Check again  c", "accent", "setup_check", "check"),
-			C.badge("Open data folder", "neutral", "open_data", "data"),
-			C.badge("Close  esc", "neutral", "close_sheet", "close"),
-		}), { key = "acts" })
-	)
-	return ui.node("overlay", { key = "dialog", head = "Check setup", size = "md", modal = true }, body)
+	return "The scheduler hasn't started yet."
 end
 
 local function run_setup_check(state: State, sheet: Sheet)
@@ -488,6 +460,7 @@ local function run_setup_check(state: State, sheet: Sheet)
 	local started = pcall(function()
 		runner.check_setup(function()
 			sheet.checking = false
+			sheet.checked_at = C.now()
 			C.render(state)
 		end)
 	end)
@@ -512,6 +485,77 @@ end
 
 -- Settings ---------------------------------------------------------------------------------------------------
 
+-- What each settings row resets to. `catchup_window_s` is in hours, as the row shows it; `focus` is the switch.
+local DEFAULTS: { [string]: any } = {
+	time_format = "automatic",
+	manager_layout = "timeline",
+	manager_results = "fade",
+	placement = "session",
+	focus = false,
+	session_name = const.SESSION_NAME_DEFAULT,
+	omp_path = "",
+	max_concurrent = const.MAX_CONCURRENT_DEFAULT,
+	max_finished_panes = const.MAX_FINISHED_PANES,
+	catchup_window_s = const.CATCHUP_DEFAULT_S // 3600,
+}
+
+local CATCHUP_LABELS: { [string]: string } = {
+	["1"] = "1 h",
+	["2"] = "2 h",
+	["3"] = "3 h",
+	["6"] = "6 h",
+	["12"] = "12 h",
+	["24"] = "1 day",
+	["48"] = "2 days",
+	["72"] = "3 days",
+	["168"] = "1 week",
+}
+
+-- Marks `row` with whether its value differs from the default, and how that default reads.
+local function with_default(row: P.Row, value: any, default_label: string): P.Row
+	row.changed = value ~= DEFAULTS[row.id]
+	row.defaultLabel = default_label
+	return row
+end
+
+local function short_path(p: string): string
+	local rest = p:match("^~/(.*)$")
+	if rest == nil then
+		return p
+	end
+	local segs = string.split(rest, "/")
+	if #segs <= 2 then
+		return p
+	end
+	return "~/" .. segs[1] .. "/…/" .. segs[#segs]
+end
+
+-- The typed range of each number row; the draft is checked against it before it is saved. `catchup_window_s` is hours.
+local NUMBER_LIMITS: { [string]: { number } } = {
+	max_concurrent = { 1, 10 },
+	max_finished_panes = { const.MAX_FINISHED_PANES_MIN, const.MAX_FINISHED_PANES_MAX },
+	catchup_window_s = { 1, 168 },
+}
+
+-- A number row's control. While its value is being typed the kit shows the draft in a text field instead.
+local function number_control(sheet: Sheet, id: string, value: number, extra: { [string]: any }?): { [string]: any }
+	local e = sheet.editing
+	if e ~= nil and e.row == id and sheet.field ~= nil then
+		return { k = "text", value = tostring(value) }
+	end
+	local limits = NUMBER_LIMITS[id]
+	local c: { [string]: any } = { k = "number", value = value, min = limits[1], max = limits[2] }
+	for k, v in extra or {} do
+		c[k] = v
+	end
+	return c
+end
+
+-- The next step for a failed setup check whose own text doesn't give one.
+local NEXT_STEP: { [string]: string } = {
+	data = "Check its permissions: Setup › Data folder › Open.",
+}
+
 local function settings_sections(state: State, sheet: Sheet): { P.Section }
 	local s = jobs.settings()
 	local d: any = s.defaults
@@ -520,123 +564,215 @@ local function settings_sections(state: State, sheet: Sheet): { P.Section }
 	local where = if type(placement) == "table" and placement.where == "tab" then "tab" else "session"
 	local warn = sheet.warnings or {}
 	local window_s = if type(s.catchup_window_s) == "number" then s.catchup_window_s else const.CATCHUP_DEFAULT_S
+	local window_h = math.max(1, window_s // 3600)
 	local panes = if type(s.max_finished_panes) == "number" then s.max_finished_panes else const.MAX_FINISHED_PANES
 	local session_name = if type(s.session_name) == "string" then s.session_name else const.SESSION_NAME_DEFAULT
-	if sheet.page == "manager" then
-		return { { id = "manager", title = "Manager", rows = {
-			{ id = "time_format", label = "Time format", hint = "Automatic follows your system, with a 24-hour fallback.", control = { k = "choice", style = "menu", value = s.time_format or "automatic", options = { { value = "automatic", label = "Automatic (default)" }, { value = "12h", label = "12-hour" }, { value = "24h", label = "24-hour" } } } },
-			{ id = "manager_layout", label = "Layout", control = { k = "choice", style = "menu", value = s.manager_layout or "timeline", options = { { value = "timeline", label = "Timeline (default)" }, { value = "classic", label = "Classic job list" } } } },
-			{ id = "manager_results", label = "New results", hint = "Fade after three seconds in the manager, or keep highlights until you mark all seen.", control = { k = "choice", style = "menu", value = s.manager_results or "fade", options = { { value = "fade", label = "Fade once seen (default)" }, { value = "stay", label = "Stay until marked seen" } } } },
-		} } }
-	elseif sheet.page == "setup" then
-		return {
-			{
-				id = "setup",
-				title = "Setup",
-				rows = {
-					{
-						id = "check",
-						label = "Check setup",
-						hint = heartbeat_text(),
-						control = { k = "action", act = "check", label = "Check…" },
-					},
-					{
-						id = "avail",
-						label = "Availability",
-						hint = C.AVAILABILITY,
-						control = { k = "action", act = "details", label = "Details" },
-					},
-					{
-						id = "omp_path",
-						label = "omp path",
-						hint = "Where Agent Scheduler finds omp. Leave it empty to find omp automatically.",
-						warning = warn.omp_path,
-						control = { k = "text", value = if type(s.omp_path) == "string" then s.omp_path else "", placeholder = "Automatic", mono = true },
-					},
-					{
-						id = "data",
-						label = "Data folder",
-						hint = tern.plugin.data,
-						control = { k = "action", act = "open_data", label = "Open data folder" },
-					},
-				},
-			},
-		}
+	local omp_path = if type(s.omp_path) == "string" then s.omp_path else ""
+	local concurrent = tonumber(s.max_concurrent) or const.MAX_CONCURRENT_DEFAULT
+	local time_format = s.time_format or "automatic"
+	local layout = s.manager_layout or "timeline"
+	local results = s.manager_results or "fade"
+	local focus_on = def.focus == "front"
+
+	-- Setup checks: a blocking failure means jobs won't run; INFO_ROWS only inform.
+	local blocking = false
+	local problems: { string } = {}
+	local availability = false
+	local omp_check: any = nil
+	for _, r in setup_rows() do
+		if r.id == "omp" then
+			omp_check = r
+		end
+		if r.ok == false then
+			local info = INFO_ROWS[r.id] == true
+			blocking = blocking or not info
+			local line = (if info then "! " else "✗ ") .. tostring(r.label) .. ": " .. tostring(r.text)
+			if NEXT_STEP[r.id] ~= nil then
+				line ..= " " .. NEXT_STEP[r.id]
+			end
+			table.insert(problems, line)
+			availability = availability or r.id == "heartbeat" or r.id == "keepalive"
+		end
 	end
+	if availability then
+		table.insert(problems, C.AVAILABILITY)
+	end
+	local status_hint = heartbeat_text()
+	if sheet.checked_at ~= nil then
+		status_hint = "Checked " .. timefmt.date("%H:%M", sheet.checked_at) .. " · " .. status_hint
+	end
+
+	local omp_hint = "Agent Scheduler starts each run with omp."
+	if omp_check ~= nil and omp_check.ok == true then
+		local f = bins.found()
+		if f.omp ~= nil and f.omp ~= "" then
+			local ver = (f.omp_version or ""):gsub("^omp[/ ]", "")
+			local at = C.tilde(f.omp)
+			omp_hint ..= if ver ~= "" then " Found " .. ver .. " at " .. at .. "." else " Found at " .. at .. "."
+		else
+			omp_hint ..= " Found " .. tostring(omp_check.text) .. "."
+		end
+	end
+	omp_hint ..= " Leave empty to find it automatically."
+	local omp_warning: string? = warn.omp_path
+	if omp_warning == nil and omp_check ~= nil and omp_check.ok == false then
+		omp_warning = tostring(omp_check.text)
+	end
+
+	local time_hint = if time_format == "12h"
+		then "Times show as 2:30 pm."
+		elseif time_format == "24h" then "Times show as 14:30."
+		else "Follows your system, with a 24-hour fallback."
+
 	return {
 		{
-			id = "runs",
-			title = "Runs",
+			id = "health",
+			title = "Status",
 			rows = {
 				{
+					id = "status",
+					label = if blocking then "Not ready to run jobs" else "✓ Ready to run jobs",
+					hint = status_hint,
+					warning = if #problems > 0 then table.concat(problems, "\n") else nil,
+					control = { k = "action", act = "check", label = if sheet.checking == true then "Checking…" else "Check again" },
+				},
+			},
+		},
+		{
+			id = "display",
+			title = "Display",
+			rows = {
+				with_default({
+					id = "time_format",
+					label = "Time format",
+					hint = time_hint,
+					control = {
+						k = "choice",
+						style = "segmented",
+						value = time_format,
+						options = { { value = "automatic", label = "Automatic" }, { value = "12h", label = "12-hour" }, { value = "24h", label = "24-hour" } },
+					},
+				}, time_format, "Automatic"),
+				with_default({
+					id = "manager_layout",
+					label = "Layout",
+					control = {
+						k = "choice",
+						style = "segmented",
+						value = layout,
+						options = { { value = "timeline", label = "Timeline" }, { value = "classic", label = "Classic job list" } },
+					},
+				}, layout, "Timeline"),
+				with_default({
+					id = "manager_results",
+					label = "New results",
+					hint = "Fade after three seconds in the manager, or keep highlights until you mark all seen.",
+					control = {
+						k = "choice",
+						style = "menu",
+						value = results,
+						options = { { value = "fade", label = "Fade once seen" }, { value = "stay", label = "Stay until marked seen" } },
+					},
+				}, results, "Fade once seen"),
+			},
+		},
+		{
+			id = "runs",
+			title = "Where runs start",
+			rows = {
+				with_default({
 					id = "placement",
-					label = "Where runs appear",
-					hint = C.WINDOWS,
+					label = "Session",
+					hint = "Runs open as background tabs, in the first Tern window if several are open.",
 					warning = warn.placement,
 					control = {
 						k = "choice",
-						value = where,
 						style = "menu",
+						value = where,
 						options = {
-							{ value = "session", label = "Scheduled runs session, background tab" },
-							{ value = "tab", label = "Background tab in the current session" },
+							{ value = "session", label = "Scheduled runs session", detail = "A background tab in a session of its own, named below." },
+							{ value = "tab", label = "Current session", detail = "A background tab in the session you're using." },
 						},
 					},
-				},
-				{
-					id = "focus",
-					label = "Bring to front when it starts",
-					hint = "Off: the run starts quietly and you stay where you are.",
-					warning = warn.focus,
-					control = { k = "switch", on = def.focus == "front" },
-				},
-				{
+				}, where, "Scheduled runs session"),
+				with_default({
 					id = "session_name",
-					label = "Run session name",
-					hint = "The session scheduled runs open in.",
+					label = "Session name",
+					hint = "The name of the Scheduled runs session.",
 					warning = warn.session_name,
 					control = { k = "text", value = session_name },
-				},
-				{
-					id = "max_finished_panes",
-					label = "Finished run panes to keep",
-					hint = string.format(
-						"Each finished run keeps an omp process open, roughly 100–500 MB. Tern closes the oldest beyond %d; Open run reopens any of them.",
-						panes
-					),
-					warning = warn.max_finished_panes,
-					control = { k = "number", value = panes, min = const.MAX_FINISHED_PANES_MIN, max = const.MAX_FINISHED_PANES_MAX },
-				},
-				{
+				}, session_name, const.SESSION_NAME_DEFAULT),
+				with_default({
+					id = "focus",
+					label = "Bring to front when it starts",
+					hint = if focus_on
+						then "On: Tern switches to the run's tab as soon as it starts."
+						else "Off: the run starts quietly and you stay where you are.",
+					warning = warn.focus,
+					control = { k = "switch", on = focus_on },
+				}, focus_on, "Off"),
+			},
+		},
+		{
+			id = "limits",
+			title = "Limits",
+			rows = {
+				with_default({
 					id = "max_concurrent",
 					label = "Jobs running at once",
 					hint = "A run over the limit waits, then is skipped with a reason.",
 					warning = warn.max_concurrent,
-					control = { k = "number", value = tonumber(s.max_concurrent) or const.MAX_CONCURRENT_DEFAULT, min = 1, max = 10 },
-				},
-				{
+					control = number_control(sheet, "max_concurrent", concurrent),
+				}, concurrent, tostring(const.MAX_CONCURRENT_DEFAULT)),
+				with_default({
+					id = "max_finished_panes",
+					label = "Finished run tabs to keep",
+					hint = "Each finished run keeps an omp process open, roughly 100–500 MB. Tern closes the oldest tabs past this number; Open run reopens any of them.",
+					warning = warn.max_finished_panes,
+					control = number_control(sheet, "max_finished_panes", panes),
+				}, panes, tostring(const.MAX_FINISHED_PANES)),
+				with_default({
 					id = "catchup_window_s",
-					label = "Late limit for missed runs",
-					hint = "If your " .. platform.machine() .. " was asleep: a run later than this is recorded as missed.",
+					label = "If your " .. platform.machine() .. " was asleep",
+					hint = "How late a missed run can be and still start when you're back. Later ones are recorded as missed.",
 					warning = warn.catchup_window_s,
-					control = { k = "number", value = math.max(1, window_s // 3600), min = 1, max = 168, unit = "h" },
+					control = number_control(sheet, "catchup_window_s", window_h, { unit = "h", labels = CATCHUP_LABELS }),
+				}, window_h, "3 h"),
+			},
+		},
+		{
+			id = "setup",
+			title = "Setup",
+			rows = {
+				with_default({
+					id = "omp_path",
+					label = "omp",
+					hint = omp_hint,
+					warning = omp_warning,
+					control = { k = "text", value = omp_path, placeholder = "Find automatically", mono = true },
+				}, omp_path, "Find automatically"),
+				{
+					id = "data",
+					label = "Data folder",
+					hint = short_path(C.tilde(tern.plugin.data)),
+					control = { k = "action", act = "open_data", label = "Open" },
 				},
 			},
 		},
 	}
 end
 
-local function settings_pages(): { any }
-	return C.arr({
-		{ id = "manager", label = "Manager", icon = "list" },
-		{ id = "runs", label = "Runs", icon = "timer" },
-		{ id = "setup", label = "Setup", icon = "shield-alert" },
-	})
+-- The key legend at the bottom of the sheet; it follows what the keys do right now.
+local function keys_legend(sheet: Sheet): string
+	if sheet.editing == nil then
+		return "↑↓ move · ←→ change · ⏎ edit · esc close"
+	elseif sheet.field ~= nil then
+		return "⏎ save · esc cancel"
+	end
+	return "↑↓ choose · ⏎ pick · esc cancel"
 end
 
 local function settings_node(state: State, sheet: Sheet): Node
-	sheet.page = sheet.page or "runs"
-	local sections = settings_sections(state, sheet)
 	local editing: any = nil
 	local e = sheet.editing
 	if e ~= nil then
@@ -649,18 +785,20 @@ local function settings_node(state: State, sheet: Sheet): Node
 	end
 	return ui.node("prefs", {
 		key = "prefs",
-		title = "Settings",
-		pages = settings_pages(),
-		page = sheet.page,
-		lead = if sheet.page == "manager" then "How you review scheduled work." elseif sheet.page == "setup" then "Is Agent Scheduler able to run jobs?" else "How scheduled runs start and what Tern keeps.",
-		sections = P.node_sections(sections),
+		role = "tas.settings",
+		title = "Agent Scheduler Settings",
+		pages = C.arr({ { id = "settings", label = "Agent Scheduler", icon = "timer" } }),
+		page = "settings",
+		sections = P.node_sections(settings_sections(state, sheet)),
 		focus = sheet.focus,
 		editing = editing,
-	}, {})
+	}, {
+		C.with(C.text({ ui.span(keys_legend(sheet), "muted") }, "keys"), { key = "keys", role = "tas.settings-keys" }),
+	})
 end
 
--- Applies the settings row `id` with `value`; a problem is shown on the row.
-local function apply_setting(state: State, sheet: Sheet, id: string, value: any)
+-- Applies the settings row `id` with `value`; a problem is shown on the row. True when the value was saved.
+local function apply_setting(state: State, sheet: Sheet, id: string, value: any): boolean
 	local patch: { [string]: any }
 	if id == "manager_layout" or id == "manager_results" or id == "time_format" then
 		patch = { [id] = value }
@@ -687,9 +825,10 @@ local function apply_setting(state: State, sheet: Sheet, id: string, value: any)
 			bins.invalidate()
 			run_setup_check(state, sheet)
 		end
-	else
-		warnings[id] = err or "That value isn't allowed."
+		return true
 	end
+	warnings[id] = err or "That value isn't allowed."
+	return false
 end
 
 local function settings_row(state: State, sheet: Sheet, id: string?): P.Row?
@@ -697,9 +836,8 @@ local function settings_row(state: State, sheet: Sheet, id: string?): P.Row?
 end
 
 local function settings_act(state: State, sheet: Sheet, act: string)
-	if act == "check" or act == "details" then
-		state.sheet = { kind = "setup" }
-		run_setup_check(state, state.sheet)
+	if act == "check" then
+		run_setup_check(state, sheet)
 	elseif act == "open_data" then
 		open_data_folder()
 	end
@@ -710,10 +848,17 @@ local function settings_activate(state: State, sheet: Sheet, row: P.Row): boolea
 	local c = row.control
 	if c.k == "switch" then
 		apply_setting(state, sheet, row.id, not c.on)
+	elseif c.k == "choice" and c.style == "segmented" then
+		-- Enter steps to the next option, wrapping.
+		local values = P.option_values(c)
+		local to = values[((table.find(values, c.value) or 0) % #values) + 1]
+		if to ~= nil then
+			apply_setting(state, sheet, row.id, to)
+		end
 	elseif c.k == "choice" then
 		sheet.editing = { row = row.id, initial = tostring(c.value), option = c.value }
 		sheet.field = nil
-	elseif c.k == "text" then
+	elseif c.k == "text" or c.k == "number" then
 		sheet.editing = { row = row.id, initial = tostring(c.value or "") }
 		sheet.field = textfield.new(tostring(c.value or ""))
 	elseif c.k == "action" then
@@ -730,19 +875,35 @@ local function close_editing(sheet: Sheet)
 end
 
 local function key_settings(state: State, sheet: Sheet, k: Key): boolean?
-	sheet.page = sheet.page or "runs"
 	local name = k.name
 	local e = sheet.editing
 	if e ~= nil then
 		local row = settings_row(state, sheet, e.row)
 		if sheet.field ~= nil then
 			if name == "enter" then
-				if sheet.field.text ~= e.initial then
-					apply_setting(state, sheet, e.row, sheet.field.text)
+				-- A rejected value keeps the editor open on the draft, with the problem on the row.
+				local draft = sheet.field.text
+				local limits = NUMBER_LIMITS[e.row]
+				local value: any = draft
+				if limits ~= nil and draft ~= e.initial then
+					local n = if string.match(C.trim(draft), "^%d+$") ~= nil then tonumber(C.trim(draft)) else nil
+					if n == nil or n < limits[1] or n > limits[2] then
+						local warnings = sheet.warnings or {}
+						sheet.warnings = warnings
+						warnings[e.row] = string.format("Type a whole number from %d to %d.", limits[1], limits[2])
+						return true
+					end
+					value = n
 				end
-				close_editing(sheet)
+				if draft == e.initial then
+					(sheet.warnings or {})[e.row] = nil
+					close_editing(sheet)
+				elseif apply_setting(state, sheet, e.row, value) then
+					close_editing(sheet)
+				end
 				return true
 			elseif name == "escape" then
+				(sheet.warnings or {})[e.row] = nil
 				close_editing(sheet)
 				return true
 			end
@@ -778,16 +939,13 @@ local function key_settings(state: State, sheet: Sheet, k: Key): boolean?
 	if name == "escape" then
 		state.sheet = nil
 		return true
-	elseif name == "up" or name == "down" then
-		local target = P.move(settings_sections(state, sheet), sheet.focus, if name == "up" then -1 else 1)
+	elseif name == "up" or name == "down" or name == "tab" then
+		local back = name == "up" or (name == "tab" and k.shift == true)
+		local target = P.move(settings_sections(state, sheet), sheet.focus, if back then -1 else 1)
 		if target == nil then
 			return false
 		end
 		sheet.focus = target
-		return true
-	elseif name == "tab" then
-		sheet.page = if sheet.page == "runs" then "setup" elseif sheet.page == "setup" then "manager" else "runs"
-		sheet.focus = nil
 		return true
 	end
 	local row = settings_row(state, sheet, sheet.focus)
@@ -797,21 +955,21 @@ local function key_settings(state: State, sheet: Sheet, k: Key): boolean?
 	if name == "left" or name == "right" then
 		local c = row.control
 		local dir = if name == "left" then -1 else 1
-		if c.k == "choice" then
-			local values = P.option_values(c)
-			local at = table.find(values, c.value) or 0
-			local j = math.clamp(at + dir, 1, math.max(#values, 1))
-			if values[j] == nil or values[j] == c.value then
-				return false
-			end
-			apply_setting(state, sheet, row.id, values[j])
-			return true
-		elseif c.k == "number" then
+		if c.k == "number" then
 			local n = P.step_number(c, dir)
 			if n == nil then
 				return false
 			end
 			apply_setting(state, sheet, row.id, n)
+			return true
+		elseif c.k == "choice" and c.style == "segmented" then
+			-- No wrap: the ends stay put.
+			local values = P.option_values(c)
+			local to = values[(table.find(values, c.value) or 0) + dir]
+			if to == nil then
+				return false
+			end
+			apply_setting(state, sheet, row.id, to)
 			return true
 		end
 		return false
@@ -825,11 +983,7 @@ local function event_settings(state: State, sheet: Sheet, ev: UiEvent)
 	local kind = ev.ev
 	local item = ev.item
 	if kind == "action" then
-		if ev.act == "page" and type(ev.value) == "string" then
-			sheet.page = ev.value
-			sheet.focus = nil
-			close_editing(sheet)
-		elseif ev.act == "close" then
+		if ev.act == "close" then
 			if ev.value == nil or ev.value == tern.json.null then
 				state.sheet = nil
 			else
@@ -840,9 +994,16 @@ local function event_settings(state: State, sheet: Sheet, ev: UiEvent)
 		end
 	elseif kind == "change" and type(item) == "string" then
 		local row = settings_row(state, sheet, item)
-		if row ~= nil and ev.value ~= nil and ev.value ~= tern.json.null then
-			apply_setting(state, sheet, item, ev.value)
-			sheet.focus = item
+		if row ~= nil then
+			-- A null value is Reset: back to the row's default.
+			local value = ev.value
+			if value == nil or value == tern.json.null then
+				value = DEFAULTS[item]
+			end
+			if value ~= nil then
+				apply_setting(state, sheet, item, value)
+				sheet.focus = item
+			end
 		end
 		close_editing(sheet)
 	elseif kind == "activate" and type(item) == "string" then
@@ -858,12 +1019,12 @@ end
 -- Entry points -----------------------------------------------------------------------------------------------
 
 function S.open_settings(state: State)
-	state.sheet = { kind = "settings", page = "runs", warnings = {} }
+	state.sheet = { kind = "settings", focus = "status", warnings = {} }
 end
 
 function S.open_setup(state: State)
-	state.sheet = { kind = "setup" }
-	run_setup_check(state, state.sheet)
+	S.open_settings(state)
+	run_setup_check(state, state.sheet :: Sheet)
 end
 
 function S.open_help(state: State)
@@ -907,8 +1068,6 @@ function S.layer(state: State): Node?
 		return conditions_node(state, sheet)
 	elseif kind == "help" then
 		return help_node(state, sheet)
-	elseif kind == "setup" then
-		return setup_node(state, sheet)
 	elseif kind == "settings" then
 		return settings_node(state, sheet)
 	end
@@ -1004,15 +1163,6 @@ function S.key(state: State, k: Key): boolean?
 			return true
 		end
 		return false
-	elseif kind == "setup" then
-		if name == "escape" then
-			state.sheet = nil
-			return true
-		elseif name == "c" or name == "enter" then
-			run_setup_check(state, sheet)
-			return true
-		end
-		return false
 	elseif kind == "help" then
 		if name == "escape" or name == "?" or name == "q" or name == "enter" then
 			state.sheet = nil
@@ -1052,12 +1202,8 @@ function S.event(state: State, ev: UiEvent)
 			do_run_anyway(state, sheet)
 		elseif act == "cond_forget" then
 			do_forget(state, sheet)
-		elseif act == "stop_no" or act == "first_no" or act == "anyway_no" or act == "cond_close" or act == "close_sheet" then
+		elseif act == "stop_no" or act == "first_no" or act == "anyway_no" or act == "cond_close" then
 			state.sheet = nil
-		elseif act == "setup_check" then
-			run_setup_check(state, sheet)
-		elseif act == "open_data" then
-			open_data_folder()
 		end
 	end
 end

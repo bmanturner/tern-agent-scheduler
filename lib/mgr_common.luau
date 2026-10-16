@@ -103,12 +103,12 @@ export type Sheet = {
 	run_id: string?,
 	job_id: string?,
 	-- settings sheet
-	page: string?,
 	focus: string?,
 	editing: { row: string, initial: string, option: string? }?,
 	field: textfield.Field?,
 	warnings: { [string]: string }?,
 	checking: boolean?,
+	checked_at: number?,
 	text: string?,
 	code: string?,
 	override: string?,
@@ -153,9 +153,7 @@ C.AVAILABILITY = "Jobs run while Tern's session service is running. It keeps run
 	.. " is asleep, or after a restart until you open Tern."
 
 C.NO_WINDOW =
-	"With no Tern window open, a run that stops to ask for approval waits silently until you open a window or its time limit is reached. Launch failures, early exits, time-outs and blocked jobs still send a notification."
-
-C.WINDOWS = "With several Tern windows open, scheduled runs start in the first window."
+	"With no Tern window open, a run that stops for approval waits until you open one or its time limit ends. Failed starts, early exits, time-outs and blocked jobs still notify you."
 
 C.HANDS_OFF_WARNING =
 	"Hands-off runs commands and edits files as you, with your credentials, while you're away. Only use it for prompts you'd trust unattended."

@@ -63,5 +63,5 @@ print("PASS no heartbeat alarm right after a sleep")
 fake.events = {}
 fake.advance(130000)
 local dead = heartbeat()
-assert(dead.ok == false and dead.text:find("isn't ticking", 1, true), "stalled tick: " .. tostring(dead.ok))
+assert(dead.ok == false and dead.text:find("has stopped", 1, true), "stalled tick: " .. tostring(dead.ok))
 print("PASS a tick stalled while awake still fails")

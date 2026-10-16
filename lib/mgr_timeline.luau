@@ -100,14 +100,27 @@ function T.model(state: any, model: any, frame_now: number?): any
 			table.insert(model.flat, row); model.by_id[row.id] = row
 		end
 	end
-	section("results", "You last looked " .. (if since > 0 then C.abs(since) else "— first visit"), results)
-	-- Keep needs/running section identities for their existing key semantics.
-	section("now", "now · " .. timefmt.date("%H:%M", frame_now or C.now()), {})
 	local needs, running = {}, {}
 	for _, r in live do table.insert(if r.sec == "needs" then needs else running, r) end
+	local now_at = frame_now or C.now()
+	model.unseen = #results > 0
+	model.quiet = nil
+	if #results == 0 then
+		if since > 0 then
+			model.quiet = string.format("Nothing new since %s.", C.when_text(since, now_at))
+		elseif model.next_job ~= nil and model.next_at ~= nil then
+			local at: number = model.next_at
+			model.quiet = string.format("Nothing has run yet. %s runs first, %s (%s).", (model.next_job :: any).name, C.when_text(at, now_at), C.in_text(at, now_at))
+		else
+			model.quiet = "Nothing has run yet."
+		end
+	end
+	if #results > 0 then section("results", if since > 0 then "You last looked " .. C.abs(since) else "Results so far", results) end
+	-- Keep needs/running section identities for their existing key semantics.
+	if #results > 0 or #live > 0 then section("now", "now · " .. timefmt.date("%H:%M", now_at), {}) end
 	if #needs > 0 then section("needs", "Needs you", needs) end
 	if #running > 0 then section("running", "Running", running) end
-	section("upcoming", "Next runs", nexts)
+	if #nexts > 0 then section("upcoming", "Next runs", nexts) end
 	if #bottom > 0 then section("rest", "Paused & needs fixing", bottom) end
 	return model
 end

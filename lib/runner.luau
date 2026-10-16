@@ -2104,9 +2104,9 @@ setup_rows = function(): { SetupRow }
 		label = "Scheduler heartbeat",
 		ok = hb_ok,
 		text = if not hb_ok
-			then "The scheduler isn't ticking. Reload plugins (palette: Reload plugins)."
+			then "The scheduler has stopped. Reload plugins (palette: Reload plugins)."
 			elseif S.last_hb == 0 then "The scheduler is starting."
-			else "The scheduler is ticking.",
+			else "The scheduler is running.",
 	})
 	local health = store.health()
 	local data_ok = health == "ok" and S.data_probe ~= false

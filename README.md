@@ -93,13 +93,13 @@ Your own check runs in the job's folder with a 30 s limit and gets a JSON file d
 
 ## The manager
 
-The default **Timeline** shows results since you last looked, a **Now** rule, then each active job at its next run. Running jobs stay at Now with their next time inline; paused, manual-only and broken jobs sit at the bottom. More than eight new results fold into one summary per job, with failures still listed individually. Enter opens the job, not an expanding row.
+The default **Timeline** shows results since you last looked, a **Now** rule, then each active job at its next run. The Now rule only appears when there are results above it or a run in progress at it. When nothing is new, one quiet line says so ("Nothing new since 08:00."), and on a first visit it names the first run ("Nothing has run yet. pr-review-digest runs first, 18:00 (in 9h 52m)."). Running jobs stay at Now with their next time inline; paused, manual-only and broken jobs sit at the bottom. More than eight new results fold into one summary per job, with failures still listed individually. Enter opens the job, not an expanding row.
 
-At 150 columns or wider, details sit beside the list and follow selection. Enter focuses the selected job’s runs; Escape returns to the job list. In narrower panes, Enter opens details full-width. **Settings › Manager › Layout** can restore the **Classic job list**, grouped into Needs you, Needs fixing, Running, Upcoming and Paused & finished.
+At 150 columns or wider, details sit beside the list and follow selection. Enter focuses the selected job’s runs; Escape returns to the job list. In narrower panes, Enter opens details full-width. **Settings › Display › Layout** can restore the **Classic job list**, grouped into Needs you, Needs fixing, Running, Upcoming and Paused & finished.
 
-Job details show the latest result, settings, prompt and a one-line history of each run’s outcome, duration and cost. Failed and missed counts are separate. Every run timestamp uses its start time (or created/scheduled time when it never started), with duration shown separately. **Settings › Manager › Time format** offers **Automatic**, **12-hour** and **24-hour**. Automatic follows the host’s cached system preference, with a 24-hour fallback; the same format applies to schedules, previews, notifications, status and Carly.
+Job details show the latest result, settings, prompt and a one-line history of each run’s outcome, duration and cost. Failed and missed counts are separate. Every run timestamp uses its start time (or created/scheduled time when it never started), with duration shown separately. **Settings › Display › Time format** offers **Automatic**, **12-hour** and **24-hour**. Automatic follows the host’s cached system preference, with a 24-hour fallback; the same format applies to schedules, previews, notifications, status and Carly.
 
-New results fade after three seconds in the manager by default; choose **Stay until marked seen** in Settings › Manager to keep them highlighted. Press `s` or click **Mark all seen** to clear them. A failure marker stays on the job until its next success. Tern does not expose a block visibility/close callback, so the last-looked checkpoint advances after the three-second fallback rather than on tab departure. See [manager behavior](docs/design/manager-timeline.md) for limitations.
+New results fade after three seconds in the manager by default; choose **Stay until marked seen** under **Settings › Display › New results** to keep them highlighted. Press `s` or click **Mark all seen** to clear them; the button and key only appear when there is something to mark. A failure marker stays on the job until its next success. Tern does not expose a block visibility/close callback, so the last-looked checkpoint advances after the three-second fallback rather than on tab departure. See [manager behavior](docs/design/manager-timeline.md) for limitations.
 
 The screenshots above predate the timeline redesign.
 
@@ -115,7 +115,7 @@ The screenshots above predate the timeline redesign.
 | `s` | Mark all results seen |
 | `?` | Every key |
 
-From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+alt+shift+m`), **New job…** (`ctrl+alt+shift+j`), **Run a job now…** (`ctrl+alt+shift+r`) and **Go to run that needs you** (`ctrl+alt+shift+a`). **Agent Scheduler: Settings** opens the manager’s Manager settings page.
+From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+alt+shift+m`), **New job…** (`ctrl+alt+shift+j`), **Run a job now…** (`ctrl+alt+shift+r`) and **Go to run that needs you** (`ctrl+alt+shift+a`). **Agent Scheduler: Settings** opens the manager’s Settings.
 
 ### Carly
 
@@ -133,11 +133,11 @@ Ask Tern's assistant to create, list, run or pause jobs, or to check a job's con
 - **Remote hosts:** jobs run on the machine the plugin is installed on. To schedule runs on a remote host you've attached in Tern, install the plugin there too (run the install command in a pane on that host); it keeps its own jobs and manager, which **Open manager** and **New job…** open while you're in one of that host's sessions. This computer's status line, notifications, Carly and the other palette commands cover only this computer's jobs, and a run on the remote host that waits for your approval isn't noticed.
 - **Failures:** a run that hits its time limit is stopped. After three failures in a row the job pauses itself and tells you.
 - **Finished run tabs:** the 5 most recent are kept and older ones are closed; their sessions can still be resumed.
-- **Settings** (`,` in the manager) cover where runs appear, how many run at once (2), how many finished tabs to keep, and the late limit for missed runs. **Settings › Setup** checks that Tern and omp are found, and lets you set omp's path if it's somewhere unusual.
+- **Settings** (`,` in the manager) is one page with five sections. **Status** checks that Tern and omp are found (**Check again**). **Display** sets the time format, the layout and how new results are shown. **Where runs start** covers which session runs appear in, its name, and whether it comes to the front. **Limits** covers how many jobs run at once (2), how many finished tabs to keep, and how long a sleeping Mac may delay runs. **Setup** lets you set omp's path if it's somewhere unusual and opens the data folder.
 
 ## Your data
 
-Jobs, prompts and run history live in Tern's plugin data folder (**Settings › Setup › Open data folder**): `~/Library/Application Support/Tern/plugin-data/tern-agent-scheduler/` on macOS, `~/.local/state/tern/plugin-data/tern-agent-scheduler/` on Linux. If its files are ever damaged, the manager offers **Start fresh**.
+Jobs, prompts and run history live in Tern's plugin data folder (**Settings › Setup › Data folder**): `~/Library/Application Support/Tern/plugin-data/tern-agent-scheduler/` on macOS, `~/.local/state/tern/plugin-data/tern-agent-scheduler/` on Linux. If its files are ever damaged, the manager offers **Start fresh**.
 
 > [!WARNING]
 > Anything that can write to the data folder can create jobs or change what they run, including Hands-off ones. Keep it private to your user.
