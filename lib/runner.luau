@@ -2068,12 +2068,12 @@ end
 setup_rows = function(): { SetupRow }
 	local f = bins.found()
 	local rows: { SetupRow } = {}
-	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 8, 3)
+	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 9, 0)
 	table.insert(rows, {
 		id = "tern",
 		label = "Tern version",
 		ok = tern_ok,
-		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.8.3. Update Tern.",
+		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.9.0. Update Tern.",
 	})
 	table.insert(rows, {
 		id = "omp",

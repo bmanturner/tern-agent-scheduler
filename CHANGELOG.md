@@ -2,6 +2,37 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.4.0 (2026-10-16)
+
+Built and tested on Tern 0.9.0. **Update Tern to 0.9.0:** on an older Tern, the manager asks you to check setup and Settings › Status flags the Tern version.
+
+### Added
+
+- **Timeline**, the manager's new default view: results since you last looked, a **Now** rule, then each active job at its next run, with paused, manual-only and broken jobs at the bottom. A run in progress sits on the Now rule. When nothing is new, one line says so ("Nothing new since 08:00."), and on a first visit it names the first run. More than eight new results fold into one summary per job, with failures still listed one by one. **Settings › Display › Layout** brings back the **Classic job list**.
+- In panes 150 columns or wider, a job's details sit beside the list and follow the selection. They call out the latest result and list each run on one line with its outcome, duration and cost.
+- New results fade after three seconds, or stay highlighted until you mark them seen (**Settings › Display › New results**). `s` or **Mark all seen** clears them, and a failure marker stays on the job until its next success.
+- **Time format**: Automatic (follows your system, with a 24-hour fallback), 12-hour or 24-hour, used for schedules, previews, notifications, the status line and Carly. Until now times were always 24-hour.
+- **Agent Scheduler: Settings** in the palette.
+
+### Changed
+
+- Settings is one page, **Agent Scheduler Settings**, with Status, Display, Where runs start, Limits and Setup sections. **Status** says whether Agent Scheduler is ready to run jobs, lists each problem with what to do about it, and **Check again** checks in place. The Check setup dialog is gone; what it said about when jobs run is now in Help.
+- In Settings, Time format and Layout are buttons (←/→ also switch them), number rows take a typed value after Enter, a rejected value stays in its field with the reason above it, and a changed setting shows a dot and **Reset**. Tab and Shift+Tab move between rows; a key legend sits at the bottom.
+- Help (`?`) groups the keys into The selected job, Move and open, and All jobs, written the way you type them (`P` is shift+p).
+- One look for every button in the manager, the job form and its dialogs, each with its key inside. The default action, the one Enter does, is highlighted.
+- On the job form's **Only when** page, a condition that's off shows only its switch, and its settings appear when you turn it on (nothing you set is lost). **Check now** appears once a condition is on.
+- With no jobs, the manager offers its examples under a "Start from an example" heading; Enter opens the selected one as a draft that's saved only when you save it.
+- A job's history is one line per run instead of a chart.
+
+### Fixed
+
+- On Tern 0.9.0, a scheduled run no longer ends as "Closed by you." a few seconds after it starts while omp keeps running in its tab. Agent Scheduler didn't recognise its own run tabs in the shape Tern 0.9.0 lists them.
+- Runs missed while your computer was asleep no longer count as failures.
+- Schedules with a cron step read naturally ("Every 2 hours").
+- Every run is listed at its start time, and countdowns round up to the minute.
+- With window glass on, Settings no longer lets the job list show through.
+- "Invalid job id." no longer ends in two periods.
+
 ## 0.3.2 (2026-10-13)
 
 Built and tested on Tern 0.8.3.

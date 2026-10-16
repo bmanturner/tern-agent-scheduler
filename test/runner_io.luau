@@ -6,28 +6,31 @@ local function res(stdout)
 	return { status = 0, stdout = stdout, stderr = "", timed_out = false }
 end
 
--- F1: only a launch argv (`@<run dir>/prompt.md`) carries the marker; a resumed conversation does not
+-- F1: only a launch argv (`@<run dir>/prompt.md`) carries the marker; a resumed conversation does not.
+-- Tern lists the shell argv as {"-c", cmd}; a login shell's {"-l", "-c", cmd} is marked the same way.
 local launch = {
-	args = { "-l", "-c", "'/opt/homebrew/bin/omp' --model '@default' --session-dir '/d/runs/j_ab12cd34/r_ab12cd34_1760000000/session' "
+	args = { "-c", "'/opt/homebrew/bin/omp' --model '@default' --session-dir '/d/runs/j_ab12cd34/r_ab12cd34_1760000000/session' "
 		.. "--config '/d/runs/j_ab12cd34/r_ab12cd34_1760000000/omp.yml' '@/d/runs/j_ab12cd34/r_ab12cd34_1760000000/prompt.md' 'Run the scheduled job.'" },
 }
 local spaced = {
 	args = { "-l", "-c", "'/opt/homebrew/bin/omp' '@/Users/u/Library/Application Support/Tern/plugin-data/x/runs/j_ab12cd34/r_ab12cd34_5/prompt.md' 'Run.'" },
 }
 local resume = {
-	args = { "-l", "-c", "'/opt/homebrew/bin/omp' --session-dir '/d/runs/j_ab12cd34/r_ab12cd34_1760000000/session' --resume '/d/runs/j_ab12cd34/r_ab12cd34_1760000000/session/a.jsonl' "
+	args = { "-c", "'/opt/homebrew/bin/omp' --session-dir '/d/runs/j_ab12cd34/r_ab12cd34_1760000000/session' --resume '/d/runs/j_ab12cd34/r_ab12cd34_1760000000/session/a.jsonl' "
 		.. "--config '/d/runs/j_ab12cd34/r_ab12cd34_1760000000/omp.yml'" },
 }
 local bare = { args = { "-l" } }
+local empty = { args = {} }
 assert(tern_state.marker(launch) == "j_ab12cd34/r_ab12cd34_1760000000", "launch argv is marked: " .. tostring(tern_state.marker(launch)))
-assert(tern_state.marker(spaced) == "j_ab12cd34/r_ab12cd34_5", "launch argv with a spaced data path is marked")
+assert(tern_state.marker(spaced) == "j_ab12cd34/r_ab12cd34_5", "login-shell launch argv with a spaced data path is marked")
 assert(tern_state.marker(resume) == nil, "resume argv is not marked")
 assert(tern_state.marker(bare) == nil, "bare login shell is not marked")
+assert(tern_state.marker(empty) == nil, "bare shell is not marked")
 print("PASS F1 marker only on launch argv")
 
 -- F14: sessions listed under `detached` still map their panes
 local st = tern_state.parse(
-	'{"sessions":[],"detached":[{"id":7,"name":"Scheduled runs","tabs":[{"id":8,"name":"t","blocks":[{"id":9,"args":["-l","-c","omp \'@/d/runs/j_ab12cd34/r_ab12cd34_1/prompt.md\'"]}]}]}]}'
+	'{"sessions":[],"detached":[{"id":7,"name":"Scheduled runs","tabs":[{"id":8,"name":"t","blocks":[{"id":9,"args":["-c","omp \'@/d/runs/j_ab12cd34/r_ab12cd34_1/prompt.md\'"]}]}]}]}'
 )
 assert(st ~= nil and st.session_ids["Scheduled runs"] == "7", "detached session id mapped")
 assert(st.by_run["j_ab12cd34/r_ab12cd34_1"] ~= nil and st.by_run["j_ab12cd34/r_ab12cd34_1"].session_shown == false, "detached pane mapped as hidden")
@@ -107,7 +110,7 @@ local function resolve_with(settings)
 	return got, err
 end
 local custom_omp = "/home/u/custom/omp"
-fake.installed = { [fake.tern_bin] = "tern 0.8.3 (test)\n", [custom_omp] = "omp/18.9.1\n", ["/home/u/.bun/bin/omp"] = "omp/18.9.1\n" }
+fake.installed = { [fake.tern_bin] = "tern 0.9.0 (test)\n", [custom_omp] = "omp/18.9.1\n", ["/home/u/.bun/bin/omp"] = "omp/18.9.1\n" }
 local b1 = resolve_with({ omp_path = custom_omp })
 assert(b1 ~= nil and b1.omp == custom_omp, "omp_path setting wins")
 fake.installed[custom_omp] = nil
@@ -127,7 +130,7 @@ fake.override.zsh = nil
 print("PASS F18/F68 omp lookup")
 
 -- F15: a forced re-resolve keeps the known paths while probes run
-fake.installed = { [fake.tern_bin] = "tern 0.8.3 (test)\n", [fake.omp_bin] = "omp/18.9.1\n" }
+fake.installed = { [fake.tern_bin] = "tern 0.9.0 (test)\n", [fake.omp_bin] = "omp/18.9.1\n" }
 resolve_with({})
 bins.resolve({}, function() end, true)
 assert(bins.found().tern == fake.tern_bin and bins.found().omp == fake.omp_bin, "paths kept while re-resolving")
