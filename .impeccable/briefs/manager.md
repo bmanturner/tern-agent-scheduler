@@ -19,7 +19,7 @@ Tern users checking agent work. First question answered: what happened since I l
 - Backlog: ≤ ~8 new results → one row each. More → one row per job ("PR triage · 84 runs since Mon · 70 ✓ · 12 ↷ · 2 ✗ · latest …"); failures and needs-you always get their own rows above. Rows do NOT expand; opening the job shows all its runs. "Mark all seen" key and button appear only when something is unseen. Counts tracked independently of the 50-run retention; run lists say "latest 50 of N" when truncated.
 
 ## Toolbar
-Job actions grouped, global actions apart; keys shown inside buttons; Pause all and Delete set apart; separate hint row removed.
+Job actions and global actions are two groups of the same buttons, apart by space, with the selected job named above the job group; keys shown inside buttons; Delete and Pause all last in their groups, in muted text; separate hint row removed. Forms and dialogs use the same buttons.
 
 ## Settings
 Manager Settings sheet gains a "Manager" page: Layout (Timeline default | Classic job list), New results (fade once seen | stay until cleared). Palette command "Agent Scheduler: Settings".
@@ -31,7 +31,7 @@ Manager Settings sheet gains a "Manager" page: Layout (Timeline default | Classi
 - Now rule: accent rule (no glow) with a filled "now · HH:MM" pill; countdown digits roll (-stencil-text-effect: numeric).
 - Running row on the now rule: --live gradient wash + slow pulsing dot.
 - Details: raised card (--card, --r-card, soft shadow); failure called out in a bordered --bad tint block + "Last run failed" badge; settings in a recessed --l1 block.
-- Dock: job actions as one grouped segment, global actions as outlined buttons.
+- Dock: one outlined button style everywhere (no tray); the Enter/default action is accent-tinted.
 - All motion off under prefers-reduced-motion. Light theme: times use --t2 not --t3; status glyphs slightly larger. Verify against 2+ real omp themes in Tern.
 
 ## Time format

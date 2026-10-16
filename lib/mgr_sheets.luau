@@ -42,26 +42,37 @@ local PRESETS: { Preset } = {
 	{ id = "manual", label = "Manual only", phrase = "manual" },
 }
 
-local HELP_KEYS: { { string } } = {
-	{ "j k ↑ ↓", "Move the selection (g / G first / last)" },
-	{ "enter", "Open the job; wide panes focus its runs (esc returns to jobs). Needs you: open its terminal" },
-	{ "n", "New job" },
-	{ "e", "Edit the job" },
-	{ "r", "Run now" },
-	{ "i", "Check a job's conditions now" },
-	{ "space", "Pause or resume the job" },
-	{ "dd", "Delete the job (any other key cancels)" },
-	{ "u", "Undo the last delete (10 s)" },
-	{ "s", "Mark all results seen" },
-	{ "c", "Duplicate the job" },
-	{ "h", "History" },
-	{ "o", "Open the job's run terminal" },
-	{ "x", "Stop the running run" },
-	{ "p", "Edit the prompt file" },
-	{ "a", "Jump to a run that needs you" },
-	{ "⇧P", "Pause all / resume all (shift+p)" },
-	{ ",", "Settings" },
-	{ "esc", "Back" },
+type HelpRow = { keys: { string }, text: string }
+
+-- Keys as the dock writes them: lowercase as typed, a capital means shift (P is shift+p, p is the prompt file).
+local HELP_JOB: { HelpRow } = {
+	{ keys = { "r" }, text = "Run now" },
+	{ keys = { "e" }, text = "Edit" },
+	{ keys = { "space" }, text = "Pause or resume" },
+	{ keys = { "c" }, text = "Duplicate" },
+	{ keys = { "i" }, text = "Check its conditions now" },
+	{ keys = { "p" }, text = "Edit its prompt file" },
+	{ keys = { "h" }, text = "History" },
+	{ keys = { "o" }, text = "Open its run terminal" },
+	{ keys = { "x" }, text = "Stop its running run" },
+	{ keys = { "dd" }, text = "Delete (any other key cancels)" },
+	{ keys = { "u" }, text = "Undo a delete, for 10 s" },
+}
+
+local HELP_MOVE: { HelpRow } = {
+	{ keys = { "j", "k" }, text = "Move the selection (or ↑ ↓)" },
+	{ keys = { "g", "G" }, text = "First or last job" },
+	{ keys = { "enter" }, text = "Open the job, or the terminal of a run that needs you" },
+	{ keys = { "a" }, text = "Jump to a run that needs you" },
+	{ keys = { "esc" }, text = "Back" },
+}
+
+local HELP_ALL: { HelpRow } = {
+	{ keys = { "n" }, text = "New job" },
+	{ keys = { "s" }, text = "Mark all results seen" },
+	{ keys = { "P" }, text = "Pause or resume all jobs" },
+	{ keys = { "," }, text = "Settings" },
+	{ keys = { "?" }, text = "This help" },
 }
 
 -- Picker helpers ----------------------------------------------------------------------------------------
@@ -336,8 +347,8 @@ local function confirm_stop_node(state: State, sheet: Sheet): Node
 	return dialog("Stop " .. run_name(sheet.run_id) .. "?", "sm", {
 		C.text({ ui.span("This closes the run's terminal. Its record stays, and Open run can resume the session.", "muted") }, "body"),
 		C.with(ui.row({
-			C.badge("Stop run  y", "error", "stop_yes", "yes"),
-			C.badge("Keep  esc", "neutral", "stop_no", "no"),
+			C.action_button("Stop run", "y", "error", "stop_yes", "yes"),
+			C.action_button("Keep", "esc", "neutral", "stop_no", "no"),
 		}), { key = "acts" }),
 	})
 end
@@ -351,8 +362,8 @@ local function first_run_node(_state: State, _sheet: Sheet): Node
 			),
 		}, "body"),
 		C.with(ui.row({
-			C.badge("Run now  ⏎", "accent", "first_yes", "yes"),
-			C.badge("Not now  esc", "neutral", "first_no", "no"),
+			C.action_button("Run now", "⏎", "accent", "first_yes", "yes"),
+			C.action_button("Not now", "esc", "neutral", "first_no", "no"),
 		}), { key = "acts" }),
 	})
 end
@@ -362,8 +373,8 @@ local function run_anyway_node(_state: State, sheet: Sheet): Node
 		C.text({ ui.span("Not running: " .. tostring(sheet.text or "a condition said no") .. ".") }, "body"),
 		C.text({ ui.span("Run anyway runs it once now without checking its conditions.", "muted") }, "note"),
 		C.with(ui.row({
-			C.badge("Run anyway  ⏎", "accent", "anyway_yes", "yes"),
-			C.badge("Cancel  esc", "neutral", "anyway_no", "no"),
+			C.action_button("Run anyway", "⏎", "accent", "anyway_yes", "yes"),
+			C.action_button("Cancel", "esc", "neutral", "anyway_no", "no"),
 		}), { key = "acts" }),
 	})
 end
@@ -409,24 +420,47 @@ local function conditions_node(_state: State, sheet: Sheet): Node
 	end
 	local acts: { Node } = {}
 	if sheet.job_id ~= nil and #seen > 0 then
-		table.insert(acts, C.badge("Forget what it has seen  f", "neutral", "cond_forget", "forget"))
+		table.insert(acts, C.action_button("Forget what it has seen", "f", "neutral", "cond_forget", "forget"))
 	end
-	table.insert(acts, C.badge("Close  esc", "neutral", "cond_close", "close"))
+	table.insert(acts, C.action_button("Close", "esc", "neutral", "cond_close", "close"))
 	table.insert(body, C.with(ui.row(acts), { key = "acts" }))
 	return dialog("Conditions · " .. name, "md", body)
 end
 
-local function help_node(_state: State, _sheet: Sheet): Node
-	local rows: { { Spans } } = {}
-	for _, r in HELP_KEYS do
-		table.insert(rows, { { ui.span(r[1], "key") }, { ui.span(r[2]) } })
+local function help_group(key: string, title: string, rows: { HelpRow }): Node
+	local items: { Node } = {}
+	for _, r in rows do
+		local caps: { Node } = {}
+		for _, k in r.keys do
+			table.insert(caps, ui.el("kbd", { text = k }))
+		end
+		table.insert(items, ui.el("dt", {}, caps))
+		table.insert(items, ui.el("dd", { text = r.text }))
 	end
-	return dialog("Keys", "md", {
-		ui.kv(rows),
-		C.text({ ui.span("Most actions also have a button under the list. esc closes this.", "muted") }, "foot"),
-		C.text({ ui.span("When jobs run", "strong") }, "when_head"),
-		C.text({ ui.span(C.AVAILABILITY) }, "when_avail"),
-		C.text({ ui.span(C.NO_WINDOW) }, "when_window"),
+	return ui.el("section", { key = key, class = "tas-help-group" }, {
+		ui.el("h3", { text = title }),
+		ui.el("dl", {}, items),
+	})
+end
+
+local function help_node(_state: State, _sheet: Sheet): Node
+	return dialog("Help", "lg", {
+		ui.el("div", { key = "keys", class = "tas-help-cols" }, {
+			help_group("job", "The selected job", HELP_JOB),
+			ui.el("div", { key = "side", class = "tas-help-stack" }, {
+				help_group("move", "Move and open", HELP_MOVE),
+				help_group("all", "All jobs", HELP_ALL),
+			}),
+		}),
+		ui.el("section", { key = "when", class = "tas-help-when" }, {
+			ui.el("h3", { text = "When jobs run" }),
+			ui.el("p", { text = C.AVAILABILITY }),
+			ui.el("p", { text = C.NO_WINDOW }),
+		}),
+		C.with(ui.row({
+			C.text({ ui.span("Most of these are also buttons under the list.", "muted") }, "note"),
+			C.action_button("Close", "esc", "neutral", "help_close", "close"),
+		}), { key = "foot", role = "tas.help-foot" }),
 	})
 end
 
@@ -1202,7 +1236,7 @@ function S.event(state: State, ev: UiEvent)
 			do_run_anyway(state, sheet)
 		elseif act == "cond_forget" then
 			do_forget(state, sheet)
-		elseif act == "stop_no" or act == "first_no" or act == "anyway_no" or act == "cond_close" then
+		elseif act == "stop_no" or act == "first_no" or act == "anyway_no" or act == "cond_close" or act == "help_close" then
 			state.sheet = nil
 		end
 	end

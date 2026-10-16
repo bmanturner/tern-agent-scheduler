@@ -527,9 +527,10 @@ local function row_badges(state: State, row: Row?, model: Model): { Node }
 	add("New job", "n", "new", nil)
 	add("Settings", ",", "settings", nil)
 	if model.unseen then add("Mark all seen", "s", "seen", nil) end
-	add(if jobs.paused_all() then "Resume all" else "Pause all", "P", "pause_all", nil, "warning")
 	add("Help", "?", "help", nil)
 	if state.undo_until ~= nil and tern.now() < state.undo_until then add("Undo", "u", "undo", nil, "accent") end
+	-- Set apart and last, like Delete in the job group.
+	add(if jobs.paused_all() then "Resume all" else "Pause all", "P", "pause_all", nil, "warning")
 	return { ui.node("row", { key = "job-actions", role = "tas.dock-job", gap = "sm" }, job_actions), ui.node("row", { key = "global-actions", role = "tas.dock-global", gap = "sm" }, out) }
 end
 

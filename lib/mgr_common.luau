@@ -193,11 +193,6 @@ function C.with(node: Node, props: { [string]: any }): Node
 	return node
 end
 
-function C.badge(label: string, tone: string, act: string, key: string, value: string?): Node
-	local click = if value ~= nil then act .. "=" .. value else act
-	return C.with(ui.badge(label, tone), { key = key, actions = { click = click } })
-end
-
 local SHORT_LABELS: { [string]: string } = {
 	["+ New"] = "+",
 	["Open run"] = "Open",
@@ -304,12 +299,15 @@ function C.when_text(t: number, now: number): string
 	return (string.gsub(timefmt.date("%d %b ", t), "^0", "")) .. hm
 end
 
+-- Every clickable action in the manager (docks, forms, dialogs) is this one button, so they all share one look.
 function C.action_button(label: string, key: string, tone: string, act: string, id: string, value: string?): Node
+	local kids: { Node } = { tern.ui.el("span", { text = label }) }
+	if key ~= "" then
+		table.insert(kids, tern.ui.el("kbd", { text = key }))
+	end
 	return tern.ui.el("button", { key = id, tone = tone,
 		role = if act == "delete" or act == "pause_all" then "tas.dock-danger" else "tas.dock-action",
-		actions = { click = act .. (if value then "=" .. value else "") } }, {
-		tern.ui.el("span", { text = label }), tern.ui.el("kbd", { text = key }),
-	})
+		actions = { click = act .. (if value then "=" .. value else "") } }, kids)
 end
 
 function C.cost_text(cost: any): string
