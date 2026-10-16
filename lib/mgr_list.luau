@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- Manager list mode (UX §3): Needs you / Needs fixing / Running / Upcoming / Paused & finished, the empty state with
 -- three example jobs, the dock (context line, action badges, key hints) and the list keys.
 
@@ -11,9 +12,13 @@ local jobs = require("./jobs")
 local Live = require("./mgr_live")
 local runner = require("./runner")
 local store = require("./store")
+local platform = require("./platform")
 local conditions = require("./conditions")
 local cond_eval = require("./cond_eval")
 
+local T = require("./mgr_timeline")
+local D = require("./mgr_detail")
+local H = require("./mgr_history")
 local L = {}
 
 type State = C.State
@@ -30,6 +35,8 @@ export type Model = {
 	total: number,
 	next_job: any?,
 	next_at: number?,
+	quiet: string?,
+	unseen: boolean,
 }
 
 -- Setup checks that inform but never mean the scheduler is broken (UX §6.2).
@@ -85,8 +92,8 @@ local function run_job(run: any): any
 	return { id = run.job_id, name = run.job_name or "deleted job", role = run.role or "default", cwd = run.cwd or "", created_by = "user" }
 end
 
-function L.model(state: State): Model
-	local now = C.now()
+function L.model(state: State, frame_now: number?): Model
+	local now = frame_now or C.now()
 	local secs: { [string]: { Row } } = { needs = {}, fix = {}, running = {}, upcoming = {}, paused = {} }
 	local inflight_jobs: { [string]: boolean } = {}
 
@@ -170,6 +177,8 @@ function L.model(state: State): Model
 		total = #jobs.list() + #jobs.invalid(),
 		next_job = nil,
 		next_at = nil,
+		quiet = nil,
+		unseen = false,
 	}
 	if #upcoming > 0 and upcoming[1].at ~= math.huge then
 		model.next_job = upcoming[1].row.job
@@ -188,7 +197,13 @@ function L.model(state: State): Model
 			end
 		end
 	end
-	return model
+	if jobs.settings().manager_layout == "classic" then
+		for _, j in jobs.list() do
+			if H.ensure(j.id).pending.total > 0 then model.unseen = true; break end
+		end
+		return model
+	end
+	return T.model(state, model, now)
 end
 
 local function find_selected(state: State, model: Model): Row?
@@ -269,7 +284,7 @@ local function last_text(last: any, now: number): string
 	if type(last) ~= "table" then
 		return "— never run"
 	end
-	local t: number = last.ended or last.started or last.slot or now
+	local t: number = last.started or last.slot or now
 	local glyph = GLYPH[last.state] or "·"
 	local tail = if last.quiet == true then "quiet" else OUTCOME[last.state]
 	return string.format("%s %s%s", glyph, C.when_text(t, now), if tail ~= nil then " " .. tail else "")
@@ -306,10 +321,13 @@ end
 
 local function item_node(row: Row, now: number, tier: number): Node
 	local job: any = row.job
-	local props: { [string]: any } = { key = row.key }
+	local props: { [string]: any } = { key = row.key, role = "tas.job-row" }
 	local detail_parts: { string } = {}
 	local value: string = ""
 	local sec = row.sec
+	if sec == "rest" then
+		sec = if row.kind == "invalid" or (row.js and (row.js.paused_reason == "blocked" or row.js.paused_reason == "conditions")) then "fix" elseif job.schedule.kind == "manual" and job.enabled ~= false then "manual" else "paused"
+	end
 
 	if row.kind == "invalid" then
 		props.label = { ui.span(job.name, "strong") }
@@ -376,7 +394,7 @@ local function item_node(row: Row, now: number, tier: number): Node
 			local since: number = (type(last_run) == "table" and last_run.ended) or job.created_at or now
 			if now - since >= 14 * 86400 then
 				detail_parts = {
-					string.format("Hasn't run since %s: %s (%d checks)", os.date("%b %d", since), tostring(W.skips.text), W.skips.n),
+					string.format("Hasn't run since %s: %s (%d checks)", timefmt.date("%b %d", since), tostring(W.skips.text), W.skips.n),
 				}
 			end
 		end
@@ -404,7 +422,8 @@ local function item_node(row: Row, now: number, tier: number): Node
 			end
 		else
 			local last: any = js.last_run
-			local failed = type(last) == "table" and (last.state == "failed" or last.state == "timed_out")
+			local failed = H.ensure(job.id).failed
+			if failed and not (type(last) == "table" and (last.state == "failed" or last.state == "timed_out")) then table.insert(detail_parts, "✗ Previous failure") end
 			props.icon = if failed then "x-circle" else "clock"
 			props.tone = if failed then "error" else "muted"
 			local nxt: any = js.next_run
@@ -429,7 +448,7 @@ local function item_node(row: Row, now: number, tier: number): Node
 	elseif sec == "upcoming" and type(js_next) == "number" and js_next - now < 300 then
 		tone = "accent"
 	end
-	props.value = { ui.span(value, tone) }
+	props.value = { ui.span(value, tone .. " mono") }
 	props.aria = string.format("%s, %s", job.name, value)
 	return ui.node("item", props)
 end
@@ -483,54 +502,36 @@ local function data_problem(): string?
 	return nil
 end
 
-local function row_badges(state: State, row: Row?): { Node }
-	local cols = state.cx.cols
+local function row_badges(state: State, row: Row?, model: Model): { Node }
 	local out: { Node } = {}
-	-- `min_cols` hides a long-label badge on narrower panes (its key still works).
-	local function add(label: string, tone: string, act: string, key: string, value: string?, min_cols: number?)
-		local shown = badge_label(label, cols)
-		if min_cols ~= nil and cols < min_cols then
-			shown = nil
-		end
-		if shown ~= nil then
-			table.insert(out, C.badge(shown, tone, act, key, value))
-		end
+	local function add(label, key, act, value, tone)
+		table.insert(out, C.action_button(label, key, tone or "neutral", act, act, value))
 	end
 	if data_problem() ~= nil then
-		-- The only way out of damaged data, so these show at every width.
-		table.insert(out, C.badge("Start fresh", "error", "start_fresh", "fresh"))
-		table.insert(out, C.badge("Open data folder", "neutral", "open_data", "data"))
+		add("Start fresh", "", "start_fresh", nil, "error")
+		add("Open data folder", "", "open_data", nil)
 	end
-	add("+ New", "accent", "new", "new")
-	if row ~= nil and row.kind == "invalid" then
-		local armed = state.armed == row.key
-		add(if armed then "Confirm delete" else "Delete", if armed then "error" else "neutral", "delete", "delete", row.key)
-	elseif row ~= nil and row.kind == "run" then
-		local run: any = row.run
-		add("Open run", "accent", "open_run", "open", run.run_id)
-		add("Stop", "neutral", "stop_run", "stop", run.run_id)
-		add("History", "neutral", "history", "history", run.job_id)
-	elseif row ~= nil and row.kind == "job" then
+	if row ~= nil and row.kind ~= "invalid" then
 		local job: any = row.job
-		local running = #A.runs_of(job.id) > 0
-		add("Run now", "accent", "run", "run", job.id)
-		add("Edit", "neutral", "edit", "edit", job.id)
-		add(if job.enabled == false then "Resume" else "Pause", "neutral", "pause", "pause", job.id)
-		if running then
-			add("Open run", "neutral", "open_job", "open", job.id)
-		end
-		add("History", "neutral", "history", "history", job.id)
-		add("Duplicate", "neutral", "duplicate", "duplicate", job.id, 100)
-		local armed = state.armed == job.id
-		add(if armed then "Confirm delete" else "Delete", if armed then "error" else "neutral", "delete", "delete", job.id)
+		add("Open", "enter", "details", job.id, "accent")
+		add("Run now", "r", "run", job.id)
+		add("Edit", "e", "edit", job.id)
+		add(if job.enabled == false then "Resume" else "Pause", "space", "pause", job.id)
+		if state.cx.cols >= 110 then add("Duplicate", "c", "duplicate", job.id) end
 	end
-	if state.undo_until ~= nil and tern.now() < state.undo_until then
-		add("Undo", "accent", "undo", "undo")
+	if row ~= nil then
+		add(if state.armed == row.key then "Confirm delete" else "Delete", "dd", "delete", (row.job :: any).id, "error")
 	end
-	add("Settings", "neutral", "settings", "settings")
-	add(if jobs.paused_all() then "Resume all" else "Pause all", "neutral", "pause_all", "pause_all", nil, 100)
-	add("?", "neutral", "help", "help")
-	return out
+	local job_actions = out
+	out = {}
+	add("New job", "n", "new", nil)
+	add("Settings", ",", "settings", nil)
+	if model.unseen then add("Mark all seen", "s", "seen", nil) end
+	add("Help", "?", "help", nil)
+	if state.undo_until ~= nil and tern.now() < state.undo_until then add("Undo", "u", "undo", nil, "accent") end
+	-- Set apart and last, like Delete in the job group.
+	add(if jobs.paused_all() then "Resume all" else "Pause all", "P", "pause_all", nil, "warning")
+	return { ui.node("row", { key = "job-actions", role = "tas.dock-job", gap = "sm" }, job_actions), ui.node("row", { key = "global-actions", role = "tas.dock-global", gap = "sm" }, out) }
 end
 
 local function setup_failing(): boolean
@@ -580,13 +581,16 @@ local function context_line(state: State, model: Model, row: Row?): Node
 		return C.text({ ui.span(DATA_TEXT[problem], "warning") }, "ctx")
 	end
 	if row ~= nil and row.kind == "invalid" then
-		return C.text({ ui.span(string.format("This job can't be read: %s. d d removes it, or open the data folder to fix jobs.json.", row.error or "unknown error"), "warning") }, "ctx")
+		return C.text({ ui.span(string.format("This job can't be read: %s. dd removes it, or open the data folder to fix jobs.json.", string.gsub(row.error or "unknown error", "%.$", "")), "warning") }, "ctx")
 	end
 	if jobs.paused_all() then
 		return C.text({ ui.span("All jobs are paused. Press shift+p to resume.", "warning") }, "ctx")
 	end
 	if setup_failing() then
 		return setup_line()
+	end
+	if row ~= nil then
+		return C.text({ ui.span((row.job :: any).name, "strong"), ui.span(if state.split_focus then " · runs selected · esc returns to jobs" else " · selected job", "muted") }, "ctx")
 	end
 	if model.next_job ~= nil and model.next_at ~= nil then
 		local at: number = model.next_at
@@ -597,7 +601,7 @@ end
 
 -- Header ----------------------------------------------------------------------------------------------------
 
-local function header_node(model: Model): Node
+local function header_node(model: Model, now: number): Node
 	local parts: { string } = { string.format("%d active", model.active) }
 	if model.running > 0 then
 		table.insert(parts, string.format("%d running", model.running))
@@ -606,7 +610,7 @@ local function header_node(model: Model): Node
 		table.insert(parts, string.format("%d needs you", model.needs))
 	end
 	if model.next_at ~= nil then
-		table.insert(parts, "next " .. C.span_text(model.next_at - C.now()))
+		table.insert(parts, "next " .. string.gsub(C.in_text(model.next_at, now), "^in ", ""))
 	end
 	return C.text({ ui.span("Agent Scheduler", "strong"), ui.span("   " .. table.concat(parts, " · "), "muted") }, "header")
 end
@@ -623,15 +627,29 @@ end
 
 local function example_view(state: State): (Node, Node)
 	local items: { Node } = {}
+	local split = state.cx.cols >= C.SPLIT_COLS
+	local narrow = C.tier(if split then state.cx.cols / 2 else state.cx.cols) < 3
 	for i, ex in EXAMPLES do
+		local selected_row = i == state.example_sel
+		local label = { ui.span(ex.name, "strong") }
+		local detail: { Node }
+		local value: { Node }?
+		if narrow then
+			detail = { ui.span(ex.about, "muted") }
+			value = if selected_row then { ui.span("  ⏎ use", "key") } else nil
+		else
+			detail = { ui.span(string.format("%s · @smol · %s", ex.when, ex.cost), "muted") }
+			value = { ui.span(ex.about, "muted") }
+			if selected_row then table.insert(value, ui.span("  ⏎ use", "key")) end
+		end
 		table.insert(
 			items,
 			ui.node("item", {
 				key = tostring(i),
-				label = { ui.span(ex.name, "strong") },
-				detail = { ui.span(string.format("%s · @smol · %s", ex.when, ex.cost), "muted") },
-				value = { ui.span(ex.about, "muted") },
-				icon = "timer",
+				label = label,
+				detail = detail,
+				value = value,
+				icon = "lightbulb",
 			})
 		)
 	end
@@ -639,31 +657,45 @@ local function example_view(state: State): (Node, Node)
 	local main = ui.col({
 		C.text({ ui.span("Run an omp agent on a schedule.", "strong") }, "title"),
 		C.text({ ui.span("Pick a time, write a prompt, point it at a folder. Runs show up here when they need you.", "muted") }, "body"),
-		C.text({ ui.span("START FROM AN EXAMPLE", "dim") }, "head"),
+		C.with(ui.rule({ ui.span("Start from an example", "muted") }), { key = "head", role = "tas.timeline-heading" }),
 		ui.node("list", { key = "examples", selected = selected }, items),
 		C.with(
-			ui.text({ ui.span(C.AVAILABILITY .. "  ", "muted"), ui.span("Details", "key") }),
+			ui.text({ ui.span("Jobs run while Tern's session service is running, never while your " .. platform.machine() .. " is asleep.  ", "muted"), ui.span("Details", "key") }),
 			{ key = "avail", actions = { click = "setup" } }
 		),
 	})
-	local acts: { Node } = {}
+	local job_actions: { Node } = {}
 	local problem = data_problem()
 	if problem ~= nil then
-		table.insert(acts, C.badge("Start fresh", "error", "start_fresh", "fresh"))
-		table.insert(acts, C.badge("Open data folder", "neutral", "open_data", "data"))
+		table.insert(job_actions, C.action_button("Start fresh", "", "error", "start_fresh", "start_fresh"))
+		table.insert(job_actions, C.action_button("Open data folder", "", "neutral", "open_data", "open_data"))
 	end
-	table.insert(acts, C.badge("+ New", "accent", "new", "new"))
-	table.insert(acts, C.badge("Settings", "neutral", "settings", "settings"))
-	table.insert(acts, C.badge("?", "neutral", "help", "help"))
-	local dock_children: { Node } = {}
+	table.insert(job_actions, C.action_button("Use example", "enter", "accent", "example", "example"))
+	local global_actions: { Node } = {
+		C.action_button("New job", "n", "neutral", "new", "new"),
+		C.action_button("Settings", ",", "neutral", "settings", "settings"),
+		C.action_button("Help", "?", "neutral", "help", "help"),
+	}
+	local ctx: Node
 	if problem ~= nil then
-		table.insert(dock_children, C.text({ ui.span(DATA_TEXT[problem], "warning") }, "ctx"))
+		ctx = C.text({ ui.span(DATA_TEXT[problem], "warning") }, "ctx")
 	elseif setup_failing() then
-		table.insert(dock_children, setup_line())
+		ctx = setup_line()
+	else
+		local ex = EXAMPLES[state.example_sel]
+		ctx = C.text({
+			ui.span("No jobs yet. ⏎ opens ", "muted"),
+			ui.span(if ex ~= nil then ex.name else "an example", "strong"),
+			ui.span(" as a draft; nothing is saved until you save it.", "muted"),
+		}, "ctx")
 	end
-	table.insert(dock_children, C.with(ui.row(acts), { key = "acts" }))
-	table.insert(dock_children, C.text({ ui.span("⏎", "key"), ui.span(" use example   ", "muted"), ui.span("n", "key"), ui.span(" new job   ", "muted"), ui.span("?", "key"), ui.span(" how it works", "muted") }, "hints"))
-	local dock = ui.col(dock_children)
+	local dock = ui.col({
+		ctx,
+		C.with(ui.row({
+			ui.node("row", { key = "job-actions", role = "tas.dock-job", gap = "sm" }, job_actions),
+			ui.node("row", { key = "global-actions", role = "tas.dock-global", gap = "sm" }, global_actions),
+		}), { key = "acts", role = "tas.dock-actions" }),
+	})
 	return main, dock
 end
 
@@ -695,35 +727,52 @@ local function upcoming_detail(row: Row, now: number, tier: number): string
 end
 
 function L.view(state: State): (Node, Node)
-	local model = L.model(state)
+	local now = C.now()
+	local model = L.model(state, now)
 	if model.total == 0 then
 		return example_view(state)
 	end
 	local row = L.sync(state, model)
-	local now = C.now()
-	local tier = C.tier(state.cx.cols)
-	local children: { Node } = { header_node(model) }
+	local split = state.cx.cols >= C.SPLIT_COLS
+	local tier = C.tier(if split then state.cx.cols / 2 else state.cx.cols)
+	local timeline = jobs.settings().manager_layout ~= "classic"
+	local children: { Node } = { header_node(model, now) }
+	if timeline and model.quiet ~= nil then
+		table.insert(children, C.with(C.text({ ui.span(model.quiet, "muted") }, "quiet"), { key = "quiet", role = "tas.quiet" }))
+	end
 	for _, sec in model.sections do
-		table.insert(children, section_header(sec))
-		if not sec.collapsed then
+		if timeline and sec.id == "now" then
+			table.insert(children, ui.el("div", { key = "h-now", role = "tas.now-rule" }, { ui.el("span", { role = "tas.now-pill", text = sec.title }) }))
+		else
+			table.insert(children, if timeline then C.with(ui.rule({ ui.span(sec.title, "muted") }), { key = "h-" .. sec.id, role = if sec.id == "results" then "tas.last-looked" else "tas.timeline-heading" }) else section_header(sec))
+		end
+		if not sec.collapsed and #sec.rows > 0 then
 			local selected: string? = nil
 			if sec.id == "needs" or sec.id == "running" then
 				-- In-flight runs are `agent` nodes, which a `list` can't select: keep them in a col.
 				local nodes: { Node } = {}
 				for _, r in sec.rows do
-					table.insert(nodes, Live.agent_row(r, now, tier, row ~= nil and r == row))
+					local node = Live.agent_row(r, now, tier, row ~= nil and r == row)
+					local nxt = jobs.state((r.job :: any).id).next_run
+					local props: any = node.p
+					props.role = "tas.live-row"
+					if timeline and type(nxt) == "number" then table.insert(props.badges, { text = "next " .. timefmt.date("%H:%M", nxt) }) end
+					table.insert(nodes, node)
 				end
 				table.insert(children, ui.node("col", { key = sec.id, gap = "xs" }, nodes))
 			else
 				local items: { Node } = {}
 				for _, r in sec.rows do
-					if Live.counts_down(r, now) then
+					if r.kind == "result" then
+						table.insert(items, T.result(state, r))
+					elseif not timeline and Live.counts_down(r, now) then
 						table.insert(items, Live.countdown_row(r, now, tier, row ~= nil and r == row, job_label(r.job, tier), upcoming_detail(r, now, tier)))
 					else
 						table.insert(items, item_node(r, now, tier))
 					end
 					if row ~= nil and r == row then
 						selected = r.id
+						items[#items].p.mark = "pick"
 					end
 				end
 				table.insert(children, ui.node("list", { key = sec.id, selected = selected }, items))
@@ -732,15 +781,34 @@ function L.view(state: State): (Node, Node)
 	end
 	local dock = ui.col({
 		context_line(state, model, row),
-		C.with(ui.row(row_badges(state, row)), { key = "acts" }),
-		L.hints_text(state.cx.cols),
+		C.with(ui.row(row_badges(state, row, model)), { key = "acts", role = "tas.dock-actions" }),
 	})
+	if split and row ~= nil and row.kind ~= "invalid" then
+		local id = (row.job :: any).id
+		if state.detail == nil or state.detail.job_id ~= id then state.detail = { job_id = id, sel = nil, expanded = nil } end
+		if row.kind == "result" and not state.split_focus then state.detail.sel = (row.run :: any).run_id end
+		local detail = D.view(state, true, now)
+		local left = ui.node("col", { key = "timeline", role = "tas.timeline", gap = "sm" }, children)
+		local right = C.with(detail, { key = "detail", role = "tas.detail" })
+		-- Native lists require absolute node ids after nesting.
+		local function rebase(n: any, prefix: string)
+			if n.p and type(n.p.selected) == "string" then n.p.selected = string.gsub(n.p.selected, "^main%.", prefix .. ".") end
+			for _, child in n.c or {} do rebase(child, prefix) end
+		end
+		rebase(left, "main.split.timeline"); rebase(right, "main.split.detail")
+		return ui.col({ ui.node("row", { key = "split", role = "tas.split", gap = "lg" }, { left, right }) }), dock
+	end
 	return ui.col(children), dock
 end
 
 -- Keys --------------------------------------------------------------------------------------------------------
 
 local function enter(state: State, row: Row)
+	if state.cx.cols >= C.SPLIT_COLS and row.kind ~= "invalid" and row.sec ~= "needs" then
+		state.detail = { job_id = (row.job :: any).id, sel = nil, expanded = nil }
+		state.split_focus = true
+		return
+	end
 	if row.kind == "run" then
 		local run: any = row.run
 		if row.sec == "needs" then
@@ -748,8 +816,8 @@ local function enter(state: State, row: Row)
 		else
 			A.open_detail(state, run.job_id)
 		end
-	elseif row.kind == "job" then
-		A.open_detail(state, row.key)
+	elseif row.kind == "job" or row.kind == "result" then
+		A.open_detail(state, (row.job :: any).id)
 	end
 end
 
@@ -783,7 +851,7 @@ local function job_id_of(row: Row): string
 	if row.kind == "run" then
 		return (row.run :: any).job_id
 	end
-	return row.key
+	return (row.job :: any).id
 end
 
 -- Starts the form for a new job or opens a settings sheet, etc.; `true` when the state changed.
@@ -793,6 +861,10 @@ local function key_inner(state: State, k: Key): boolean?
 
 	if name == "?" or (name == "/" and k.shift) then
 		S.open_help(state)
+		return true
+	elseif name == "s" then
+		if not model.unseen then return false end
+		T.clear(state)
 		return true
 	elseif name == "," then
 		S.open_settings(state)
@@ -979,6 +1051,15 @@ function L.event(state: State, ev: UiEvent)
 			A.pause_all(state)
 		elseif act == "new" then
 			A.new_job(state)
+		elseif act == "details" then
+			local row = L.sync(state, L.model(state))
+			if row then
+				if state.split_focus then D.key(state, { name = "enter" } :: any) else enter(state, row) end
+			end
+		elseif act == "seen" then
+			if L.model(state).unseen then T.clear(state) end
+		elseif act == "example" then
+			use_example(state, state.example_sel)
 		elseif act == "settings" then
 			S.open_settings(state)
 		elseif act == "help" then

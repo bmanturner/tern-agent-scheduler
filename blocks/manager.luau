@@ -62,6 +62,9 @@ local def: BlockDef<State> = {
 			pane_id = pane_id(cx),
 			token = nil,
 			mode = "list",
+			looked_at = jobs.settings().last_looked or 0,
+			seen_results = {},
+			seen_pending = {},
 			sel = nil,
 			sel_idx = 1,
 			folds = saved_folds(s.folds),
@@ -82,6 +85,8 @@ local def: BlockDef<State> = {
 		state.cwd_hint = cwd
 		if type(s.form) == "table" and F.restore(state, s.form) then
 			-- An open New/Edit form survives a plugin reload or restart.
+		elseif saved == nil and args[1] == "settings" then
+			S.open_settings(state)
 		elseif saved == nil and args[1] == "new" then
 			F.open_new(state, { cwd = cwd })
 		elseif s.mode == "detail" and type(s.selected_id) == "string" then
@@ -111,6 +116,10 @@ local def: BlockDef<State> = {
 	end,
 
 	view = function(state, _cx)
+		if state.split_focus and state.cx.cols < C.SPLIT_COLS then
+			state.mode = "detail"
+			state.split_focus = false
+		end
 		local main: Node
 		local dock: Node
 		if state.mode == "form" and state.form ~= nil then
@@ -140,6 +149,11 @@ local def: BlockDef<State> = {
 		if k.ctrl or k.meta or k.alt then
 			return false
 		end
+		if state.mode == "list" and state.split_focus and state.cx.cols >= C.SPLIT_COLS then
+			if k.name == "escape" then state.split_focus = false; return true end
+			if k.name == "n" or k.name == "u" or k.name == "s" or C.is_shift_letter(k, "p") or k.name == "a" then return L.key(state, k) end
+			return D.key(state, k)
+		end
 		if state.mode == "detail" and D.job(state) ~= nil then
 			return D.key(state, k)
 		end
@@ -153,7 +167,11 @@ local def: BlockDef<State> = {
 			F.event(state, ev)
 		elseif state.mode == "detail" and D.job(state) ~= nil then
 			D.event(state, ev)
+		elseif state.cx.cols >= C.SPLIT_COLS and type(ev.id) == "string" and string.find(ev.id, ".detail.", 1, true) then
+			state.split_focus = true
+			D.event(state, ev)
 		else
+			if ev.ev == "select" or ev.ev == "activate" or ev.act == "pick" then state.split_focus = false end
 			L.event(state, ev)
 		end
 	end,

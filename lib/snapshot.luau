@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- lib/snapshot.luau : host -> window read model. Writes snapshot.json and bumps kv "hot" (EN §2.4).
 local const = require("./const")
 local jobs = require("./jobs")
@@ -165,6 +166,7 @@ function snapshot.publish(view: View, now: number)
 	end
 	local snap: { [string]: any } = {
 		format = 1,
+		time_format = timefmt.get(),
 		rev = rev,
 		at = now,
 		paused_all = paused_all,

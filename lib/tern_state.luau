@@ -1,9 +1,10 @@
 --!strict
 -- lib/tern_state.luau : the one reader of `tern ls --json` (LA §2.0, R14). Sessions, blocks, liveness.
--- Ids are turned into strings BEFORE decoding. A block is "ours" only when it was started as
--- `/bin/zsh -l -c '<omp command>'` (args[2] == "-c") and args[3] carries `/runs/<job>/<run>/` (V29):
--- after a daemon restart a pane keeps its block id but becomes a bare login shell (args = {"-l"})
--- while `command` still shows the old command line, so `command` is never used for ownership.
+-- Ids are turned into strings BEFORE decoding. A block is "ours" only when it was started as a shell
+-- `-c '<omp command>'` (Tern lists the argv as {"-c", cmd}, or {"-l", "-c", cmd} for a login shell) whose
+-- command carries `/runs/<job>/<run>/prompt.md` (V29): after a daemon restart a pane keeps its block id but
+-- becomes a bare shell (no "-c") while `command` still shows the old command line, so `command` is never used
+-- for ownership.
 
 local bins = require("./bins")
 
@@ -39,10 +40,15 @@ local MARKER = "@.-/runs/(j_[%w]+)/(r_[%w_]+)/prompt%.md"
 -- Run key ("<job>/<run>") a block belongs to, or nil.
 function tern_state.marker(b: any): string?
 	local args = b.args
-	if type(args) ~= "table" or args[2] ~= "-c" or type(args[3]) ~= "string" then
+	if type(args) ~= "table" then
 		return nil
 	end
-	local job, run = (args[3] :: string):match(MARKER)
+	local at = if args[1] == "-c" then 2 elseif args[2] == "-c" then 3 else nil
+	local cmd = if at ~= nil then args[at] else nil
+	if type(cmd) ~= "string" then
+		return nil
+	end
+	local job, run = cmd:match(MARKER)
 	if job == nil then
 		return nil
 	end

@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- lib/intents.luau : host side of the window -> host protocol (EN §2.3 + plan overrides 8-9).
 -- Files `intents/<t_ms13>-<win8>-<seq4>.json`, applied in name order inside a time budget and removed
 -- after applying. 13 allowlisted kinds (const.INTENT_KINDS); everything else (create/update/delete/
@@ -195,7 +196,7 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 					local nxt = "manual only"
 					if type(st.next_run) == "number" then
 						local dok, d = pcall(function()
-							return os.date("%a %d %b %H:%M", st.next_run)
+							return timefmt.date("%a %d %b %H:%M", st.next_run)
 						end)
 						if dok and type(d) == "string" then
 							nxt = d

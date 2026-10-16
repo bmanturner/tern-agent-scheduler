@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- Manager (host block) shared state type, copy and small helpers. Required by every lib/mgr_*.luau view;
 -- calls tern.* only inside functions.
 
@@ -102,12 +103,12 @@ export type Sheet = {
 	run_id: string?,
 	job_id: string?,
 	-- settings sheet
-	page: string?,
 	focus: string?,
 	editing: { row: string, initial: string, option: string? }?,
 	field: textfield.Field?,
 	warnings: { [string]: string }?,
 	checking: boolean?,
+	checked_at: number?,
 	text: string?,
 	code: string?,
 	override: string?,
@@ -138,16 +139,21 @@ export type State = {
 	cwd_hint: string?,
 	-- tern.now() (ms) until which the last delete can be undone.
 	undo_until: number?,
+	split_focus: boolean?,
+	history_baseline: any?,
+	looked_at: number?,
+	seen_results: { [string]: boolean }?,
+	seen_pending: { [string]: boolean }?,
 }
+
+C.SPLIT_COLS = 150
 
 C.AVAILABILITY = "Jobs run while Tern's session service is running. It keeps running after you close windows as long as a terminal or run is still open. Nothing runs while your "
 	.. platform.machine()
 	.. " is asleep, or after a restart until you open Tern."
 
 C.NO_WINDOW =
-	"With no Tern window open, a run that stops to ask for approval waits silently until you open a window or its time limit is reached. Launch failures, early exits, time-outs and blocked jobs still send a notification."
-
-C.WINDOWS = "With several Tern windows open, scheduled runs start in the first window."
+	"With no Tern window open, a run that stops for approval waits until you open one or its time limit ends. Failed starts, early exits, time-outs and blocked jobs still notify you."
 
 C.HANDS_OFF_WARNING =
 	"Hands-off runs commands and edits files as you, with your credentials, while you're away. Only use it for prompts you'd trust unattended."
@@ -185,11 +191,6 @@ function C.with(node: Node, props: { [string]: any }): Node
 	end
 	node.p = p
 	return node
-end
-
-function C.badge(label: string, tone: string, act: string, key: string, value: string?): Node
-	local click = if value ~= nil then act .. "=" .. value else act
-	return C.with(ui.badge(label, tone), { key = key, actions = { click = click } })
 end
 
 local SHORT_LABELS: { [string]: string } = {
@@ -262,16 +263,21 @@ end
 
 function C.in_text(t: number, now: number): string
 	local d = t - now
-	if d < 60 and d > -60 then
+	if d <= 0 and d > -60 then
 		return "now"
 	elseif d < 0 then
 		return C.span_text(-d) .. " ago"
 	end
-	return "in " .. C.span_text(d)
+	local minutes = math.ceil(d / 60)
+	if minutes < 60 then return string.format("in %dm", minutes) end
+	if minutes < 1440 then
+		return string.format("in %dh%s", minutes // 60, if minutes % 60 == 0 then "" else string.format(" %dm", minutes % 60))
+	end
+	return string.format("in %dd%s", minutes // 1440, if (minutes % 1440) // 60 == 0 then "" else string.format(" %dh", (minutes % 1440) // 60))
 end
 
 function C.abs(t: number): string
-	return (string.gsub(os.date("%a %d %b %H:%M", t), "^(%a+) 0", "%1 "))
+	return (string.gsub(timefmt.date("%a %d %b %H:%M", t), "^(%a+) 0", "%1 "))
 end
 
 local function day_key(t: number): string
@@ -280,7 +286,7 @@ end
 
 -- UX §0 relative time rules: time today, "tomorrow 09:00", "Mon 09:00" within 6 days, else "12 Oct 09:00".
 function C.when_text(t: number, now: number): string
-	local hm = os.date("%H:%M", t)
+	local hm = timefmt.date("%H:%M", t)
 	if day_key(t) == day_key(now) then
 		return hm
 	elseif day_key(t) == day_key(now + 86400) then
@@ -288,9 +294,20 @@ function C.when_text(t: number, now: number): string
 	elseif day_key(t) == day_key(now - 86400) then
 		return "yesterday " .. hm
 	elseif math.abs(t - now) < 6 * 86400 then
-		return os.date("%a ", t) .. hm
+		return timefmt.date("%a ", t) .. hm
 	end
-	return (string.gsub(os.date("%d %b ", t), "^0", "")) .. hm
+	return (string.gsub(timefmt.date("%d %b ", t), "^0", "")) .. hm
+end
+
+-- Every clickable action in the manager (docks, forms, dialogs) is this one button, so they all share one look.
+function C.action_button(label: string, key: string, tone: string, act: string, id: string, value: string?): Node
+	local kids: { Node } = { tern.ui.el("span", { text = label }) }
+	if key ~= "" then
+		table.insert(kids, tern.ui.el("kbd", { text = key }))
+	end
+	return tern.ui.el("button", { key = id, tone = tone,
+		role = if act == "delete" or act == "pause_all" then "tas.dock-danger" else "tas.dock-action",
+		actions = { click = act .. (if value then "=" .. value else "") } }, kids)
 end
 
 function C.cost_text(cost: any): string
@@ -365,7 +382,7 @@ function C.parse_item(item: any): (string?, string?)
 	if type(item) ~= "string" then
 		return nil, nil
 	end
-	local sec, key = string.match(item, "^main%.([%w_%-]+)%.([%w_%-:]+)$")
+	local sec, key = string.match(item, "([%w_%-]+)%.([%w_%-:]+)$")
 	return sec, key
 end
 

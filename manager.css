@@ -1,135 +1,158 @@
-/* Agent Scheduler manager: job history bar chart (Detail view). */
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bars {
-	display: flex;
-	flex-direction: row;
-	align-items: flex-end;
-	gap: 3px;
-	/* The main region is a flex column that shrinks its children; keep the track its full height. */
-	flex: 0 0 56px;
-	height: 56px;
-	min-height: 56px;
-	padding: 2px 0;
-	box-sizing: border-box;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar {
-	flex: 0 0 14px;
-	width: 14px;
-	min-height: 2px;
-	border-radius: 2px 2px 0 0;
-	background: var(--sf-ok, var(--ok));
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-o='fail'] {
-	background: var(--sf-bad, var(--bad));
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-o='none'] {
-	background: var(--sf-muted);
-	opacity: 0.6;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='0'] {
-	height: 2px;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='1'] {
-	height: 5%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='2'] {
-	height: 10%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='3'] {
-	height: 15%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='4'] {
-	height: 20%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='5'] {
-	height: 25%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='6'] {
-	height: 30%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='7'] {
-	height: 35%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='8'] {
-	height: 40%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='9'] {
-	height: 45%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='10'] {
-	height: 50%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='11'] {
-	height: 55%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='12'] {
-	height: 60%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='13'] {
-	height: 65%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='14'] {
-	height: 70%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='15'] {
-	height: 75%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='16'] {
-	height: 80%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='17'] {
-	height: 85%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='18'] {
-	height: 90%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='19'] {
-	height: 95%;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .tas-bar[data-h='20'] {
-	height: 100%;
-}
+/* Native Tern, theme-owned colors. Selection stays native; no follower overlay. */
+/* prefs has no search-less prop or documented search-focus event. Hide its inert
+   search only in the job form; Settings and other plugins keep their native UI. */
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] .pf-search { display: none; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] .pf { font-family: var(--sans); }
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.form-dock'] { font-family: var(--sans); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] [data-row='when'] .h,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] [data-row='stop'] .pf-pick,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] [data-row='c_from'] .pf-pick,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] [data-row='c_to'] .pf-pick,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] .pf-step .v { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+/* Essential policy values must remain readable even on the native narrow rail. */
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.job-form'] [data-row='catch_up'] .pf-pick { white-space: normal; height: auto; }
+/* In a block the layer's prefs sheet overlays main (no aside), and --panel is translucent under window glass. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] .sf-prefs { background: var(--pop-bg); backdrop-filter: blur(24px) saturate(1.4); box-shadow: -12px 0 32px -16px rgb(0 0 0 / 35%); }
+/* Settings is one page: the nav strip, search and eyebrow have nothing to navigate or number. Brand row and close stay. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-search,
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-groups,
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-eyebrow { display: none; }
+/* Keyboard row focus needs a clear accent ring; the kit's 1px grey is ~2:1 against the sheet. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-row.focus { box-shadow: inset 0 0 0 2px var(--accent); border-radius: var(--r-ctl); }
+/* Row rule: controls narrow enough to sit beside a readable label (the switch, short action buttons) stay inline; wider ones (segments, picks, fields, steppers) stack under the label in this ~440px sheet. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='time_format'], [data-row='manager_layout'], [data-row='manager_results'], [data-row='placement'], [data-row='session_name'], [data-row='omp_path'], [data-row='max_concurrent'], [data-row='max_finished_panes'], [data-row='catchup_window_s']) { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 0; padding: 11px 14px 12px; }
+/* Dissolve the label box so its parts become row items: the title, hint (or warning) and control can be ordered directly in the stacked row. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='time_format'], [data-row='manager_layout'], [data-row='manager_results'], [data-row='placement'], [data-row='session_name'], [data-row='omp_path'], [data-row='max_concurrent'], [data-row='max_finished_panes'], [data-row='catchup_window_s'], [data-row='status']) .pf-lbl { display: contents; }
+/* Title first, as a flex line so the kit's warning icon sits inline at its start, vertically centred; right padding is reserved for the Reset button so a changed row never rewraps its label. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='time_format'], [data-row='manager_layout'], [data-row='manager_results'], [data-row='placement'], [data-row='session_name'], [data-row='omp_path'], [data-row='max_concurrent'], [data-row='max_finished_panes'], [data-row='catchup_window_s']) .pf-lbl .t { order: 1; padding-right: 40px; display: flex; align-items: center; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='time_format'], [data-row='manager_layout'], [data-row='manager_results'], [data-row='placement'], [data-row='session_name'], [data-row='omp_path'], [data-row='max_concurrent'], [data-row='max_finished_panes'], [data-row='catchup_window_s']) .pf-lbl .t .ico.pf-warn-ic { flex: none; margin: 0 6px 0 0; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='time_format'], [data-row='manager_layout'], [data-row='manager_results'], [data-row='placement'], [data-row='session_name'], [data-row='omp_path'], [data-row='max_concurrent'], [data-row='max_finished_panes'], [data-row='catchup_window_s']) .pf-lbl .h { order: 2; margin-top: 2px; }
+/* Control on its own line under the hint, so layout does not flip with hint length. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='time_format'], [data-row='manager_layout'], [data-row='manager_results'], [data-row='placement'], [data-row='session_name'], [data-row='omp_path'], [data-row='max_concurrent'], [data-row='max_finished_panes'], [data-row='catchup_window_s']) .pf-ctl { order: 3; flex: none; margin: 10px 0 0; display: flex; align-items: center; justify-content: flex-start; gap: 8px; }
+/* A rejected value's reason (.h.pf-warn) takes the hint's place above the control, right where the user is fixing the field; the plain hint is hidden meanwhile so the row grows by at most a line. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-row.warn:is([data-row='time_format'], [data-row='manager_layout'], [data-row='manager_results'], [data-row='placement'], [data-row='session_name'], [data-row='omp_path'], [data-row='max_concurrent'], [data-row='max_finished_panes'], [data-row='catchup_window_s']) .pf-lbl .h:not(.pf-warn) { display: none; }
+/* Reset sits at the row's top-right on the label line; out of flow, so the control keeps its full width when a row becomes changed. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-row .pf-reset { position: absolute; top: 8px; right: 10px; order: 0; }
+/* Picks and text fields span the row (no 260px cap) so long option labels are not truncated; steppers keep natural width. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='time_format'], [data-row='manager_layout'], [data-row='manager_results'], [data-row='placement'], [data-row='session_name'], [data-row='omp_path']) .pf-pop { flex: 1 1 0; min-width: 0; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='time_format'], [data-row='manager_layout'], [data-row='manager_results'], [data-row='placement'], [data-row='session_name'], [data-row='omp_path']) .pf-pick,
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='time_format'], [data-row='manager_layout'], [data-row='manager_results'], [data-row='placement'], [data-row='session_name'], [data-row='omp_path']) .pf-in { width: 100%; max-width: none; min-width: 0; flex: 1 1 0; box-sizing: border-box; }
+/* Full-width picks: value at the left, chevron at the right edge (the kit anchors the open menu to the right edge). */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='time_format'], [data-row='manager_layout'], [data-row='manager_results'], [data-row='placement']) .pf-pick { justify-content: space-between; text-align: left; }
+/* The data row's hint is a filesystem path. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] [data-row='data'] .pf-lbl .h { font-family: var(--mono); }
+/* Placeholder uses --t3 (--t4 is 3.2:1 on the row card, under the 4.5:1 floor) in sans so it does not read as a typed path. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-in .ph { color: var(--t3); font-family: var(--sans); }
+/* The switch row stays inline; its Reset keeps the kit's in-flow place beside the switch instead of overlapping it. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] [data-row='focus'] .pf-reset { position: static; }
+/* Settings is one page: the brand row's "Settings" is the only title, so the page head (title and lead) is redundant. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-head { display: none; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-doc { display: flex; flex-direction: column; min-height: 100%; padding: 4px 16px 0; }
+/* Segments span the row with equal-width buttons; the kit only does this for .stack rows. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='time_format'], [data-row='manager_layout']) .pf-seg { flex: 1 1 0; min-width: 0; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='time_format'], [data-row='manager_layout']) .pf-seg button { flex: 1 1 0; min-width: 0; padding: 0 6px; }
+/* While typing a number the kit shows a text field; give it the stepper's width (30 + 104 + 30) so the row does not jump. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] :is([data-row='max_concurrent'], [data-row='max_finished_panes'], [data-row='catchup_window_s']) .pf-in { width: 164px; flex: none; box-sizing: border-box; }
+/* The status row keeps its own layout: problems are one per line and wrap under the Check again button. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] [data-row='status'] { flex-wrap: wrap; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] [data-row='status'] .pf-lbl .t { order: 1; flex: 1 1 0; min-width: 0; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] [data-row='status'] .pf-ctl { order: 2; flex: none; margin-left: auto; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] [data-row='status'] .pf-lbl .h { order: 3; flex: 1 0 100%; margin-top: 0; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] [data-row='status'] .pf-lbl .h.pf-warn { order: 4; white-space: pre-line; }
+/* Tern's CSS has no scroll-margin; scroll-padding on the scroller is the closest, keeping a focused row's grown reason clear of the pinned key legend. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-scroll { scroll-padding-bottom: 64px; }
+/* Section headings share the row labels' left edge (card inset 16px + row padding 14px). */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-sec { margin-top: 16px; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-sec-t { margin-left: 14px; }
+/* Room between the last card and the key legend pinned at the bottom. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-sec:last-of-type { margin-bottom: 20px; }
+/* Header uses the same 16px side inset as the content cards, so the brand mark and close sit on the card edges. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-nav { padding-left: 16px; padding-right: 16px; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-brand { padding-left: 0; }
+/* Key legend pinned to the sheet bottom while rows scroll under it; muted 12px like the job form's key hints. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] .pf-extra { position: sticky; bottom: 0; margin: auto -16px 0; padding: 10px 30px 12px; background: var(--pop-bg); box-shadow: inset 0 1px 0 var(--l2); }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.settings'] [data-role='tas.settings-keys'] { font-size: 12px; line-height: 1.4; color: var(--t3); }
 
-/* Upcoming row with a live countdown: a `row`, not an `item` (an item can't hold an `elapsed`), so it borrows
-   the item's metrics, hover and selection styling to sit flush with its neighbours. */
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'] {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	min-width: 0;
-	min-height: calc(var(--sf-lh) + 6px);
-	padding: 0 8px 0 10px;
-	white-space: pre;
-	color: var(--t1);
-	cursor: pointer;
-	transition:
-		background-color 0.12s var(--ease),
-		box-shadow 0.12s var(--ease);
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'] > * {
-	flex: none;
-	min-width: 0;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'] > .sf-text:nth-child(3) {
-	flex: 1 1 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'] > .sf-text:nth-child(2) {
-	flex: 0 1 auto;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon']:hover {
-	background-color: var(--l1);
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'][data-mark='pick'],
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'][data-mark='pick']:hover {
-	background-color: var(
-		--sf-sel,
-		light-dark(rgb(from var(--accent) r g b/10%), rgb(from var(--accent) r g b/16%))
-	);
-	box-shadow: inset 2px 0 0 var(--accent);
-}
-.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row[data-role='tas.soon'][data-mark='pick']::after {
-	display: none;
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] { font-family: var(--sans); --sf-sel: rgb(from var(--accent) r g b / 8%); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.split'] { align-items: flex-start; min-width: 0; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.timeline'],
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.detail'] { flex: 1 1 0; min-width: 0; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.detail'] { background: var(--card); border: 1px solid var(--l3); border-radius: var(--r-card); padding: 16px; box-shadow: 0 8px 24px -10px rgb(from var(--t1) r g b / 16%); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.detail-title'] { font-size: 17px; font-weight: 650; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-item { border-radius: var(--r-ctl); margin: 2px 0; padding-top: 7px; padding-bottom: 7px; border-left: 2px solid transparent; transition: border-color 600ms var(--out), background-color 180ms var(--out); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.new'] { border-left-color: var(--accent); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.new-failed'] { border-left-color: var(--bad); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.seen'] { border-left-color: transparent; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-mark='pick'] { background: rgb(from var(--accent) r g b / 12%); box-shadow: inset 0 0 0 1px var(--accent); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-mark='pick']:hover,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-list .sf-item[data-mark='pick']:hover { background: rgb(from var(--accent) r g b / 16%); box-shadow: inset 0 0 0 1px var(--accent); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-t-mono,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-t-num,
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-elapsed { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--t2); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-t-mono { -stencil-text-effect: numeric; -stencil-text-duration: 300ms; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-icon { font-size: 15px; }
+/* The quiet line takes the place of the "You last looked" rule and keeps that rule's single-row height: plain text, no extra margin. */
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.quiet'] { color: var(--t3); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.now-rule'] { display: flex; align-items: center; position: relative; margin: 12px 0; min-height: 24px; }
+/* The now line is a plain 1px accent line; the old 8px glow was invisible (ΔRGB ≈ 6). */
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.now-rule']::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--accent); }
+/* Pill text is --grad-ink (opaque #05070b, the documented "text that reads on the accent gradient"), not --panel, which is translucent under window glass (2.3:1). Expect ~9:1 on the dark theme's amber accent and ~5.4:1 on the light theme's blue. */
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.now-pill'] { position: relative; margin-left: 10px; padding: 3px 9px; border-radius: var(--r-chip); background: var(--accent); color: var(--grad-ink); font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; -stencil-text-effect: numeric; }
+/* The value column (schedule, "in 2d 21h") never shrinks or truncates (the kit caps it at 40%); the detail column shrinks and ellipsizes first, then the label. */
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] .sf-item .sf-item-value { flex: none; max-width: none; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.live-row'] { position: relative; padding-left: 14px; border-radius: var(--r-ctl); background: linear-gradient(to right, rgb(from var(--live) r g b / 14%), transparent); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.live-row']::before { content: ''; position: absolute; left: 4px; top: 14px; width: 6px; height: 6px; border-radius: 50%; background: var(--live); animation: tas-live-pulse 3s var(--ease) infinite; }
+@keyframes tas-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.latest'],
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.latest-failed'] { padding: 10px 12px; border-radius: var(--r-ctl); border: 1px solid var(--l2); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.latest-failed'] { background: rgb(from var(--bad) r g b / 10%); border-color: rgb(from var(--bad) r g b / 40%); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.detail-settings'] { background: var(--l1); padding: 12px; border-radius: var(--r-ctl); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.prompt-action'],
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.failure-badge'] { align-self: flex-start; flex: none; }
+/* Plugin buttons only (button.sf-el): the kit's own buttons (close, stepper, switch, picks, menu items, nav tabs) keep their native look. */
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] button.sf-el { display: inline-flex; align-items: center; gap: 8px; color: var(--t1); background: transparent; border: 1px solid var(--l2); border-radius: var(--r-ctl); padding: 5px 9px; font-family: var(--sans); cursor: pointer; }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] button.sf-el:hover { background: var(--l2); }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] button.sf-el:focus-visible { outline: 1px solid var(--accent); }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] button.sf-el kbd { font-family: var(--mono); font-size: 11px; color: var(--t2); background: var(--l1); border-radius: 3px; padding: 1px 3px; }
+/* Tone says what a button does, not which group it's in: the Enter/default action is accent-tinted (text stays --t1, so it reads in light and dark), a blocked Save is dimmed, and a destructive confirm in a dialog reads in --bad. */
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] button.sf-el[data-tone='accent'] { border-color: rgb(from var(--accent) r g b / 55%); background: rgb(from var(--accent) r g b / 10%); }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] button.sf-el[data-tone='accent']:hover { background: rgb(from var(--accent) r g b / 18%); }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] button.sf-el[data-tone='muted'] { color: var(--t3); }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'] button.sf-el[data-role='tas.dock-action'][data-tone='error'] { color: var(--bad); }
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] .sf-row { flex-wrap: wrap; row-gap: 6px; }
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.dock-actions'] { gap: 20px; align-items: center; }
+/* Job and global actions are the same buttons; the 20px gap and the "<job> · selected job" caption above the job group show their scope. A tray or a divider on one group read as a second theme, and a divider dangled when the dock wrapped. */
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.dock-job'],
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.dock-global'] { gap: 6px; }
+/* Delete and Pause all end their groups in muted text, with the same border and spacing as every other button: an extra left margin indented them whenever the dock wrapped. */
+.sf-dock[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.dock-danger'] { color: var(--t2); }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.soon'] { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: calc(var(--sf-lh) + 6px); padding: 7px 8px 7px 10px; white-space: pre; color: var(--t1); cursor: pointer; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.soon'] > * { flex: none; min-width: 0; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.soon'] > .sf-text:nth-child(3) { flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.soon'] > .sf-text:nth-child(2) { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.sf-main[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.soon']:hover { background: var(--l1); }
+/* Help: three key groups in two columns that wrap to one when the layer is narrow (flex-wrap; the grid repeat(auto-fit) form isn't supported), content inset to the title's edge. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] .tas-help-cols { display: flex; flex-wrap: wrap; gap: 18px 32px; padding: 8px 9px 0; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] .tas-help-cols > * { flex: 1 1 260px; min-width: 0; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] .tas-help-stack { display: flex; flex-direction: column; gap: 18px; }
+/* Group headings are small and muted (--t3, the kv key colour): the keys carry the weight. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] .tas-help-group h3,
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] .tas-help-when h3 { margin: 0 0 8px; font: 550 12px/16px var(--sans); color: var(--t3); }
+/* One key-column width (fits "space" and "enter") in every group, so all descriptions start on the same line. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] .tas-help-group dl { margin: 0; display: grid; grid-template-columns: 50px minmax(0, 1fr); column-gap: 12px; row-gap: 7px; align-items: baseline; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] .tas-help-group dt { display: flex; gap: 3px; }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] .tas-help-group dd { margin: 0; color: var(--t1); }
+/* Keycaps match the dock's (mono 11px, --t2 on --l1), evened out so single letters line up. */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] .tas-help-group kbd { font: 500 11px/18px var(--mono); color: var(--t2); background: var(--l1); box-shadow: inset 0 0 0 1px var(--l2); border-radius: 4px; padding: 0 5px; min-width: 18px; text-align: center; }
+/* "When jobs run" sits under a hairline: two short notes at the card's full width (a narrower measure left one-word last lines). */
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] .tas-help-when { margin: 18px 9px 0; padding-top: 14px; border-top: 1px solid var(--l2); }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] .tas-help-when p { margin: 0 0 6px; color: var(--t2); }
+.sf-layer[data-surface='plugin.tern-agent-scheduler.manager'] [data-role='tas.help-foot'] { margin: 12px 9px 4px; justify-content: space-between; align-items: center; gap: 12px; }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'].sf-still *,
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'].sf-still *::before { animation: none !important; transition: none !important; -stencil-text-effect: none !important; -stencil-follow: none !important; }
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'].sf-paused *,
+.sf-region[data-surface='plugin.tern-agent-scheduler.manager'].sf-covered * { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+ .sf-region[data-surface='plugin.tern-agent-scheduler.manager'] *,
+ .sf-region[data-surface='plugin.tern-agent-scheduler.manager'] *::before { animation: none !important; transition: none !important; -stencil-text-effect: none !important; -stencil-follow: none !important; }
 }

@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- Manager detail mode (UX §3.5): one job's settings, its prompt and its last 20 runs from the ledger.
 
 local ui = tern.ui
@@ -11,6 +12,7 @@ local jobs = require("./jobs")
 local ledger = require("./ledger")
 local conditions = require("./conditions")
 
+local H = require("./mgr_history")
 local D = {}
 
 type State = C.State
@@ -82,7 +84,7 @@ local function when_text(job: any): string
 	local s: any = job.schedule
 	local text = jobs.describe(job)
 	if s.kind == "cron" then
-		return string.format("%s (local, %s) · %s", text, os.date("%Z", C.now()), s.expr)
+		return string.format("%s (local, %s) · %s", text, timefmt.date("%Z", C.now()), s.expr)
 	end
 	return text
 end
@@ -117,7 +119,7 @@ end
 -- Runs ---------------------------------------------------------------------------------------------------------
 
 local function run_item(run: any, now: number, tier: number): Node
-	local props: { [string]: any } = { key = run.run_id }
+	local props: { [string]: any } = { key = run.run_id, role = "tas.run-row" }
 	local t: number = run.started or run.created or run.slot or now
 	local suffix = ""
 	if run.trigger == "manual" then
@@ -137,7 +139,7 @@ local function run_item(run: any, now: number, tier: number): Node
 	elseif run.state == "needs_input" then
 		props.tone = "warning"
 	end
-	props.label = { ui.span(string.format("%s%s%s", if glyph ~= nil then glyph .. " " else "", C.when_text(t, now), suffix)) }
+	props.label = { ui.span(string.format("%s%s%s", if glyph ~= nil then glyph .. " " else "", C.when_text(t, now), suffix), "mono") }
 
 	local not_attached = ""
 	if type(run.images) == "table" and type(run.images.skipped) == "table" and #run.images.skipped > 0 then
@@ -164,6 +166,8 @@ local function run_item(run: any, now: number, tier: number): Node
 			table.insert(parts, not_attached)
 		end
 		detail = table.concat(parts, " · ")
+	elseif type(run.summary) == "string" and run.summary ~= "" then
+		detail = clip(run.summary, 120)
 	elseif type(run.reason) == "string" and run.reason ~= "" then
 		detail = clip(run.reason, 120)
 		if not_attached ~= "" then
@@ -179,7 +183,7 @@ local function run_item(run: any, now: number, tier: number): Node
 		detail ..= " · ran without checking conditions"
 	end
 	if tier >= 2 and detail ~= "" then
-		props.detail = { ui.span(detail, "muted") }
+		table.insert(props.label, ui.span("  " .. string.gsub(run.state, "_", " ") .. " · " .. detail, "muted"))
 	end
 	local value = ""
 	if type(run.started) == "number" and type(run.ended) == "number" then
@@ -199,7 +203,7 @@ local function runs_of_job(state: State): { any }
 	if d == nil then
 		return {}
 	end
-	local ok, list = pcall(ledger.recent, d.job_id, 20)
+	local ok, list = pcall(ledger.recent, d.job_id, 50)
 	if ok and type(list) == "table" then
 		return list
 	end
@@ -242,6 +246,18 @@ local function demote_headings(text: string): string
 		table.insert(out, line)
 	end
 	return table.concat(out, "\n")
+end
+
+-- A compact plain-text preview, without Markdown heading punctuation.
+function D.prompt_preview(text: string): string
+	local lines = {}
+	for line in string.gmatch(text, "[^\r\n]+") do
+		line = string.gsub(line, "^%s*#+%s*", "")
+		line = string.gsub(line, "%s+#+%s*$", "")
+		if string.match(line, "%S") then table.insert(lines, line) end
+		if #lines >= 2 then break end
+	end
+	return table.concat(lines, " · ")
 end
 
 -- First `max` lines of `text` as Markdown source (an unclosed code fence is closed), and whether lines were dropped.
@@ -292,75 +308,7 @@ local function expanded_card(run: any): Node
 	return C.with(ui.card({ ui.span("Last message", "strong") }, lines), { key = "expanded" })
 end
 
--- History chart ------------------------------------------------------------------------------------------------
-
-local FAILED: { [string]: boolean } = { failed = true, timed_out = true, blocked = true, missed = true, cancelled = true }
-local DONE: { [string]: boolean } = {
-	finished = true,
-	failed = true,
-	timed_out = true,
-	blocked = true,
-	missed = true,
-	cancelled = true,
-	skipped = true,
-}
-
--- Nodes for the history chart: one `el` bar per run (oldest left, coloured by outcome via manager.css), and a summary
--- line. Empty when fewer than two runs have ended.
-local function history_nodes(runs: { any }): { Node }
-	local done: { any } = {}
-	for i = #runs, 1, -1 do -- ledger is newest first
-		local r = runs[i]
-		if DONE[r.state] and #done < 20 then
-			table.insert(done, r)
-		end
-	end
-	if #done < 2 then
-		return {}
-	end
-	local bars: { Node } = {}
-	local failed, total = 0, 0
-	local durs: { number } = {}
-	local maxdur = 0
-	local entries: { { dur: number, bad: boolean, tip: string } } = {}
-	for _, r in done do
-		local dur = 0
-		if type(r.started) == "number" and type(r.ended) == "number" then
-			dur = math.max(0, r.ended - r.started)
-		end
-		if dur > 0 then
-			table.insert(durs, dur)
-			maxdur = math.max(maxdur, dur)
-		end
-		if type(r.cost) == "number" then
-			total += r.cost
-		end
-		local bad = FAILED[r.state] == true
-		if bad then
-			failed += 1
-		end
-		local t: number = r.started or r.created or r.slot or r.ended or 0
-		local tip = string.format("%s · %s · %s · %s", C.abs(t), if dur > 0 then C.duration_text(dur) else "didn't start", C.cost_text(r.cost), (string.gsub(r.state, "_", " ")))
-		table.insert(entries, { dur = dur, bad = bad, tip = tip })
-	end
-	for i, e in entries do
-		local bucket = if maxdur > 0 then math.floor(20 * e.dur / maxdur + 0.5) else 0
-		local outcome = if e.bad then "fail" elseif e.dur > 0 then "ok" else "none"
-		table.insert(bars, ui.el("div", { key = "hb" .. i, class = "tas-bar", title = e.tip, attrs = { ["data-h"] = bucket, ["data-o"] = outcome } }))
-	end
-	table.sort(durs)
-	local median = if #durs > 0 then (durs[(#durs + 1) // 2] + durs[#durs // 2 + 1]) / 2 else 0
-	local out: { Node } = {
-		ui.el("div", { key = "hist-chart", class = "tas-bars" }, bars),
-	}
-	local parts = { string.format("%d runs", #done), string.format("%d failed", failed) }
-	if median > 0 then
-		table.insert(parts, "median " .. C.duration_text(median))
-	end
-	table.insert(parts, C.cost_text(total) .. " total")
-	table.insert(out, C.text({ ui.span(table.concat(parts, " · "), "muted") }, "hist-sum"))
-	return out
-end
+-- History is text, not a chart. Counters are independent of ledger retention.
 
 -- View ---------------------------------------------------------------------------------------------------------
 
@@ -387,174 +335,58 @@ function D.hints_text(cols: number): Node
 	return C.text(spans, "hints")
 end
 
-function D.view(state: State): (Node, Node)
+function D.view(state: State, embedded: boolean?, frame_now: number?): (Node, Node)
 	local d = state.detail :: { job_id: string, sel: string?, expanded: string? }
 	local job: any = jobs.get(d.job_id)
 	local js: any = jobs.state(d.job_id)
-	local now = C.now()
-	local cols = state.cx.cols
+	local now = frame_now or C.now()
+	local cols = if embedded then state.cx.cols / 2 else state.cx.cols
 	local tier = C.tier(cols)
 	local runs = runs_of_job(state)
 	local sel = selected_run(state, runs)
-
-	local status: string
-	local next_secs: number? = nil
-	if job.enabled == false then
-		status = if js.paused_reason == "failures"
-			then "Paused after failures"
-			elseif js.paused_reason == "conditions" then "Paused: its conditions couldn't be checked"
-			elseif js.done == true then "Finished"
-			else "Paused"
-	elseif type(js.next_run) == "number" then
-		if js.next_run - now < 3600 and js.next_run - now > 0 then
-			status = "Active · next in"
-			next_secs = js.next_run - now
-		else
-			status = "Active · next " .. C.in_text(js.next_run, now)
-		end
-	else
-		status = "Active · manual only"
-	end
-	local title_spans: { Span | string } = {
-		ui.span("Agent Scheduler › ", "muted"),
-		ui.span(job.name, "strong"),
-		ui.span("  @" .. tostring(job.role), "muted"),
-		ui.span("   " .. status, if job.enabled == false then "warning" else "muted"),
+	local h = H.ensure(job.id)
+	local status = if js.done then "✓ Finished" elseif job.enabled == false then "Ⅱ Paused" else "○ Active"
+	local live = A.runs_of(job.id)[1]
+	if live then status = if live.state == "needs_input" then "! Needs you" else "● Running" end
+	if type(js.next_run) == "number" and job.enabled ~= false then status ..= " · next " .. C.when_text(js.next_run, now) end
+	local children: { Node } = {
+		C.with(C.text({ ui.span(job.name, "strong") }, "title"), { role = "tas.detail-title" }),
+		C.with(C.text({ ui.span(status, if live then "accent" else "muted") }, "status"), { role = "tas.detail-status" }),
 	}
-	local children: { Node } = {}
-	if next_secs ~= nil then
-		table.insert(
-			children,
-			ui.node("row", { key = "title", gap = "sm" }, {
-				ui.text(title_spans),
-				ui.node("elapsed", { key = "next-in", age = -math.floor(next_secs * 1000), format = "short" }),
-			})
-		)
-	else
-		table.insert(children, C.text(title_spans, "title"))
+	local latest = runs[1]
+	if latest then
+		local bad = H.failed(latest)
+		local outcome = string.gsub(latest.state, "_", " ")
+		local summary = latest.summary or latest.reason or "No summary recorded."
+		if bad then table.insert(children, C.with(ui.badge("Last run failed", "error"), { key = "failed-badge", role = "tas.failure-badge" })) end
+		table.insert(children, ui.node("col", { key = "latest", role = if bad then "tas.latest-failed" else "tas.latest", gap = "xs" }, {
+			ui.text({ ui.span((GLYPH[latest.state] or "·") .. " Latest result · " .. outcome .. " · " .. C.when_text(latest.started or latest.created or latest.slot or now, now), if bad then "error" else "strong") }),
+			ui.text({ ui.span(summary, if bad then "error" else "muted") }),
+		}))
 	end
-	-- A run in flight: live timer plus what it is doing now.
-	local live_run: any = nil
-	for _, r in A.runs_of(job.id) do
-		if r.state == "running" or r.state == "needs_input" or r.state == "launching" then
-			live_run = r
-			break
-		end
-	end
-	if live_run ~= nil then
-		local t0: number = live_run.started or live_run.state_since or now
-		local lv: any = runner.live(live_run.run_id)
-		local label = if live_run.state == "needs_input" then "Needs you" elseif live_run.state == "launching" then "Starting" else "Running"
-		local bits: { Node } = {
-			ui.node("spinner", { key = "live-spin", style = "dots", tone = if live_run.state == "needs_input" then "warning" else "accent", label = label }),
-			ui.node("elapsed", { key = "live-elapsed", age = math.max(0, math.floor((now - t0) * 1000)) }),
-		}
-		local extra: { string } = {}
-		if lv ~= nil then
-			local tool: any = lv.tool
-			if type(tool) == "table" then
-				local d = if type(tool.detail) == "string" and tool.detail ~= "" then ": " .. clip(tool.detail, 70) else ""
-				table.insert(extra, tostring(tool.name) .. d)
-			end
-			if type(lv.tools) == "number" and lv.tools > 0 then
-				table.insert(extra, string.format("%d tool call%s", lv.tools, if lv.tools == 1 then "" else "s"))
-			end
-			if type(lv.cost) == "number" then
-				table.insert(extra, C.cost_text(lv.cost))
-			end
-		end
-		if #extra > 0 then
-			table.insert(bits, ui.text({ ui.span("· " .. table.concat(extra, " · "), "muted") }))
-		end
-		table.insert(children, ui.node("row", { key = "live", gap = "sm" }, bits))
-	end
-	if job.created_by == "carly" and type(job.created_at) == "number" then
-		table.insert(children, C.text({ ui.span("Added by Carly · " .. (string.gsub(os.date("%a %d %b", job.created_at), "^(%a+) 0", "%1 ")), "muted") }, "carly"))
-	end
-	local has_conditions = type(job.conditions) == "table" and #job.conditions > 0
-	local facts: { { Spans } } = {
-		kv("When", when_text(job)),
-	}
-	if has_conditions then
-		table.insert(facts, kv("Only when", conditions.describe(job.conditions)))
-	end
-	for _, row in {
-		kv("If asleep", C.catch_up_label(job.catch_up, job.catch_up_window_s or tonumber(jobs.settings().catchup_window_s))),
-		kv("Next", next_times(job, js, now)),
-		kv("Role", "@" .. tostring(job.role)),
+	local facts = {
+		kv("When", jobs.describe(job)),
 		kv("Folder", C.tilde(job.cwd)),
-		kv("Appears", appears_text()),
-		kv("Safety", safety_text(job)),
-		kv("After", after_text()),
-	} do
-		table.insert(facts, row)
-	end
-	table.insert(
-		children,
-		C.with(
-			ui.kv(facts),
-			{ key = "facts" }
-		)
-	)
-	if not has_conditions then
-		local recent: { any } = {}
-		for _, r in runs do
-			if r.started ~= nil then
-				table.insert(recent, r)
-				if #recent >= 10 then
-					break
-				end
-			end
-		end
-		local quiet_n, quiet_sum = 0, 0
-		for _, r in recent do
-			if r.outcome_flag == "quiet" then
-				quiet_n += 1
-			end
-			if type(r.cost) == "number" then
-				quiet_sum += r.cost
-			end
-		end
-		if quiet_n >= 8 then
-			table.insert(
-				children,
-				C.text({
-					ui.span(
-						string.format("Quiet %d of the last 10 runs (%s spent). Turn on “Only when: new commits”? Press e.", quiet_n, C.cost_text(quiet_sum)),
-						"muted"
-					),
-				}, "nudge")
-			)
-		end
-	end
+		kv("Agent", "@" .. tostring(job.role) .. " · " .. C.approval_label(job.approval) .. " · stops after " .. C.span_text(job.max_runtime_s or 1800)),
+		kv("Only when", if type(job.conditions) == "table" and #job.conditions > 0 then conditions.describe(job.conditions) else "Always runs when due"),
+		kv("If asleep", C.catch_up_label(job.catch_up, job.catch_up_window_s or tonumber(jobs.settings().catchup_window_s))),
+	}
+	table.insert(children, C.with(ui.kv(facts), { key = "facts", role = "tas.detail-settings" }))
 	local prompt = jobs.prompt(d.job_id) or ""
-	table.insert(children, C.text({ ui.span("Prompt", "muted"), ui.span("   "), ui.span("p", "key"), ui.span(" opens the file", "muted") }, "prompt-h"))
-	if string.match(prompt, "%S") ~= nil then
-		local src, cut = md_head(demote_headings(prompt), 8)
-		table.insert(children, C.with(ui.md(src), { key = "prompt-md" }))
-		if cut then
-			table.insert(children, C.text({ ui.span("…", "muted") }, "prompt-more"))
-		end
-	end
-	table.insert(children, ui.rule({ ui.span("RUNS  (last 20)", "dim") }))
-	for _, n in history_nodes(runs) do
-		table.insert(children, n)
-	end
+	table.insert(children, C.with(ui.kv({ kv("Prompt", clip(D.prompt_preview(prompt), if embedded then 160 else 240)) }), { key = "prompt", role = "tas.detail-prompt" }))
+	table.insert(children, C.with(C.action_button("Open prompt file", "p", "neutral", "prompt", "prompt-file", job.id), { role = "tas.prompt-action" }))
+	local counts = h.totals
+	local label = string.format("%d runs · %d failed · %d missed", counts.total, counts.failed, counts.missed)
+	if counts.total > #runs then label ..= string.format(" · latest %d of %d", #runs, counts.total) end
+	table.insert(children, C.with(ui.rule({ ui.span(label, "muted") }), { key = "run-heading", role = "tas.run-heading" }))
 	local items: { Node } = {}
 	for _, r in runs do
-		table.insert(items, run_item(r, now, tier))
+		local node = run_item(r, now, tier)
+		if sel and r.run_id == sel.run_id then node.p.mark = "pick" end
+		table.insert(items, node)
 	end
-	table.insert(
-		children,
-		ui.node("list", {
-			key = "runs",
-			selected = if sel ~= nil then C.item_id("runs", sel.run_id) else nil,
-			empty = { ui.span("— never run. Press r to run it now.", "muted") },
-		}, items)
-	)
-	if sel ~= nil and d.expanded == sel.run_id then
-		table.insert(children, expanded_card(sel))
-	end
+	table.insert(children, ui.node("list", { key = "runs", role = "tas.run-list", selected = if sel then (if embedded then C.item_id("runs", sel.run_id) else "main.detail-card.runs." .. sel.run_id) else nil, empty = { ui.span("Never run. Press r to run it now.", "muted") } }, items))
+	if sel ~= nil and d.expanded == sel.run_id then table.insert(children, expanded_card(sel)) end
 
 	-- Dock.
 	local ctx: Node
@@ -579,11 +411,8 @@ function D.view(state: State): (Node, Node)
 	end
 	local acts: { Node } = {}
 	local function add(label: string, tone: string, act: string, key: string, value: string?)
-		if cols >= 70 then
-			table.insert(acts, C.badge(label, tone, act, key, value))
-		elseif cols >= 56 then
-			table.insert(acts, C.badge(C.short_label(label), tone, act, key, value))
-		end
+		local keys = { open_run = "enter", run = "r", edit = "e", pause = "space", delete = "dd", back = "esc", check_conditions = "i" }
+		table.insert(acts, C.action_button(label, keys[act] or "", if act == "delete" then "error" else tone, act, key, value))
 	end
 	if sel ~= nil then
 		local closed = sel.session_file ~= nil and not (sel.block ~= nil and sel.pane_closed_at == nil)
@@ -598,8 +427,13 @@ function D.view(state: State): (Node, Node)
 	local armed = state.armed == job.id
 	add(if armed then "Confirm delete" else "Delete", if armed then "error" else "neutral", "delete", "delete", job.id)
 	add("Back", "neutral", "back", "back")
-	local dock = ui.col({ ctx, C.with(ui.row(acts), { key = "acts" }), D.hints_text(cols) })
-	return ui.col(children), dock
+	local back = table.remove(acts)
+	local dock = ui.col({ ctx, C.with(ui.row({
+		ui.node("row", { key = "job-actions", role = "tas.dock-job", gap = "xs" }, acts),
+		ui.node("row", { key = "global-actions", role = "tas.dock-global", gap = "xs" }, { back }),
+	}), { key = "acts", role = "tas.dock-actions" }) })
+	if embedded then return ui.col(children), dock end
+	return ui.col({ ui.node("col", { key = "detail-card", role = "tas.detail", gap = "sm" }, children) }), dock
 end
 
 -- Keys ----------------------------------------------------------------------------------------------------------
@@ -742,7 +576,9 @@ function D.event(state: State, ev: UiEvent)
 		if act == "back" then
 			A.back(state)
 		elseif type(value) == "string" then
-			if act == "run" then
+			if act == "prompt" then
+				A.edit_prompt(state, value)
+			elseif act == "run" then
 				A.run_now(state, value)
 			elseif act == "check_conditions" then
 				S.check_conditions(state, value)

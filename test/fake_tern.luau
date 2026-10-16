@@ -30,7 +30,7 @@ local fake = {
 }
 fake.live_panes = {} -- pane ids (strings) reported by tern.pane.list()
 fake.installed = {
-	[fake.tern_bin] = "tern 0.8.3 (test)\n",
+	[fake.tern_bin] = "tern 0.9.0 (test)\n",
 	[fake.omp_bin] = "omp/18.9.1\n",
 }
 
@@ -539,7 +539,7 @@ local function tern_new(argv)
 		quoted[k] = quote(a)
 	end
 	local b = {
-		id = new_id(), title = "omp", cwd = cwd, program = "/bin/zsh", args = { "-l", "-c", table.concat(quoted, " ") },
+		id = new_id(), title = "omp", cwd = cwd, program = "/bin/zsh", args = { "-c", table.concat(quoted, " ") },
 		command = table.concat(quoted, " "), keep_open = true, live = true,
 	}
 	fake.blocks[b.id] = b

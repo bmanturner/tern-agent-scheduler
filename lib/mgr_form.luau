@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- Manager form mode (UX §4.11): the 9-row New job / Edit form as a `prefs` page in `main`, with a multi-line
 -- Prompt editor card, a live schedule preview, a role picker (sheets) and Save / Save & run now.
 
@@ -568,7 +569,7 @@ function F.preview(form: Form): string
 	if rec == nil then
 		return ""
 	end
-	local tz = os.date("%Z", now)
+	local tz = timefmt.date("%Z", now)
 	if rec.kind == "manual" then
 		return "Manual only · runs when you press r. Never on a schedule."
 	elseif rec.kind == "once" then
@@ -615,9 +616,22 @@ end
 -- Rows -------------------------------------------------------------------------------------------
 
 local function summary_line(text: string): string
-	local first = C.trim(string.match(text, "^[^\r\n]*") or "")
+	-- First meaningful lines as plain text: Markdown heading marks dropped, up to two lines joined.
+	local lines: { string } = {}
+	local more = false
+	for line in string.gmatch(text, "[^\r\n]+") do
+		line = C.trim((string.gsub(string.gsub(line, "^%s*#+%s*", ""), "%s+#+%s*$", "")))
+		if line ~= "" then
+			if #lines >= 2 then
+				more = true
+				break
+			end
+			table.insert(lines, line)
+		end
+	end
+	local first = table.concat(lines, " · ")
 	local clipped = if (utf8.len(first) or #first) > 90 then string.sub(first, 1, utf8.offset(first, 90) or 90) .. "…" else first
-	if clipped ~= first or string.find(text, "\n", 1, true) ~= nil then
+	if more and clipped == first then
 		clipped ..= " …"
 	end
 	return clipped
@@ -697,9 +711,6 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 	local function warn(row: string): string?
 		return if shown(form, row) then errors[row] else nil
 	end
-	local function off(on: boolean, row: string): string?
-		return if on then nil else string.format("Turn on “%s” first.", ROW_LABEL[row])
-	end
 
 	local now_hint: string
 	local v: any = form.verdict
@@ -747,7 +758,7 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 					id = "c_now",
 					label = ROW_LABEL.c_now,
 					hint = now_hint,
-					control = { k = "action", act = "c_now", label = "Check now" },
+					control = if only_when_on(form) then { k = "action", act = "c_now", label = "Check now" } else { k = "keys", keys = C.arr({}) },
 				},
 			},
 		},
@@ -758,16 +769,15 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 				{
 					id = "c_commits",
 					label = ROW_LABEL.c_commits,
-					hint = "Checks git in the job's folder. The first run notes where the branch is and waits; after that a run starts only if something landed since the last successful run, and the agent gets the list.",
+					hint = "Wait for new commits since the last successful run.",
 					warning = warn("c_commits"),
 					control = { k = "switch", on = form.c_commits },
 				},
 				{
 					id = "c_branch",
 					label = ROW_LABEL.c_branch,
-					hint = branch_hint,
+					hint = "The first check records the branch and waits. Later runs give the agent the new commits. " .. branch_hint,
 					warning = branch_warning,
-					disabled = off(form.c_commits, "c_commits"),
 					control = {
 						k = "choice",
 						style = "menu",
@@ -780,7 +790,6 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 					label = ROW_LABEL.c_paths,
 					hint = "Space-separated, inside the job's folder, e.g. src docs.",
 					warning = warn("c_paths"),
-					disabled = off(form.c_commits, "c_commits"),
 					control = { k = "text", value = form.c_paths.text, placeholder = "Any folder", mono = true },
 				},
 			},
@@ -800,28 +809,24 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 					id = "c_days",
 					label = ROW_LABEL.c_days,
 					warning = warn("c_days"),
-					disabled = off(form.c_window, "c_window"),
 					control = { k = "multi", values = days_values, options = days_options },
 				},
 				{
 					id = "c_from",
 					label = ROW_LABEL.c_from,
 					warning = warn("c_from"),
-					disabled = off(form.c_window, "c_window"),
 					control = time_control("c_from", form.c_from),
 				},
 				{
 					id = "c_to",
 					label = ROW_LABEL.c_to,
 					warning = warn("c_to"),
-					disabled = off(form.c_window, "c_window"),
 					control = time_control("c_to", form.c_to),
 				},
 				{
 					id = "c_outside",
 					label = ROW_LABEL.c_outside,
 					warning = warn("c_outside"),
-					disabled = off(form.c_window, "c_window"),
 					control = {
 						k = "choice",
 						style = "segmented",
@@ -838,15 +843,15 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 				{
 					id = "c_limits",
 					label = ROW_LABEL.c_limits,
-					hint = "Counts this job's runs since midnight (or since Monday). Test runs don't count; a run with unknown cost counts as the job's typical cost.",
+					hint = "Cap this job's runs or spending per day or week.",
 					warning = warn("c_limits"),
 					control = { k = "switch", on = form.c_limits },
 				},
 				{
 					id = "c_runs",
 					label = ROW_LABEL.c_runs,
+					hint = "Counts since midnight, or Monday for weekly limits. Test runs don't count.",
 					warning = warn("c_runs"),
-					disabled = off(form.c_limits, "c_limits"),
 					control = number_control({ 1, 2, 3, 4, 5, 6, 8, 10, 12, 24 }, form.c_runs, function(n: number): string
 						return if n == 1 then "1 run" else string.format("%d runs", n)
 					end),
@@ -854,15 +859,14 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 				{
 					id = "c_usd",
 					label = ROW_LABEL.c_usd,
+					hint = "Unknown costs use this job's typical cost.",
 					warning = warn("c_usd"),
-					disabled = off(form.c_limits, "c_limits"),
 					control = number_control({ 0.5, 1, 2, 3, 5, 10, 20, 50 }, form.c_usd, money_label),
 				},
 				{
 					id = "c_per",
 					label = ROW_LABEL.c_per,
 					warning = warn("c_per"),
-					disabled = off(form.c_limits, "c_limits"),
 					control = {
 						k = "choice",
 						style = "segmented",
@@ -879,15 +883,15 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 				{
 					id = "c_check",
 					label = ROW_LABEL.c_check,
-					hint = "For anything the others can't express. It runs in the job's folder (30 s limit) with a JSON file describing the run as its argument. Exit 0 runs, 1 skips, anything else blocks the run and tells you. It may print REASON: (shown in history), CONTEXT: lines (given to the agent) and CURSOR: (handed back next time). Saving the job approves the script as it is; if it changes, runs are blocked until you save again.",
+					hint = "Run your script to decide whether there is work to do.",
 					warning = warn("c_check"),
 					control = { k = "switch", on = form.c_check },
 				},
 				{
 					id = "c_script",
 					label = ROW_LABEL.c_script,
+					hint = "Runs in the job's folder with a run JSON file as its argument (30 s limit). Exit 0 runs; 1 skips; other exits block and notify you. Print REASON: for history, CONTEXT: for the agent, or CURSOR: for the next check. Saving approves this script; changes block runs until you save again.",
 					warning = warn("c_script"),
-					disabled = off(form.c_check, "c_check"),
 					control = { k = "text", value = form.c_script.text, placeholder = "./scripts/has-work.sh", mono = true },
 				},
 			},
@@ -899,16 +903,15 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 				{
 					id = "c_ask",
 					label = ROW_LABEL.c_ask,
-					hint = "For judgement calls. After the other conditions say yes, a model reads your question, can look at the job's folder (read-only), and answers run or skip. It also sees what the other conditions found, like the new commits. Each check is one model call; its cost counts toward Limits.",
+					hint = "Ask a model after the other conditions pass.",
 					warning = warn("c_ask"),
 					control = { k = "switch", on = form.c_ask },
 				},
 				{
 					id = "c_ask_prompt",
 					label = ROW_LABEL.c_ask_prompt,
-					hint = "Write it as a yes/no question about the current state. It gets the job's name, folder, time and last run.",
+					hint = "Ask a yes/no question. The model sees the job, last run and other conditions' results, and can read the job's folder. Each check costs one model call, counted toward Limits.",
 					warning = warn("c_ask_prompt"),
-					disabled = off(form.c_ask, "c_ask"),
 					control = { k = "text", value = summary_line(form.c_ask_prompt.text), placeholder = "Run only if there are open pull requests that need a review." },
 				},
 				{
@@ -916,7 +919,6 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 					label = ROW_LABEL.c_ask_role,
 					hint = "A small, fast model is usually enough.",
 					warning = warn("c_ask_role"),
-					disabled = off(form.c_ask, "c_ask"),
 					changed = form.c_ask_role ~= "smol",
 					defaultLabel = "@smol",
 					control = { k = "choice", value = form.c_ask_role, options = { { value = form.c_ask_role, label = "@" .. form.c_ask_role } }, style = "menu" },
@@ -927,6 +929,11 @@ local function only_when_sections(state: State, errs: { [string]: string }?): { 
 	-- After a Check now, each switched-on condition gets its own "Right now" row right after its switch.
 	local NOW_FOR = { c_commits = { "c_commits_now", "commits" }, c_window = { "c_window_now", "window" }, c_limits = { "c_limits_now", "budget" }, c_check = { "c_check_now", "check" }, c_ask = { "c_ask_now", "ask" } }
 	for _, sec in sections do
+		local toggle = sec.rows[1]
+		if toggle.control.k == "switch" and not toggle.control.on then
+			-- Hide dependents, not their draft values. Navigation uses this same row set.
+			sec.rows = { toggle }
+		end
 		for i, r in sec.rows do
 			local nf = NOW_FOR[r.id]
 			if nf ~= nil and r.control.on == true then
@@ -962,14 +969,14 @@ function F.sections(state: State, errs: { [string]: string }?): { P.Section }
 			break
 		end
 	end
-	local prompt_hint = "Enter edits it · ctrl+o opens it as a file. Say what to do if something is unclear. Nobody is watching a scheduled run."
+	local prompt_hint = "Enter to edit · ctrl+o to open as a file. Say how to handle unclear instructions while you’re away."
 	if #form.prompt.text > 4000 then
 		prompt_hint = string.format("%d characters · long prompts read better as a file (ctrl+o)", #form.prompt.text)
 	end
 
 	local folder_path = expand(form.folder.text)
 	local folder_warning = warn("folder")
-	local folder_hint: string? = "Enter types a path. Runs always start in this folder."
+	local folder_hint: string? = "Runs start in this folder. Enter to edit the path."
 	if folder_warning == nil and folder_path ~= "" and C.home() ~= "" and folder_path == validate.strip_slashes(C.home()) then
 		folder_warning = "omp may work in a temporary folder instead of your home folder. Pick a project folder for predictable results."
 	end
@@ -987,7 +994,7 @@ function F.sections(state: State, errs: { [string]: string }?): { P.Section }
 
 	local catch_options: { any } = {}
 	for _, o in C.CATCH_UPS do
-		table.insert(catch_options, { value = o.value, label = if o.value == "within" then C.catch_up_label("within", window_s(form)) else o.label })
+		table.insert(catch_options, { value = o.value, label = if o.value == "within" then (string.gsub(C.catch_up_label("within", window_s(form)), "when you're back, ", "")) else o.label })
 	end
 	local approval_options: { any } = {}
 	for _, o in C.APPROVALS do
@@ -1096,7 +1103,7 @@ function F.sections(state: State, errs: { [string]: string }?): { P.Section }
 		{
 			id = "active",
 			label = ROW_LABEL.active,
-			hint = "Off saves the job paused. Good for a canary: save paused, then press r.",
+			hint = "Off saves the job paused. You can still run it manually.",
 			changed = not form.enabled,
 			defaultLabel = "On",
 			control = { k = "switch", on = form.enabled },
@@ -1886,6 +1893,9 @@ function F.view(state: State): (Node, Node)
 	local cx = state.cx
 	local errs = F.errors(state)
 	local sections = F.sections(state, errs)
+	if P.find(sections, form.focus) == nil then
+		form.focus = P.move(sections, nil, 1)
+	end
 
 	local editing: any = nil
 	local e = form.editing
@@ -1900,9 +1910,10 @@ function F.view(state: State): (Node, Node)
 
 	local props: { [string]: any } = {
 		key = "prefs",
+		role = "tas.job-form",
 		title = "Agent Scheduler",
 		lead = if form.page == "only_when"
-			then "A due run starts only if every condition that's on says yes. Otherwise it's skipped and noted in the job's history, and you aren't notified. Run now asks before it ignores them."
+			then "All enabled conditions must pass. A no skips the due run and records it in history without notifying you. Run now asks before ignoring a condition."
 			elseif form.id ~= nil then "Change this job. Saved changes apply from its next run."
 			else "Run an omp agent on a schedule.",
 		pages = C.arr({
@@ -1950,20 +1961,20 @@ function F.view(state: State): (Node, Node)
 		end
 		status = { ui.span("Fix: " .. table.concat(names, ", "), "warning") }
 	else
-		status = { ui.span("Save & run now runs it once right away, exactly as scheduled. It can change files.", "muted") }
+		status = { ui.span("Save & run now uses these settings. If an Only when condition says no, you’ll be asked first. It can change files.", "muted") }
 	end
 	local blocked = next(errs) ~= nil
 	local narrow = cx.cols < 70
 	local acts: { Node } = {
-		C.badge(if narrow then "Save" else "Save ^⏎", if blocked then "muted" else "accent", "save", "save"),
-		C.badge(if narrow then "Run" else "Save & run now ^⇧⏎", "neutral", "save_run", "save_run"),
-		C.badge(if narrow then "Cancel" else "Cancel esc", "neutral", "cancel", "cancel"),
+		C.action_button("Save", if narrow then "" else "^⏎", if blocked then "muted" else "accent", "save", "save"),
+		C.action_button(if narrow then "Run" else "Save & run now", if narrow then "" else "^⇧⏎", "neutral", "save_run", "save_run"),
+		C.action_button("Cancel", if narrow then "" else "esc", "neutral", "cancel", "cancel"),
 	}
-	local dock = ui.col({
+	local dock = C.with(ui.col({
 		C.text(status, "status"),
 		C.with(ui.row(acts), { key = "acts" }),
 		C.text({ ui.span(F.hints(cx.cols, if e ~= nil then e.row else nil, form.page), "muted") }, "hints"),
-	})
+	}), { role = "tas.form-dock" })
 	return main, dock
 end
 
@@ -2111,7 +2122,7 @@ local function activate(state: State, row: string): boolean
 	elseif row == "only_when" then
 		switch_page(state, "only_when")
 		return true
-	elseif row == "c_now" then
+	elseif row == "c_now" and only_when_on(form) then
 		check_now(state)
 		return true
 	end
@@ -2274,7 +2285,7 @@ function F.event(state: State, ev: UiEvent)
 			switch_page(state, ev.value)
 		elseif act == "only_when" then
 			switch_page(state, "only_when")
-		elseif act == "c_now" then
+		elseif act == "c_now" and only_when_on(form) then
 			check_now(state)
 		elseif act == "close" then
 			-- Close on an open menu's button (it carries a row) closes the menu; the header's Close leaves the form.

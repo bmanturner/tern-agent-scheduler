@@ -177,6 +177,9 @@ function commands.register()
 		return
 	end
 	registered = true
+	tern.command({ id = "settings", title = "Settings", icon = "settings", group = GROUP, run = function(cx: WindowCx)
+		cx:new_block(const.MANAGER_KIND, { "settings", pane_cwd(cx) }, "tab")
+	end })
 	tern.command({
 		id = "open-manager",
 		title = "Open manager",

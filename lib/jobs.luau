@@ -1,4 +1,6 @@
 --!strict
+local time_host = require("./time_host")
+local timefmt = require("./timefmt")
 -- lib/jobs.luau : jobs.json, state.json, settings.json, prompts/, trash/ (EN §1, §2). Host only; the
 -- manager and the runner call it in-process (single writer).
 local const = require("./const")
@@ -59,6 +61,10 @@ local function default_settings(): { [string]: any }
 		catchup_spacing_s = const.CATCHUP_SPACING_S_DEFAULT,
 		catchup_window_s = const.CATCHUP_DEFAULT_S,
 		max_finished_panes = const.MAX_FINISHED_PANES,
+		manager_layout = "timeline",
+		manager_results = "fade",
+		time_format = "automatic",
+		last_looked = 0,
 		retain_runs = 50,
 		retain_days = 90,
 		defaults = {
@@ -138,7 +144,7 @@ end
 local function tz_record(): { [string]: any }
 	local abbr = ""
 	pcall(function()
-		abbr = os.date("%Z") :: string
+		abbr = timefmt.date("%Z") :: string
 	end)
 	return { abbr = abbr }
 end
@@ -223,6 +229,8 @@ function jobs.load(now: number): string
 		end
 		fill_defaults(settings_tbl, default_settings())
 	end
+
+	time_host.configure(settings_tbl.time_format)
 
 	local data = store.load("jobs", const.CAP_JOBS)
 	if type(data) == "table" then
@@ -396,6 +404,14 @@ end
 local function check_setting(k: string, v: any): string?
 	if k == "paused_all" or k == "show_next_in_status" or k == "keep_awake" or k == "welcomed" or k == "first_scheduled_toast_done" then
 		return need(type(v) == "boolean", k .. " must be true or false.")
+	elseif k == "time_format" then
+		return need(in_enum(v, { "automatic", "12h", "24h" }), "Pick Automatic, 12-hour or 24-hour.")
+	elseif k == "manager_layout" then
+		return need(in_enum(v, { "timeline", "classic" }), "Pick Timeline or Classic job list.")
+	elseif k == "manager_results" then
+		return need(in_enum(v, { "fade", "stay" }), "Pick Fade once seen or Stay until marked seen.")
+	elseif k == "last_looked" then
+		return need(type(v) == "number" and v >= 0, "Use a valid time.")
 	elseif k == "max_concurrent" then
 		return need(int_in(v, 1, 10), "Run at most 1 to 10 jobs at once.")
 	elseif k == "cap_wait_s" then
@@ -478,6 +494,7 @@ function jobs.set_settings(patch: { [string]: any }): (boolean, string?)
 			settings_tbl[k] = v
 		end
 	end
+	if patch.time_format ~= nil then time_host.configure(settings_tbl.time_format) end
 	local ok, err = save_settings()
 	if not ok then
 		return false, err
@@ -565,7 +582,7 @@ function jobs.describe(job: Job): string
 	local w = cron.clock.date("*t", tonumber(s.run_at) or 0)
 	local names = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" }
 	local months = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" }
-	return string.format("Once, %s %d %s %02d:%02d", names[w.wday] or "", w.day, months[w.month] or "", w.hour, w.min)
+	return string.format("Once, %s %d %s %s", names[w.wday] or "", w.day, months[w.month] or "", timefmt.clock(w.hour, w.min))
 end
 
 -- Re-arm: cursor = armed_at = now, interval anchor floored to the minute, next_run recomputed.

@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- lib/runner.luau : the clock (EN §5-§7, LA §8-§10). Host only; outlives every manager block.
 --   pump (PUMP_MS, armed first): intents -> events -> [slow tick: due scan, liveness, housekeeping,
 --   heartbeat] -> advance runs (admission, timeouts, debounce) -> flush dirty state.
@@ -210,6 +211,7 @@ local function record_outcome(run: Run)
 	if job == nil then
 		return
 	end
+	require("./mgr_history").record(run)
 	local st = jobs.state(job.id)
 	local test = run.trigger == "test"
 	local launched_like = state == "finished" or state == "failed" or state == "timed_out" or state == "cancelled" or state == "blocked"
@@ -802,7 +804,7 @@ end
 
 local function slot_local(slot: number): string?
 	local ok, s = pcall(function()
-		return os.date("%a %Y-%m-%d %H:%M", slot)
+		return timefmt.date("%a %Y-%m-%d %H:%M", slot)
 	end)
 	return ok and s :: string or nil
 end
@@ -2066,12 +2068,12 @@ end
 setup_rows = function(): { SetupRow }
 	local f = bins.found()
 	local rows: { SetupRow } = {}
-	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 8, 3)
+	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 9, 0)
 	table.insert(rows, {
 		id = "tern",
 		label = "Tern version",
 		ok = tern_ok,
-		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.8.3. Update Tern.",
+		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.9.0. Update Tern.",
 	})
 	table.insert(rows, {
 		id = "omp",
@@ -2102,9 +2104,9 @@ setup_rows = function(): { SetupRow }
 		label = "Scheduler heartbeat",
 		ok = hb_ok,
 		text = if not hb_ok
-			then "The scheduler isn't ticking. Reload plugins (palette: Reload plugins)."
+			then "The scheduler has stopped. Reload plugins (palette: Reload plugins)."
 			elseif S.last_hb == 0 then "The scheduler is starting."
-			else "The scheduler is ticking.",
+			else "The scheduler is running.",
 	})
 	local health = store.health()
 	local data_ok = health == "ok" and S.data_probe ~= false

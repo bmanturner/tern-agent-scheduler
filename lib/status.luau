@@ -1,4 +1,5 @@
 --!strict
+local timefmt = require("./timefmt")
 -- Window half: the status-line segment (UX §2.3, §7.4), the scheduler stall watchdog (EN §5.5) and
 -- toasts from snapshot transitions (UX §7.3). The formatter only reads an upvalue; a timer
 -- refreshes it from the cached snapshot. Nothing here runs at load time.
@@ -268,7 +269,7 @@ end
 
 local function next_text(at: any): string
 	if type(at) == "number" then
-		return os.date("%a %d %b %H:%M", at)
+		return timefmt.date("%a %d %b %H:%M", at)
 	end
 	return "manual only"
 end

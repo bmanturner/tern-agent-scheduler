@@ -1,0 +1,12 @@
+PASS timeline order, manual group, running deduplication, missed != failed
+PASS backlog counts independent of retention
+PASS host checkpoint and mark-all-seen
+PASS cron steps and manager setting validation
+PASS stay/fade settings, sheet guard and live-pane timer
+PASS now rule leads when only a live run is above next runs
+PASS calm timeline: no results, no now rule, quiet line
+PASS live-only timeline: now rule without results, quiet line kept
+PASS results with no last-looked time are titled Results so far
+PASS mark all seen only when something is unseen
+PASS first visit names the first run
+PASS empty state: example heading, Use example action opens a draft
