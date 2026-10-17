@@ -87,6 +87,10 @@ function M.parse(input: string, now: number)
       end
       local r = rec("once", "") r.run_at = t return r
     end
+    -- dated one-shots as Carly writes her own tasks: "at 2026-10-04 09:00", "at tomorrow 9am"
+    if at:match("^%d%d%d%d%-%d%d%-%d%d ") or at:match("^today ") or at:match("^tomorrow ") then
+      s = at
+    end
   end
 
   -- hourly [at :15]
@@ -123,6 +127,6 @@ function M.parse(input: string, now: number)
       local r = rec("once", "") r.run_at = base return r
     end
   end
-  return nil, "Not understood. Try: 'weekdays at 9am', 'every monday 9am', 'mon,thu 18:30', 'every 2h', 'in 20m', 'tomorrow 9am', or cron '0 9 * * 1-5'"
+  return nil, "Not understood. Try: 'weekdays at 9am', 'every monday 9am', 'mon,thu 18:30', 'every 2h', 'in 20m', 'tomorrow 9am', '2026-10-12 09:00', or cron '0 9 * * 1-5'"
 end
 return M

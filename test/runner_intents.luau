@@ -125,6 +125,13 @@ local r8 = carly("hhhhhhhhhhhh", { name = "nowhen", prompt = "p", when = "whenev
 assert(r8 and r8.ok == false, "unparsable schedule refused")
 print("PASS carly_create folder, prompt cap, schedule errors")
 
+local rq = carly("jjjjjjjjjjjj", { name = "quiet-carly", prompt = "p", when = "daily 09:00", folder = "/home/u/proj", quiet_ok = true })
+assert(rq and rq.ok == true and rq.quiet_ok == true and jobs.get(rq.job_id).quiet_ok == true, "quiet_ok stored: " .. tern.json.encode(rq))
+assert(r1.quiet_ok == false and jobs.get(r1.job_id).quiet_ok ~= true, "quiet off unless asked")
+local rq2 = carly("kkkkkkkkkkkk", { name = "quiet-bad", prompt = "p", when = "daily 09:00", folder = "/home/u/proj", quiet_ok = "yes" })
+assert(rq2 and rq2.ok == false and rq2.error == "quiet_ok must be true or false.", "quiet_ok type copy: " .. tostring(rq2 and rq2.error))
+print("PASS carly_create quiet_ok")
+
 -- cached roles: an absent role is refused with the list
 local got
 runner.roles("/home/u/proj", function(list)

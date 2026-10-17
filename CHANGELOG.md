@@ -2,6 +2,20 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.4.1 (2026-10-17)
+
+Built and tested on Tern 0.9.2. **Update Tern to 0.9.2:** on an older Tern, the manager asks you to check setup and Settings › Status flags the Tern version.
+
+### Added
+
+- Carly can turn on **Quiet when nothing to report** when she creates a job (`quiet_ok = true`).
+- A one-off time can start with `at`, as in `at 2026-10-20 09:00` or `at tomorrow 9am`, the way Carly writes her own scheduled tasks. When a schedule isn't understood, the suggestions now include a date.
+
+### Changed
+
+- With every request, Carly is told to use Agent Scheduler instead of her own scheduled tasks for agent work in a folder that repeats or takes longer than three minutes, how to call `job_add`, and to confirm a job's details with you first because she can't edit or delete it. Until now this was only in her help text, which she doesn't always get to read.
+- Carly's help for `job_add` says the job goes live at once, that the run is already told to work unattended and end with a summary, and that a name is optional.
+
 ## 0.4.0 (2026-10-16)
 
 Built and tested on Tern 0.9.0. **Update Tern to 0.9.0:** on an older Tern, the manager asks you to check setup and Settings › Status flags the Tern version.

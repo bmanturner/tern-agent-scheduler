@@ -23,7 +23,7 @@ A job can also wait for something worth doing: new commits on a branch, working 
 
 ## Install
 
-Built and tested on Tern 0.9.0. Runs on macOS or Linux (not Windows yet) and needs [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
+Built and tested on Tern 0.9.2. Runs on macOS or Linux (not Windows yet) and needs [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
 
 > [!IMPORTANT]
 > Jobs run while Tern's session service is running. It keeps running after you close every window, as long as a terminal or a run tab is open. Nothing runs while your computer is asleep, or after a restart until you open Tern; missed runs then follow each job's **If your Mac was asleep** setting.
@@ -70,7 +70,7 @@ Each run is told it is unattended and to end with a `RESULT:` line, which become
 | `mon,thu 18:30`, `every friday 4pm` | Those weekdays at that time |
 | `monthly on the 1st 9am` | The 1st of each month |
 | `every 15m`, `every 2h` | A fixed interval (5 minutes at least) |
-| `in 30m`, `tomorrow 8am`, `2026-10-14 15:00` | Once |
+| `in 30m`, `tomorrow 8am`, `2026-10-14 15:00`, `at 2026-10-14 15:00` | Once |
 | `0 9 * * 1-5`, `@daily` | Standard cron |
 | `manual` | Only when you press Run now |
 
@@ -158,10 +158,12 @@ Press `,` in the manager, or pick **Agent Scheduler: Settings** in the palette.
 
 ### Carly
 
-Ask Tern's assistant to create, list, run or pause jobs, or to check a job's conditions, for example *"Schedule a job called standup-notes in ~/Dev/app every weekday at 9am that summarises yesterday's commits, only when there are new commits on main."*
+Ask Tern's assistant to create, list, run or pause jobs, or to check a job's conditions, for example *"Schedule a job called standup-notes in ~/Dev/app every weekday at 9am that summarises yesterday's commits, only when there are new commits on main."* Carly can also turn on **Quiet when nothing to report**.
+
+With each request, Agent Scheduler tells Carly to use it, rather than her own scheduled tasks, for agent work in a folder that repeats or takes longer than three minutes, and to confirm a job's details with you before creating it.
 
 > [!NOTE]
-> Jobs Carly creates are active immediately with the default approval (Hands-off). You get a toast and a desktop notification, and the manager marks them `by Carly`.
+> Jobs Carly creates are active immediately with the default approval (Hands-off), and Carly can't edit or delete them; change or delete them in the manager. You get a toast and a desktop notification, and the manager marks them `by Carly`.
 
 ## Good to know
 

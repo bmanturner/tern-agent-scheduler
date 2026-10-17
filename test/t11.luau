@@ -1,4 +1,4 @@
--- lib/conditions.luau (build, describe, to_input, days_label, from_fields), ids.fnv64, quiet RESULT lines, Carly's job_add doc length.
+-- lib/conditions.luau (build, describe, to_input, days_label, from_fields), ids.fnv64, quiet RESULT lines, Carly's job_add doc length and request context.
 local conditions, ids, session_tail = __mods.conditions, __mods.ids, __mods.session_tail
 
 local function ser(v)
@@ -239,4 +239,13 @@ local doc = carly.fit(carly.ADD_DOC)
 assert(doc == carly.ADD_DOC and #doc <= 1024, "ADD_DOC fits: " .. #carly.ADD_DOC)
 print("ADD_DOC fits => true")
 print("ADD_DOC bytes", #carly.ADD_DOC)
+
+-- The request context keeps the whole routing guide within Tern's 400-character cap
+assert(carly.context_text(nil) == carly.GUIDE, "guide alone without a status line")
+local line = "Agent Scheduler: 2 active, 0 paused; 0 need you."
+assert(carly.context_text(line) == line .. " " .. carly.GUIDE, "status line first")
+local long = carly.context_text(string.rep("x", 500))
+assert(#long <= 400 and string.sub(long, -#carly.GUIDE) == carly.GUIDE, "long status clipped, guide kept: " .. #long)
+print("context fits => true")
+print("GUIDE bytes", #carly.GUIDE)
 return 0

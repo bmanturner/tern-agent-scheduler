@@ -153,6 +153,12 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 			end
 			input.only_when = ow
 		end
+		if p.quiet_ok ~= nil then
+			if type(p.quiet_ok) ~= "boolean" then
+				return reply_error(reply, "quiet_ok must be true or false.")
+			end
+			input.quiet_ok = p.quiet_ok
+		end
 		local vok, errs, norm = validate.job(input, {
 			jobs = jobs.list(),
 			now = now,
@@ -216,6 +222,7 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 						role = "@" .. tostring(job.role),
 						approval = approval,
 						only_when = if #conditions.describe(job.conditions) > 0 then conditions.describe(job.conditions) else "always",
+						quiet_ok = job.quiet_ok == true,
 					})
 				end)
 				if not cok then

@@ -413,13 +413,9 @@ function status.needs(): { any }
 	return view.needs
 end
 
--- The Carly request context (≤ 400 characters) or nil.
+-- The status line for Carly's request context, or nil; carly.context_text fits it to Tern's cap.
 function status.context(): string?
-	local c = view.context
-	if c ~= nil and #c > 400 then
-		return clip(c, 400)
-	end
-	return c
+	return view.context
 end
 
 -- ---- timer + registration --------------------------------------------------------------------------

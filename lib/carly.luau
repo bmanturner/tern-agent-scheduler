@@ -1,6 +1,6 @@
 --!strict
 local timefmt = require("./timefmt")
--- Window half: Carly exports (list, add, run, pause jobs) and a short request context. Creation is
+-- Window half: Carly exports (list, add, run, pause jobs) and the request context. Creation is
 -- done by the host (`carly_create` intent + reply file); this half only pre-validates and relays.
 
 local commands = require("./commands")
@@ -13,6 +13,8 @@ local wsnap = require("./wsnap")
 local carly = {}
 
 local SPEC_MAX = 1024
+-- Tern caps each plugin's request context at 400 characters.
+local CONTEXT_MAX = 400
 local ADD_WAIT_MS = 15000
 local REPLY_WAIT_MS = 12000
 -- Intents the host hasn't applied by then are dropped, because the caller has been told they failed.
@@ -20,11 +22,12 @@ local EXPIRES_S = 20
 local MIN_PREFIX = 3
 
 -- Tern rejects an export whose sig or doc exceeds 1024 bytes, which would abort registration.
-local function fit(s: string): string
-	if #s <= SPEC_MAX then
+local function fit(s: string, max: number?): string
+	local cap = max or SPEC_MAX
+	if #s <= cap then
 		return s
 	end
-	local stop = SPEC_MAX - 3 -- room for "…"
+	local stop = cap - 3 -- room for "…"
 	while stop > 0 do
 		local b = string.byte(s, stop + 1)
 		if b < 0x80 or b >= 0xC0 then
@@ -141,15 +144,30 @@ local function last_text(j: any): string
 	return text
 end
 
-local ADD_DOC = "Create and start a scheduled omp agent job right away (no review step). `when` accepts: `daily 09:00`, `weekdays 9am`, `mon,thu 18:30`, `every 2h`, `every 15m` (min 5m), `hourly`, `every friday 4pm`, `monthly on the 1st 9am`, `in 30m`, `tomorrow 8am`, `2026-10-14 15:00`, `manual`, or a 5-field cron like `0 9 * * 1-5`. `folder` is an existing local folder (default: the focused pane's). `role` is an omp model role such as `@default` (default) or `@smol`. Jobs use the default approval mode (Hands-off unless changed in settings); Hands-off runs commands as the user. Returns the job's name, schedule and next run. `only_when` (optional) limits when due runs start, e.g. {new_commits=true, branch=\"main\"}, {days=\"weekdays\", from=\"09:00\", to=\"18:00\"}, {from=\"22:00\", to=\"07:00\", quiet_hours=true}, {max_runs=3, per=\"day\"}, {ask=\"Only if there are open PRs to review\"}; a run that doesn't qualify is skipped and noted. Script checks are set in the manager only."
+local ADD_DOC =
+	"Creates a scheduled omp agent job, live at once with no review. You can't edit or delete it later: confirm the details with the user first. Pass positional args or one table of named fields. The agent gets only `prompt`, runs unattended in `folder`, and is already told to work alone and end with a summary. `when`: `daily 09:00`, `weekdays 9am`, `mon,thu 18:30`, `every 2h` (min 5m), `monthly on the 1st 9am`, `in 30m`, `tomorrow 8am`, `2026-10-14 15:00`, `manual`, or cron like `0 9 * * 1-5`. `folder`: an existing local folder (default: the focused pane's). `role`: an omp model role such as `@default` (default) or `@smol`. Approval is the user's default, usually Hands-off, which runs commands as the user. `quiet_ok=true` lets a run with nothing to report end silently. `only_when` limits when due runs start, e.g. {new_commits=true, branch=\"main\"}, {days=\"weekdays\", from=\"09:00\", to=\"18:00\"}, {from=\"22:00\", to=\"07:00\", quiet_hours=true}, {max_runs=3, per=\"day\"}, {ask=\"Only if there are open PRs to review\"}."
 carly.ADD_DOC = ADD_DOC
+
+-- Carly gets the request context with every request, but reads export docs only through help(), whose
+-- output she can lose. So the routing rule and the call shape live here, after the status line.
+local GUIDE =
+	"For omp agent work in a folder (recurring, or over 3 min), use await(plugins[\"tern-agent-scheduler\"].job_add{prompt=…, when=\"weekdays 9am\", folder=\"~/app\"}), not tern.carly.schedule. Jobs go live at once and you can't edit or delete them: confirm with the user first."
+carly.GUIDE = GUIDE
+
+-- The request context: the status line (or nothing) followed by GUIDE, at most CONTEXT_MAX bytes.
+function carly.context_text(line: string?): string
+	if line == nil or line == "" then
+		return GUIDE
+	end
+	return fit(line, CONTEXT_MAX - #GUIDE - 1) .. " " .. GUIDE
+end
 
 function carly.job_add(...: any): any
 	local a, cx, call = split_args(...)
 	-- Carly sometimes passes one table of named fields instead of positional arguments.
 	local named: any = if #a == 1 and type(a[1]) == "table" then a[1] else nil
 	if named ~= nil then
-		a = { named.name, named.prompt, named.when, named.folder, named.role, named.only_when }
+		a = { named.name, named.prompt, named.when, named.folder, named.role, named.only_when, named.quiet_ok }
 	end
 	local name = str(a[1]) or ""
 	local prompt = a[2]
@@ -157,8 +175,12 @@ function carly.job_add(...: any): any
 	local folder = str(a[4]) or ""
 	local role = str(a[5]) or ""
 	local only_when: any = a[6]
+	local quiet_ok: any = a[7]
 	if only_when ~= nil and type(only_when) ~= "table" then
 		return fail(call, "only_when must be a table of fields.")
+	end
+	if quiet_ok ~= nil and type(quiet_ok) ~= "boolean" then
+		return fail(call, "quiet_ok must be true or false.")
 	end
 
 	if type(prompt) ~= "string" or str(prompt) == "" then
@@ -212,6 +234,9 @@ function carly.job_add(...: any): any
 	end
 	if only_when ~= nil then
 		payload.only_when = only_when
+	end
+	if quiet_ok ~= nil then
+		payload.quiet_ok = quiet_ok
 	end
 	-- JSON escaping can double a prompt's size, so measure what will actually be written.
 	local encoded = outbox.encode("carly_create", payload)
@@ -267,7 +292,7 @@ function carly.register()
 	end)
 
 	tern.carly.export("job_add", {
-		sig = "(name: string, prompt: string, when: string, folder: string?, role: string?, only_when: {new_commits: boolean?, branch: string?, folders: {string}?, days: string?, from: string?, to: string?, quiet_hours: boolean?, max_runs: number?, max_usd: number?, per: string?, ask: string?, ask_model: string?}?) -> {name: string, when: string, next: string, folder: string, role: string, approval: string, only_when: string}",
+		sig = "(name: string?, prompt: string, when: string, folder: string?, role: string?, only_when: {new_commits: boolean?, branch: string?, folders: {string}?, days: string?, from: string?, to: string?, quiet_hours: boolean?, max_runs: number?, max_usd: number?, per: string?, ask: string?, ask_model: string?}?, quiet_ok: boolean?) -> {name: string, when: string, next: string, folder: string, role: string, approval: string, only_when: string, quiet_ok: boolean}",
 		doc = fit(ADD_DOC),
 	}, carly.job_add)
 
@@ -379,8 +404,16 @@ function carly.register()
 		return if pause then "All jobs paused" else "All jobs resumed"
 	end)
 
+	-- The hook has a 4 ms budget and runs on every request; rebuild the text only when the line changes.
+	local ctx_line: string? = nil
+	local ctx_text = GUIDE
 	tern.carly.context(function(_cx: WindowCx): string?
-		return status.context()
+		local line = status.context()
+		if line ~= ctx_line then
+			ctx_line = line
+			ctx_text = carly.context_text(line)
+		end
+		return ctx_text
 	end)
 end
 

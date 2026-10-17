@@ -6,6 +6,7 @@ PASS carly_create interval error
 PASS carly_create duplicate name error
 PASS carly_create name derivation
 PASS carly_create folder, prompt cap, schedule errors
+PASS carly_create quiet_ok
 PASS carly_create cached role check
 PASS replies pruned
 PASS no errors

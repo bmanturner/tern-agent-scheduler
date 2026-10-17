@@ -99,4 +99,6 @@ summarize "RESULT: [QUIET] - nothing new" => nothing new | failed=nil | quiet=tr
 summarize "RESULT: FAILED - x" => x | failed=x | quiet=nil
 summarize "RESULT: done" => done | failed=nil | quiet=nil
 ADD_DOC fits => true
-ADD_DOC bytes	960
+ADD_DOC bytes	1017
+context fits => true
+GUIDE bytes	269
