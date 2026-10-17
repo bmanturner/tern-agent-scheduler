@@ -150,6 +150,37 @@ assert(rec6.state == "timed_out" and rec6.reason_code == "max_runtime", "timed_o
 assert(rec6.close_requested == true and #fake.calls_of("close") == closes0 + 1, "pane closed by the host")
 print("PASS host deadline => timed_out/max_runtime, pane closed")
 
+-- 6b. a model call that failed right at the deadline is not a success. After a sleep, omp's own --max-time
+-- aborts the request ("Deadline exceeded") just as the host deadline comes due; the session then shows a
+-- complete turn with a failure reason.
+local working_lines = {
+	{ type = "session", id = "sess0001", cwd = "/home/u/proj" },
+	{ type = "message", message = { role = "user", content = { { type = "text", text = "go" } } } },
+	{ type = "message", message = { role = "assistant", content = { { type = "toolCall", id = "t1", name = "bash", arguments = {} } }, usage = { cost = { total = 0.004 } } } },
+}
+local sess_dir
+local hook_new = fake.hooks.new
+fake.hooks.new = function(info)
+	sess_dir = info.session_dir
+	hook_new(info)
+end
+session_text = jsonl(working_lines)
+local slow2 = jobs.create({ name = "slow-abort", prompt = "x", when = "manual", cwd = "/home/u/proj", max_runtime_s = 300 }, "slow", "user", os.time())
+local run6b = start_run(slow2)
+fake.hooks.new = hook_new
+hold(run6b.block, "working", "", 3)
+fake.advance(330000)
+assert(run6b.state == "running", "still running before the abort")
+table.insert(working_lines, { type = "message", message = { role = "toolResult", toolCallId = "t1", content = { { type = "text", text = "ok" } } } })
+table.insert(working_lines, { type = "message", message = { role = "assistant", content = {}, stopReason = "aborted", errorMessage = "Deadline exceeded", usage = { cost = { total = 0 } } } })
+fake.write(sess_dir .. "/2026-10-12T10-00-05-000Z_sess0001.jsonl", jsonl(working_lines))
+hold(run6b.block, "working", "", 45)
+local rec6b = finished(run6b)
+assert(rec6b.state == "timed_out" and rec6b.reason_code == "max_runtime", "model error at the deadline: " .. tostring(rec6b.state) .. "/" .. tostring(rec6b.reason_code))
+assert(rec6b.detail == "Deadline exceeded", "failure reason kept: " .. tostring(rec6b.detail))
+assert(jobs.state(slow2.id).failure_streak == 1, "counts as a failure")
+print("PASS model error at the host deadline => timed_out/max_runtime")
+
 -- 7. stop
 local run7 = start_run(job)
 assert(runner.stop(run7.run_id) == true, "stop")

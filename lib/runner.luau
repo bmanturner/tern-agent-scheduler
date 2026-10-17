@@ -493,7 +493,7 @@ local function force_deadline(run: Run)
 		end
 		run.close_requested = true
 		apply_facts(run, facts)
-		if facts ~= nil and facts.completed_turn then
+		if facts ~= nil and facts.completed_turn and facts.failed_reason == nil then
 			run.observed = false
 			transition(run, "finished", "ok_unobserved", {})
 		else

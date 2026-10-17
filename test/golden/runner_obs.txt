@@ -4,6 +4,7 @@ PASS no working sample in 180 s => failed/no_response
 PASS unobserved finish from the session tail
 PASS RESULT: FAILED => failed/agent_failed
 PASS host deadline => timed_out/max_runtime, pane closed
+PASS model error at the host deadline => timed_out/max_runtime
 PASS stop => cancelled/user_stop
 PASS pane closed by the user => cancelled/closed_by_user
 PASS finished-pane cap closes the oldest panes

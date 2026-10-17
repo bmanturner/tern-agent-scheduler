@@ -2,6 +2,14 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.4.2 (2026-10-17)
+
+Built and tested on Tern 0.9.2.
+
+### Fixed
+
+- A run whose last model request failed right at its time limit (omp reports "Deadline exceeded") is now recorded as stopped at the time limit and counts as a failure. It used to show as finished.
+
 ## 0.4.1 (2026-10-17)
 
 Built and tested on Tern 0.9.2. **Update Tern to 0.9.2:** on an older Tern, the manager asks you to check setup and Settings › Status flags the Tern version.
