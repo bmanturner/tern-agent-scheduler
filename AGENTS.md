@@ -22,7 +22,7 @@ Then run `bun run test`, and name the version in the next `CHANGELOG.md` entry.
 
 ## Window budget
 
-Every window-half call has a 50 ms budget. One timer callback over it turns off every timer callback of the plugin in that window until plugins reload (`pcall` can't catch it). Keep timer passes far below it: the status and observer passes log anything over `const.WINDOW_SLOW_MS` (20 ms), and the watchdog in `window.luau` tells the user when the timers have stopped.
+Every window-half call has a 50 ms budget for the plugin's own Lua (native calls don't count, but one call may take at most ten budgets of wall time). A call over it raises `tern: <hook> exceeded <n> ms` and Tern pauses that hook (every timer callback, say) for 5 s, doubling on repeats within 10 min, up to 5 min; `pcall` can't catch it. Keep timer passes far below it: the status and observer passes log anything over `const.WINDOW_SLOW_MS` (20 ms), and `window.luau` logs `budget` events and the status line shows *Agent Scheduler paused* while a hook is paused.
 
 ## Developing
 

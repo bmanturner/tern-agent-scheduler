@@ -1,0 +1,4 @@
+PASS agent_state sends the run's new state at once
+PASS agent_state ignores exits and other panes
+PASS paused hooks show in the status line until all resume
+PASS no errors

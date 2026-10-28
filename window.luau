@@ -3,9 +3,8 @@
 -- Carly exports. The clock lives in the host half; this half only reads snapshot.json and writes
 -- intent files.
 --
--- Tern compiles every chunk to native code when it is required, and loading everything at once can
--- exceed the 50 ms window budget. So the entry loads one module per timer callback (each has its own
--- budget, and require caches the result), then registers everything.
+-- Tern compiles each module when it is required; loading one module per timer callback keeps each
+-- step small (require caches the result), then the entry registers everything.
 
 -- iOS has no tern.process, and the scheduler is desktop-only.
 if tern.runtime.os == "ios" then
@@ -35,53 +34,35 @@ local load_module: (string) -> any = require :: any
 local loading = MODULES[1]
 local registered = false
 
--- Timer watchdog. One window timer callback over the 50 ms budget turns off every timer callback of
--- this plugin in this window until plugins reload, which would silently stop loading, the status
--- line, run observation and Carly replies. The loader steps and every status pass call `beat`. A
--- `focus` event (its own hook) that finds the timers silent for TIMERS_SILENT_MS arms a zero-delay
--- probe, which a window that slept or was throttled answers at once; a later `focus` that finds the
--- probe unanswered after PROBE_WAIT_MS reports the timers off.
-local TIMERS_SILENT_MS = 60000
-local PROBE_WAIT_MS = 5000
-local last_beat = tern.now()
-local probe_at: number? = nil
-local timers_off = false
-
-local function beat()
-	last_beat = tern.now()
-	probe_at = nil
-end
-
-tern.on("focus", function(_ev: any, cx: WindowCx)
-	if timers_off then
-		return
+-- Tern pauses a hook that runs over its time budget (5 s, doubling on repeats, at most 5 min) and
+-- resumes it on its own. Log it, and let the status line say so while anything is paused.
+local okb = pcall(tern.on, "budget", function(ev: BudgetEvent, _cx: WindowCx)
+	if ev.state == "paused" then
+		tern.log.warn(
+			string.format(
+				"tern-agent-scheduler: %s paused for %d ms after running over its %d ms budget",
+				tostring(ev.hook),
+				ev.paused_ms or 0,
+				ev.ms or 0
+			)
+		)
+	else
+		tern.log.info(string.format("tern-agent-scheduler: %s resumed", tostring(ev.hook)))
 	end
-	local now = tern.now()
-	if now - last_beat < TIMERS_SILENT_MS then
-		return
-	end
-	if probe_at == nil then
-		probe_at = now
-		tern.timer(0, beat)
-		return
-	end
-	if now - (probe_at :: number) < PROBE_WAIT_MS then
-		return
-	end
-	timers_off = true
-	tern.log.warn("tern-agent-scheduler: timers stopped in this window; reload plugins to restart them")
 	if registered then
 		pcall(function()
-			load_module("./lib/status").stopped()
+			load_module("./lib/status").budget(ev.hook, ev.state)
 		end)
 	end
-	cx:toast("error", "Agent Scheduler stopped in this window", "Run “Reload plugins” from the palette.")
 end)
+if not okb then
+	tern.log.debug("tern-agent-scheduler: no budget event")
+end
 
 local function register()
 	registered = true
 	load_module("./lib/commands").register()
-	load_module("./lib/status").register(beat)
+	load_module("./lib/status").register()
 	load_module("./lib/observer").start()
 	if tern.carly then
 		-- Carly exports are optional; a failure here must not keep the rest from starting.
@@ -96,7 +77,6 @@ end
 
 local function step(i: number)
 	tern.timer(0, function()
-		beat()
 		if i > #MODULES then
 			register()
 			return

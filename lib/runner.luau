@@ -2068,12 +2068,12 @@ end
 setup_rows = function(): { SetupRow }
 	local f = bins.found()
 	local rows: { SetupRow } = {}
-	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 9, 2)
+	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 9, 6)
 	table.insert(rows, {
 		id = "tern",
 		label = "Tern version",
 		ok = tern_ok,
-		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.9.2. Update Tern.",
+		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.9.6. Update Tern.",
 	})
 	table.insert(rows, {
 		id = "omp",
@@ -2104,7 +2104,7 @@ setup_rows = function(): { SetupRow }
 		label = "Scheduler heartbeat",
 		ok = hb_ok,
 		text = if not hb_ok
-			then "The scheduler has stopped. Reload plugins (palette: Reload plugins)."
+			then "The scheduler hasn't ticked in over 2 minutes. If it doesn't resume on its own, run Agent Scheduler: Reload from the palette."
 			elseif S.last_hb == 0 then "The scheduler is starting."
 			else "The scheduler is running.",
 	})

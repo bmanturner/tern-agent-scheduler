@@ -84,7 +84,6 @@ local function default_settings(): { [string]: any }
 		session_name = const.SESSION_NAME_DEFAULT,
 		show_next_in_status = true,
 		keep_awake = false,
-		watchdog = "notify",
 		welcomed = false,
 		first_scheduled_toast_done = false,
 		max_jobs = const.MAX_JOBS,
@@ -433,8 +432,6 @@ local function check_setting(k: string, v: any): string?
 			return nil
 		end
 		return "Session names use letters, numbers, spaces, . _ - (up to 40)."
-	elseif k == "watchdog" then
-		return need(in_enum(v, { "notify", "reload" }), "Pick notify or reload.")
 	elseif k == "omp_path" or k == "tern_path" then
 		if v == "" or (type(v) == "string" and v:sub(1, 1) == "/" and not validate.unsafe_path(v)) then
 			return nil

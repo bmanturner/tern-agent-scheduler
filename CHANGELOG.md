@@ -2,6 +2,20 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.5.0 (2026-10-28)
+
+Built and tested on Tern 0.9.6. **Update Tern to 0.9.6:** on an older Tern, Settings › Setup flags the Tern version.
+
+### Added
+
+- **Agent Scheduler: Reload** in the palette reloads only this plugin, not every plugin.
+- A run that starts waiting for you, goes idle or starts working again is noticed as soon as Tern reports it, instead of on the next check a few seconds later.
+
+### Changed
+
+- When Tern pauses the plugin for running too long, the status line says **Agent Scheduler paused** and clears itself when Tern resumes it. It used to say the plugin had stopped and ask you to reload every plugin.
+- When the scheduler hasn't ticked for a while, the notice and Settings › Setup say it may resume on its own, and point to **Agent Scheduler: Reload** instead of reloading every plugin.
+
 ## 0.4.2 (2026-10-17)
 
 Built and tested on Tern 0.9.2.

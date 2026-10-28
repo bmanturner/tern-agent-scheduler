@@ -1,6 +1,6 @@
 --!strict
 local timefmt = require("./timefmt")
--- Window half: the status-line segment (UX §2.3, §7.4), the scheduler stall watchdog (EN §5.5) and
+-- Window half: the status-line segment (UX §2.3, §7.4), the scheduler stall check (EN §5.5) and
 -- toasts from snapshot transitions (UX §7.3). The formatter only reads an upvalue; a timer
 -- refreshes it from the cached snapshot. Nothing here runs at load time.
 
@@ -15,10 +15,11 @@ local STALL_MIN_S = 120
 local NEEDS_CHORD = "ctrl+alt+shift+a"
 local CMD_OPEN = "plugin.tern-agent-scheduler.open-manager"
 local CMD_NEEDS = "plugin.tern-agent-scheduler.go-to-needs-you"
--- Shown once this window's timers are off (see window.luau); a click reloads plugins.
-local STOPPED_SEG: StatusSegment =
-	{ text = "Agent Scheduler stopped · click to reload plugins", icon = "warn", tone = "error", command = "reload_plugins" }
-local stopped = false
+local CMD_RELOAD = "plugin.tern-agent-scheduler.reload"
+-- Shown while Tern has paused one of this plugin's hooks for running over its time budget.
+local PAUSED_SEG: StatusSegment =
+	{ text = "Agent Scheduler paused · it ran too long", icon = "warn", tone = "warning", command = CMD_RELOAD }
+local paused_hooks: { [string]: boolean } = {}
 
 export type View = {
 	seg: StatusSegment?,
@@ -87,7 +88,7 @@ local function soonest(snap: { [string]: any }): (string?, number?)
 end
 
 -- Builds the whole view from a snapshot and hot value. Pure: `now` is unix seconds.
--- `skip_stall` leaves the stall watchdog out of this pass (the window itself was asleep or throttled).
+-- `skip_stall` leaves the stall check out of this pass (the window itself was asleep or throttled).
 function status.compute(snap: { [string]: any }?, hot: { [string]: any }?, now: number, skip_stall: boolean?): View
 	local out: View = { seg = nil, stalled = false, stall_age = 0, setup_bad = false, needs = {}, context = nil }
 	if snap == nil then
@@ -396,15 +397,19 @@ end
 -- Recomputes only the view (no toasts, no refresh) from the cached snapshot.
 function status.recompute(now: number)
 	view = status.compute(wsnap.get(), wsnap.hot(), now)
-	if stopped then
-		view.seg = STOPPED_SEG
+	if next(paused_hooks) ~= nil then
+		view.seg = PAUSED_SEG
 	end
 end
 
--- This window's timers are off until plugins reload: the segment says so and offers the reload.
-function status.stopped()
-	stopped = true
-	view.seg = STOPPED_SEG
+-- A `budget` event: `hook` paused or resumed. While any hook is paused the segment says so.
+function status.budget(hook: string, state: string)
+	if state == "paused" then
+		paused_hooks[hook] = true
+	else
+		paused_hooks[hook] = nil
+	end
+	status.recompute(os.time())
 	pcall(tern.chrome.refresh)
 end
 
@@ -444,6 +449,9 @@ function status.update(cx: WindowCx?, now: number)
 	local asleep = last_update > 0 and now - last_update > 3 * REFRESH_MS / 1000
 	last_update = now
 	local nv = status.compute(snap, hot, now, asleep)
+	if next(paused_hooks) ~= nil then
+		nv.seg = PAUSED_SEG
+	end
 	view = nv
 
 	if cx ~= nil then
@@ -460,8 +468,10 @@ function status.update(cx: WindowCx?, now: number)
 			stall_toasted = true
 			cx:toast(
 				"error",
-				"Agent Scheduler stopped ticking",
-				"Last tick " .. span(nv.stall_age) .. " ago. Run “Reload plugins” from the palette."
+				"Agent Scheduler hasn't ticked lately",
+				"Last tick "
+					.. span(nv.stall_age)
+					.. " ago. If Tern paused it for running too long, it resumes on its own. If not, run “Agent Scheduler: Reload” from the palette."
 			)
 		elseif not nv.stalled then
 			stall_toasted = false
@@ -476,8 +486,8 @@ function status.update(cx: WindowCx?, now: number)
 	end
 end
 
--- `beat` is called at the start of every pass, for the timer watchdog in window.luau.
-function status.register(beat: () -> ())
+-- Registers the status segment and its refresh timer.
+function status.register()
 	if registered then
 		return
 	end
@@ -492,7 +502,6 @@ function status.register(beat: () -> ())
 	local function arm()
 		tern.timer(REFRESH_MS, function(cx)
 			local t0 = tern.now()
-			beat()
 			arm()
 			pcall(wsnap.poll)
 			local t1 = tern.now()

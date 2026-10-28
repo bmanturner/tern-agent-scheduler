@@ -18,7 +18,7 @@ local const = {
 	OBS_HEARTBEAT_S = 30,
 	OBS_STALE_S = 45,
 	STATUS_REFRESH_S = 60,
-	WINDOW_SLOW_MS = 20, -- a window timer pass this slow is logged (the budget is 50 ms; one trip stops every timer)
+	WINDOW_SLOW_MS = 20, -- a window timer pass this slow is logged (wall time; the 50 ms budget counts only our Lua, and Tern pauses a hook that runs over it)
 	-- launch
 	LAUNCH_TIMEOUT_MS = 15000,
 	ORPHAN_WAIT_S = 20,

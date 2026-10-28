@@ -3,7 +3,8 @@
 -- every OBS_POLL_S this finds each run's agent in cx.agents:list() and sends an `obs` intent when
 -- (state, model, last_message) changed, and again every OBS_HEARTBEAT_S while it persists. The
 -- `agent_finished` event also sends one at once, with `finished` = "done" | "failed", when a run's
--- turn ends. The window never interprets the state; the host debounces and decides every transition.
+-- turn ends, and `agent_state` sends a run's state change at once. The window never interprets the
+-- state; the host debounces and decides every transition.
 
 local const = require("./const")
 local outbox = require("./outbox")
@@ -121,12 +122,8 @@ function observer.sample(cx: WindowCx, now_ms: number)
 	end
 end
 
--- `agent_finished`: a turn ended. Only "done" and "failed" are forwarded; "exited" reaches
--- the host as `pane_exited`, and closing a pane is seen by the host's liveness check.
-function observer.on_finished(ev: AgentFinishedEvent, cx: WindowCx)
-	if ev.result ~= "done" and ev.result ~= "failed" then
-		return
-	end
+-- The in-flight run block shown as window pane `pane` and that pane's cx.agents:list() entry (or nil).
+local function run_at(cx: WindowCx, pane: number): (string?, any)
 	pcall(wsnap.poll)
 	for _, run in wsnap.inflight() do
 		local block = run.block
@@ -134,24 +131,55 @@ function observer.on_finished(ev: AgentFinishedEvent, cx: WindowCx)
 			local okr, win = pcall(function()
 				return cx.session:resolve(block)
 			end)
-			if okr and win == ev.pane then
-				local entry: any = { state = "idle" }
+			if okr and win == pane then
 				local okl, list = pcall(function()
 					return cx.agents:list()
 				end)
 				if okl then
 					for _, e in list do
-						if e.pane == ev.pane then
-							entry = e
-							break
+						if e.pane == pane then
+							return block, e
 						end
 					end
 				end
-				observer.send_sample(block, entry, tern.now(), ev.result)
-				return
+				return block, nil
 			end
 		end
 	end
+	return nil, nil
+end
+
+-- `agent_finished`: a turn ended. Only "done" and "failed" are forwarded; "exited" reaches
+-- the host as `pane_exited`, and closing a pane is seen by the host's liveness check.
+function observer.on_finished(ev: AgentFinishedEvent, cx: WindowCx)
+	if ev.result ~= "done" and ev.result ~= "failed" then
+		return
+	end
+	local block, e = run_at(cx, ev.pane)
+	if block == nil then
+		return
+	end
+	observer.send_sample(block, e or { state = "idle" }, tern.now(), ev.result)
+end
+
+-- `agent_state`: an agent's state changed. A run's change is sent at once instead of on the next
+-- poll; "exited" reaches the host as `pane_exited`.
+function observer.on_state(ev: AgentStateEvent, cx: WindowCx)
+	if ev.new == "exited" or ev.old == ev.new then
+		return
+	end
+	local block, e = run_at(cx, ev.pane)
+	if block == nil then
+		return
+	end
+	local entry: any = {}
+	if e ~= nil then
+		for k, v in e do
+			entry[k] = v
+		end
+	end
+	entry.state = ev.new
+	observer.send_sample(block, entry, tern.now())
 end
 
 -- Starts the polling chain (once per VM). The next timer is armed before the body runs, so an
@@ -189,6 +217,15 @@ function observer.start()
 	end)
 	if not ok then
 		tern.log.debug("tern-agent-scheduler: no agent_finished event; polling only")
+	end
+	local oks = pcall(tern.on, "agent_state", function(ev: AgentStateEvent, cx: WindowCx)
+		local okf, err = pcall(observer.on_state, ev, cx)
+		if not okf then
+			tern.log.warn("tern-agent-scheduler: agent_state", err)
+		end
+	end)
+	if not oks then
+		tern.log.debug("tern-agent-scheduler: no agent_state event; polling only")
 	end
 end
 

@@ -1,6 +1,6 @@
 --!strict
--- Window half: the four palette commands (UX §2.2 #1, #2, #4, #5). They never create or change jobs:
--- they open the manager or send allowlisted intents. Nothing here runs at load time.
+-- Window half: the palette commands (UX §2.2 #1, #2, #4, #5) and a single-plugin reload. They never
+-- create or change jobs: they open the manager or send allowlisted intents. Nothing here runs at load time.
 
 local const = require("./const")
 local outbox = require("./outbox")
@@ -170,6 +170,32 @@ local function go_to_needs_you(cx: WindowCx)
 	send(cx, "focus_run", { run_id = tostring(needs[1].run_id) })
 end
 
+-- Reloads only this plugin (`tern plugin reload <id>`); without a tern binary, every plugin.
+local function reload_plugin(cx: WindowCx)
+	local bin: string? = nil
+	for _, p in platform.tern_paths() do
+		local ok, yes = pcall(tern.fs.exists, p)
+		if ok and yes then
+			bin = p
+			break
+		end
+	end
+	if bin == nil then
+		cx:command("reload_plugins")
+		return
+	end
+	tern.process.run(
+		{ bin :: string, "plugin", "reload", tern.plugin.id },
+		{ timeout_ms = 15000 },
+		function(r: ProcessResult, cx2: WindowCx?)
+			if r.status ~= 0 and cx2 ~= nil then
+				local why = (if r.stderr ~= "" then r.stderr else r.stdout):match("[^\n]+") or ("exit " .. tostring(r.status))
+				cx2:toast("error", "Couldn't reload Agent Scheduler", why)
+			end
+		end
+	)
+end
+
 local registered = false
 
 function commands.register()
@@ -216,6 +242,7 @@ function commands.register()
 		end,
 		run = go_to_needs_you,
 	})
+	tern.command({ id = "reload", title = "Reload", icon = "timer", group = GROUP, run = reload_plugin })
 end
 
 return commands
