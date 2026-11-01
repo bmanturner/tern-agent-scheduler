@@ -1,4 +1,4 @@
--- The allowlist (13 kinds), dropped kinds, retry of undecodable files, carly_create and its replies.
+-- The allowlist (15 kinds), dropped kinds, retry of undecodable files, carly_create and its replies.
 local jobs, runner, intents = __mods.jobs, __mods.runner, __mods.intents
 
 fake.dirs["/home/u/proj"] = true

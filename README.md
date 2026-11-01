@@ -23,7 +23,7 @@ A job can also wait for something worth doing: new commits on a branch, working 
 
 ## Install
 
-Built and tested on Tern 0.9.6. Runs on macOS or Linux (not Windows yet) and needs [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
+Built and tested on Tern 0.9.9. Runs on macOS or Linux (not Windows yet) and needs [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
 
 > [!IMPORTANT]
 > Jobs run while Tern's session service is running. It keeps running after you close every window, as long as a terminal or a run tab is open. Nothing runs while your computer is asleep, or after a restart until you open Tern; missed runs then follow each job's **If your Mac was asleep** setting.
@@ -123,10 +123,10 @@ At 150 columns or wider, a job's details sit beside the list and follow the sele
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/job-details-dark.png">
-  <img alt="A wide manager with the timeline on the left and the selected job's details on the right: its latest result, schedule, folder, role and prompt, and one line per run with its outcome, duration and cost" src="docs/screenshots/job-details-light.png">
+  <img alt="A wide manager with the timeline on the left and the selected job's details on the right: run totals (runs, succeeded, failed, missed), its latest result, schedule, folder, role and prompt, and one line per run with its outcome, duration and cost" src="docs/screenshots/job-details-light.png">
 </picture>
 
-Job details show the latest result, the job's settings and prompt, and one line per run with its outcome, duration and cost; failed and missed runs are counted separately. **Settings › Display › Time format** picks **Automatic** (your system's 12- or 24-hour preference, else 24-hour), **12-hour** or **24-hour** for every time Agent Scheduler shows, including notifications, the status line and Carly.
+Job details show the run totals (runs, succeeded, failed and missed, counted separately), the latest result, the job's settings and prompt, and one line per recent run with its outcome, duration and cost. **Settings › Display › Time format** picks **Automatic** (your system's 12- or 24-hour preference, else 24-hour), **12-hour** or **24-hour** for every time Agent Scheduler shows, including notifications, the status line and Carly.
 
 New results fade three seconds after you open the manager; choose **Stay until marked seen** under **Settings › Display › New results** to keep them highlighted. Press `s` or click **Mark all seen** to clear them; the button and key only appear when there is something to mark. A failure marker stays on the job until its next success.
 
@@ -142,7 +142,7 @@ New results fade three seconds after you open the manager; choose **Stay until m
 | `s` | Mark all results seen |
 | `?` | Help: every key, and when jobs run |
 
-From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+alt+shift+m`), **New job…** (`ctrl+alt+shift+j`), **Run a job now…** (`ctrl+alt+shift+r`), **Go to run that needs you** (`ctrl+alt+shift+a`) and **Reload** (reloads only this plugin).
+From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+alt+shift+m`), **New job…** (`ctrl+alt+shift+j`), **New job from selection…** (the selected text becomes the prompt), **Run a job now…** (`ctrl+alt+shift+r`), **Go to run that needs you** (`ctrl+alt+shift+a`) and **Reload** (reloads only this plugin). The Files pane's toolbar has a timer button that starts a new job in the folder it shows.
 
 ### Settings
 

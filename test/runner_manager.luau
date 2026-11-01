@@ -8,6 +8,7 @@ tern.ui = {
  col = function(c) return { k = "col", p = {}, c = c } end,
  row = function(c) return { k = "row", p = {}, c = c } end,
  badge = function(label, tone) return { k = "badge", p = { label = label, tone = tone }, c = {} } end,
+ button = function(text, p) local q = p or {}; q.text = text; return { k = "button", p = q, c = {} } end,
 }
 local jobs, ledger, runner = __mods.jobs, __mods.ledger, __mods.runner
 local H, T, C = __mods.mgr_history, __mods.mgr_timeline, __mods.mgr_common

@@ -4,6 +4,7 @@ tern.ui = {
  node = function(k, p, c) return { k = k, p = p, c = c } end,
  el = function(k, p, c) return { k = k, p = p, c = c } end,
  text = function(spans) return { k = "text", p = {}, spans = spans } end,
+ button = function(text, p) local q = p or {}; q.text = text; return { k = "button", p = q, c = {} } end,
 }
 local jobs, runner = __mods.jobs, __mods.runner
 local S = __mods.mgr_sheets

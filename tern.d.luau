@@ -18,8 +18,9 @@ export type Context = "host" | "window"
 --- Level of a toast in Tern's windows.
 export type ToastLevel = "success" | "info" | "error"
 
---- Where a file or block opens relative to the focused pane.
-export type How = "default" | "beside" | "below" | "split" | "tab" | "replace" | "preview"
+--- Where a file or block opens relative to the focused pane. `"over"` takes the focused (or
+--- target) pane's slot, parking that pane until the new block closes, then puts it back there.
+export type How = "default" | "beside" | "below" | "split" | "tab" | "replace" | "over" | "preview"
 
 --- What asked Tern to open a file.
 export type Origin = "palette" | "files" | "drop" | "link" | "system" | "cli" | "carly"
@@ -150,6 +151,8 @@ export type Col = {
 	grow: number?,
 	--- Where cells that don't fit are cut (default `"end"`).
 	truncate: Truncate?,
+	--- Cells in the mono face, for machine strings (ids, hashes, sizes) in a sans surface.
+	mono: boolean?,
 }
 
 --- A thin-bar table cell from `tern.ui.meter_cell` or `meter_parts_cell`.
@@ -167,8 +170,145 @@ export type MeterCell = {
 	},
 }
 
---- A table cell: a span list or a meter cell.
-export type Cell = Spans | MeterCell
+--- A text cell: `text` after a status dot (`dot`, a tone) or an icon (12px, colored by `tone`).
+export type TextCell = {
+	text: Spans,
+	--- Named icon before the text.
+	icon: string?,
+	--- A 6px status dot in this tone before the text (wins over `icon`).
+	dot: string?,
+	--- The icon's tone (default quiet ink).
+	tone: string?,
+	--- Tooltip.
+	title: string?,
+}
+
+--- A badge cell: the `badge` look.
+export type BadgeCell = {
+	badge: { text: string, tone: string?, title: string? },
+}
+
+--- A small button cell: a click sends `{ev = "action", id = <table>, act = act, item = <row id>}`
+--- and does not select the row.
+export type ButtonCell = {
+	button: {
+		text: string,
+		act: string,
+		icon: string?,
+		--- Keycaps after the label (display only).
+		keys: { string }?,
+		variant: ButtonVariant?,
+		--- Dimmed and inert; a string is the tooltip reason.
+		disabled: (boolean | string)?,
+	},
+}
+
+--- A sparkline cell the height of the text, 8 cells wide unless its column grows.
+export type SparkCell = {
+	spark: {
+		values: { number },
+		--- Line tone (default accent).
+		tone: string?,
+		--- Domain bottom (default 0).
+		min: number?,
+		--- Domain top (default the largest value).
+		max: number?,
+		title: string?,
+	},
+}
+
+--- A table cell: a span list, a meter, text after a mark, a badge, a button or a sparkline.
+export type Cell = Spans | MeterCell | TextCell | BadgeCell | ButtonCell | SparkCell
+
+--- A `tern.ui.table` row with an id: events name it as `item`.
+export type TableRow = {
+	id: string,
+	--- One cell per column, in order.
+	cells: { Cell },
+	--- Dimmed, no select/activate/menu; a string is the tooltip reason.
+	disabled: (boolean | string)?,
+	--- Right-click actions, each sending `{ev = "action", id = <table>, act = name, item = id}`; Copy row
+	--- follows them.
+	menu: { string }?,
+	--- Row tooltip.
+	title: string?,
+}
+
+--- Options of `tern.ui.table`.
+export type TableOpts = {
+	--- Rows take clicks: `{ev = "select", id, item}`, double-click `{ev = "activate", id, item}`.
+	selectable: boolean?,
+	--- The row id drawn selected, kept in view when it changes.
+	selected: string?,
+	--- Shown, muted and centered, when there are no rows.
+	empty: Spans?,
+}
+
+--- How a `button` looks: `default` (a chip), `primary` (the one main action), `quiet` (no chrome until
+--- hovered) or `danger` (destructive).
+export type ButtonVariant = "default" | "primary" | "quiet" | "danger"
+
+--- Props of `tern.ui.button`, besides any common prop (`title`, `aria`, `key`, `tone`, `actions`, …). A click
+--- sends `{ev = "action", act = actions.click or "click"}`; disabled and busy buttons send nothing.
+export type ButtonProps = {
+	--- Leading icon name; with an empty label the button is icon-only (give it a `title`).
+	icon: string?,
+	--- Key names drawn as keycaps after the label (display only; the tooltip shows them too).
+	keys: { string }?,
+	--- Chrome (default `"default"`).
+	variant: ButtonVariant?,
+	--- `"md"` (28px: bars, heads, forms; the default) or `"sm"` (22px: inline, rows).
+	size: ("md" | "sm")?,
+	--- A pressed toggle.
+	on: boolean?,
+	--- Dimmed and inert; a string is the reason, shown as the tooltip.
+	disabled: (boolean | string)?,
+	--- A spinner in the icon's place; inert.
+	busy: boolean?,
+	[string]: any,
+}
+
+--- A tile of `tern.ui.stats`.
+export type StatItem = {
+	--- What is counted.
+	label: Spans,
+	--- The figure, drawn large with tabular digits.
+	value: Spans,
+	--- A line under it.
+	sub: Spans?,
+	--- Colors the value (`success`, `warning`, `error`, `info`, `accent`, …).
+	tone: string?,
+	--- Tooltip.
+	title: string?,
+}
+
+--- Props of `tern.ui.card`, besides any common prop (`collapsible`, `collapsed`, `status`, `tone`, …).
+export type CardProps = {
+	--- Head icon name (wins over the one a role implies); without one the body lines up with the head text.
+	icon: string?,
+	--- Dim text after the head text.
+	meta: Spans?,
+	--- Id of a child drawn at the head's end instead of the body (buttons, segmented tabs, a badge); clicks
+	--- on it never fold the card.
+	["end"]: string?,
+	[string]: any,
+}
+
+--- A `tabs` strip's look (`p.variant`): `underline` (the default) or `segmented` (a pill well sized to its tabs).
+export type TabsVariant = "underline" | "segmented"
+
+--- Panel props of an `overlay` node (through `tern.ui.node`), besides `head`, `anchor`, `size`, `modal`.
+export type OverlayProps = {
+	--- Head icon name.
+	icon: string?,
+	--- Dim text after the title.
+	meta: Spans?,
+	--- Id of a child drawn at the head's end.
+	["end"]: string?,
+	--- Id of a child drawn in the footer bar under the body (the sheet's actions).
+	foot: string?,
+	[string]: any,
+}
 
 --- A node of `tern.ui.tree`.
 export type TreeNode = {
@@ -293,6 +433,10 @@ export type BlockDef<S> = {
 	--- Opts into native editing of the view's editor/input fields: "edit" (a click places the caret, drag/⇧-arrows
 	--- select, edits arrive as `edit` events) and "undo" (⌃Z/⌘Z arrives as an `undo` event, not a key).
 	features: { "edit" | "undo" }?,
+	--- The face of the block's surface (the `o` `font`): "sans" sets people's text (labels, heads, kv, lists, tables)
+	--- in the UI face on 18px lines while machine strings (`mono`/`code`/`num`/`path`/`key` spans) and kinds (code,
+	--- diff, editor, json, …) stay mono; "mono" (the default) keeps the terminal's face throughout.
+	font: ("sans" | "mono")?,
 	--- Called when the pane resizes to `cols` × `rows` cells, then the block renders and saves; without it the block
 	--- still re-renders (no save), with `cx.cols`/`cx.rows` updated.
 	resize: ((state: S, cols: number, rows: number, cx: BlockCx) -> ())?,
@@ -356,7 +500,7 @@ export type SpawnSpec = {
 	--- Working directory (always set; only the daemon expands a leading `~` in a returned one).
 	cwd: string,
 	--- Only the variables the daemon sets for the pane (`TERN_IDENTITY`, `TERN_PANE`, `TERN_PANE_SOCKET`,
-	--- `TERN_WINDOW_KEY`, `TERN_WINDOW_SOCKET`, `TERN_LENSES`, `TERN_COMPLETE`, `TERN_BLOB_DIR`); the pane's base environment is the
+	--- `TERN_WINDOW_KEY`, `TERN_WINDOW_SOCKET`, `TERN_EXE`, `TERN_LENSES`, `TERN_COMPLETE`, `TERN_BLOB_DIR`); the pane's base environment is the
 	--- login environment, not the daemon's (`tern.getenv` here reads the daemon's).
 	env: { [string]: string },
 }
@@ -443,6 +587,13 @@ export type SurfaceTree = {
 	main: TspNode?, dock: TspNode?, layer: TspNode?,
 	--- Descendants in whole regions omitted after the node budget was exhausted.
 	more: number?,
+}
+
+--- The user's selected text in a block, as copying takes it: a terminal's cells, else
+--- the window selection inside the block (a surface's transcript, a chat, block UI).
+--- kind is the block's BlockRead kind; chars_clipped marks text cut at max_chars.
+export type BlockSelection = {
+	pane: number, kind: string, text: string, chars_clipped: boolean?,
 }
 
 --- Tern's exposed block UI subtree, without ids, bounds or actions.
@@ -896,6 +1047,11 @@ declare extern type BrowserCx with
 	--- Runs a tern browser op; await in Carly, :next(function(result, err, cx) ... end) in plugins.
 	--- Carly and plugins share the same browser operations; snapshot/state/blocks/events are reads.
 	--- Browser failures resolve with result.error; snapshot never enables Tern's driver/dialog policy.
+	--- {op = "pick", block = id} waits for the user to click an element (Escape cancels):
+	--- ok = {picked = {ref, selector, tag, role, name?, text?, value?, box}, url, title} or
+	--- {cancelled = true, url, title}; act takes picked.ref.
+	--- {op = "open", owner = id, url?, corner?, width?, height?, profile?, show?} answers {block, url};
+	--- show = false opens it parked (never on screen, no focus), live at width x height.
 	function call(self, op: { [string]: any }): Awaitable<BrowserResult>
 end
 
@@ -921,6 +1077,14 @@ export type Corner = "tl" | "tr" | "bl" | "br"
 export type TabColor = "red" | "orange" | "yellow" | "green" | "teal" | "blue" | "purple" | "pink"
 --- Reveal a result (default true); plugins and Carly share the same defaults.
 export type Reveal = { focus: boolean? }
+--- Window only: `cx.layout:float` options. `size = {w, h}` sets its glance size (focusing still grows it): each
+--- value up to 1 is that share of the frame it floats over, above 1 about that many terminal cells (columns wide,
+--- rows tall); the layout clamps it to the frame.
+export type FloatOpts = { focus: boolean?, size: { number }? }
+--- Window only: where `cx:new_block` opens its block. `target`/`dir` split that pane on that side (target default
+--- the focused pane, dir default right; with how beside or default); `ratio` (0 to 1, exclusive) is the block's
+--- share of the split it opens in, set before it shows, so it appears at that width with no resize.
+export type BlockOpts = { focus: boolean?, target: number?, dir: Dir?, ratio: number? }
 --- Window only: a named session and its ordered tabs.
 export type SessionInfo = { id: number, name: string, current: boolean, locked: boolean, tabs: { number } }
 --- A split tree: pane at a leaf; [1] left/top and [2] right/bottom at a split.
@@ -981,6 +1145,31 @@ export type StatusSegment = {
 	tone: string?,
 	--- Action name run on click (`"new_tab"`, `"plugin.<id>.<cmd>"`).
 	command: string?,
+}
+
+--- Window only: the Files pane as a `tern.files.button` handler sees it.
+export type FilesInfo = {
+	--- The folder the pane shows, absolute on its host; nil when it shows none.
+	root: string?,
+	--- That folder's host name (`""` without a folder).
+	host: string,
+	--- Absolute paths of the selected rows (a selected folder stands for its selected descendants), else the
+	--- cursor row's; may be empty.
+	selection: { string },
+	--- The tab the pane shows.
+	tab: "files" | "changes" | "refs",
+}
+
+--- Window only: a Files pane header button for `tern.files.button`.
+export type FilesButtonDef = {
+	--- Id within the plugin (`data-id` on the button).
+	id: string,
+	--- Tooltip and accessible name.
+	title: string,
+	--- Named icon (default and unknown: `puzzle`).
+	icon: string?,
+	--- Runs on click.
+	run: (files: FilesInfo, cx: WindowCx) -> (),
 }
 
 --- Window only: a palette command for `tern.command`.
@@ -1145,6 +1334,34 @@ export type AgentStateEvent = {
 	new: "working" | "waiting_input" | "idle" | "exited",
 }
 
+--- Window only: `float_moved` payload: a drag or throw let a floating block go. Keyboard moves and plugin calls
+--- don't fire it.
+export type FloatMovedEvent = {
+	--- The floating block.
+	pane: number,
+	--- Its tab id.
+	tab: number,
+	--- The block it floats over, or docked beside.
+	over: number,
+	--- The corner of `over` it snapped to; nil when it docked.
+	corner: Corner?,
+	--- The edge it slid off, leaving an edge tab (it keeps `corner` to come back to).
+	stashed: ("left" | "right")?,
+	--- Docked into the split tree on that side of `over`: it no longer floats.
+	docked: Dir?,
+}
+
+--- Window only: `session_ended` payload: a session went away (closed here or elsewhere, `tern kill session`, or
+--- an `--end-on-success` block that exited 0). A shown one's window already shows the session it showed before.
+export type SessionEndedEvent = {
+	--- Session id, as `cx.session:sessions()` gave it.
+	session: number,
+	--- Its name.
+	name: string,
+	--- This window showed it when it ended.
+	shown: boolean,
+}
+
 --- Window only: `budget` payload: one of this plugin's own hooks paused for running over its budget, or resumed.
 export type BudgetEvent = {
 	--- The hook: "timer", "command <id>", "status", an event name, ….
@@ -1156,7 +1373,7 @@ export type BudgetEvent = {
 	paused_ms: number?,
 }
 
---- Window only: `pane_created` / `pane_closed` payload.
+--- Window only: `pane_created` / `pane_closed` payload; both fire for every pane kind.
 export type PaneEvent = {
 	--- Pane id.
 	pane: number,
@@ -1225,6 +1442,13 @@ export type CanvasSpec = {
 	how: How?,
 	--- Focuses the new pane by default; false preserves shown focus.
 	focus: boolean?,
+	--- Pane to split (default the focused pane when dir is given); needs how beside or default.
+	target: number?,
+	--- Side of target the canvas takes (default right when target is given).
+	dir: Dir?,
+	--- The canvas's share (0 to 1, exclusive) of the split it opens in, set before it shows: a sidebar opens
+	--- straight at its saved width. Kept above the minimum pane size; ignored when it opens in a tab of its own.
+	ratio: number?,
 }
 
 --- An owner-only canvas update; paths refer to keys within the supplied view.
@@ -1484,6 +1708,9 @@ declare extern type SessionCx with
 	function pane(self, pane: number | string): PaneInfo?
 	--- What a pane shows, by kind; surfaces included. No focus or browser eval.
 	function read(self, pane: number | string, opts: ReadOpts?): (BlockRead | string)?
+	--- The selected text in pane (nil: the focused pane's, else any block's); nil when none.
+	--- max_chars defaults to 8000, maximum 64000. File selections are in read's selection.
+	function selection(self, pane: (number | string)?, opts: { max_chars: number? }?): BlockSelection?
 	--- A capped TSP tree for the live surface or newest retained surface.
 	function surface(self, pane: number | string, opts: SurfaceOpts?): (SurfaceTree | string)?
 	--- Tern's block UI accessibility subtree; nil when hidden or not mounted.
@@ -1527,7 +1754,7 @@ declare extern type LayoutCx with
 	--- Moves pane to a new last tab (default its own session), returning the tab.
 	function move_to_new_tab(self, pane: number, session: number?, reveal: Reveal?): (number?, string?)
 	--- Floats pane over a leaf; defaults to its old-area owner and nearest corner.
-	function float(self, pane: number, over: number?, corner: Corner?, reveal: Reveal?): (boolean, string?)
+	function float(self, pane: number, over: number?, corner: Corner?, opts: FloatOpts?): (boolean, string?)
 	--- Docks a floating block; defaults to its original split, else beside its owner.
 	function dock(self, pane: number, target: number?, dir: Dir?, reveal: Reveal?): (boolean, string?)
 	--- Parks pane in its session's deck, its program still running; its split collapses, or its tab
@@ -1643,7 +1870,7 @@ declare extern type WindowCx with
 	function open(self, target: string, how: How?, reveal: Reveal?): ()
 	--- Opens a plugin block of `kind` (`"plugin.kind"`) on the window's current host; returns its pane (nil, with no
 	--- toast, when no Ready plugin there defines it).
-	function new_block(self, kind: string, args: { string }?, how: How?, reveal: Reveal?): number?
+	function new_block(self, kind: string, args: { string }?, how: How?, opts: BlockOpts?): number?
 	--- Runs a built-in command by id (`"new_tab"`; built-in ids only, else ``unknown command `<id>` ``); overrides don't re-run.
 	function command(self, id: string): ()
 	--- Runs any action name, including plugin.<id>.<command> and keymap/view actions.
@@ -1918,18 +2145,22 @@ declare tern: {
 		lines: (children: { Node }) -> Node,
 		--- A horizontal row, small gaps between children.
 		row: (children: { Node }) -> Node,
-		--- A card headed by `head`.
-		card: (head: Spans, children: { Node }) -> Node,
+		--- A card headed by `head`; `props` adds `icon`, `meta`, `end` and common props.
+		card: (head: Spans, children: { Node }, props: CardProps?) -> Node,
 		--- A lighter disclosure group headed by `head`.
 		section: (head: Spans, children: { Node }) -> Node,
 		--- A divider, labeled when `label` isn't empty.
 		rule: (label: Spans) -> Node,
 		--- A pill chip of `t` in `tone`.
 		badge: (t: string, tone: string) -> Node,
+		--- A push button labeled `text` (nil or `""` with an `icon`: icon-only).
+		button: (text: string?, props: ButtonProps?) -> Node,
+		--- A well of stat tiles side by side, wrapping when narrow.
+		stats: (items: { StatItem }) -> Node,
 		--- An aligned key/value list of `{keySpans, valueSpans}` pairs.
 		kv: (items: { { Spans } }) -> Node,
-		--- A table; `rows[i][j]` is the cell of `cols[j]`.
-		table: (cols: { Col }, rows: { { Cell } }) -> Node,
+		--- A table; `rows[i][j]` is the cell of `cols[j]` (row id `r<i-1>`), or a `TableRow` with its own id.
+		table: (cols: { Col }, rows: { { Cell } | TableRow }, opts: TableOpts?) -> Node,
 		--- A meter cell at `value` (0–1), tinted warn/bad at or above `thresholds` `{warn, bad}`.
 		meter_cell: (value: number, thresholds: { number }?) -> MeterCell,
 		--- A meter cell stacking `{value, themeToken}` parts from the left.
@@ -1960,7 +2191,8 @@ declare tern: {
 		test_summary: (passed: number, failed: number, skipped: number, took: string?) -> Node,
 		--- A muted "… N more (Raw shows everything)" line.
 		overflow: (hidden: number) -> Node,
-		--- Any TSP node: `{k = kind, p = props, c = children}`.
+		--- Any TSP node: `{k = kind, p = props, c = children}`: a `tabs` strip takes `variant: TabsVariant`, an
+		--- `overlay` takes `OverlayProps`.
 		node: (kind: string, props: { [string]: any }?, children: { Node }?) -> Node,
 		--- A generic HTML-subset element `tag` (`div`, `form`, `label`, `button`, `input`, …); props: `class`,
 		--- `attrs` (`data-*`, `aria-*`, `role`, `colspan`, `rowspan`), `text`, common props; `input` takes `type`
@@ -2006,8 +2238,9 @@ declare tern: {
 	--- Host: `spawn(spec: SpawnSpec) -> SpawnSpec?` (sync filter) and `(ev, cx: EffectCx)` for `command_started`,
 	--- `command_finished`, `cwd`, `title`, `pane_exited`. Window: `window_start(cx: WindowCx)` and `(ev, cx: WindowCx)`
 	--- for `focus`, `pane_created`, `pane_closed`, `tab_created`, `tab_closed`, `command_started`, `command_finished`, `cwd`,
-	--- `title`, `agent_finished`, `agent_state` (AgentStateEvent), `budget` (BudgetEvent) and
-	--- `canvas_action(ev: CanvasAction, cx) -> boolean?` (truthy consumes the owner's click).
+	--- `title`, `agent_finished`, `agent_state` (AgentStateEvent), `float_moved` (FloatMovedEvent), `session_ended`
+	--- (SessionEndedEvent), `budget` (BudgetEvent) and `canvas_action(ev: CanvasAction, cx) -> boolean?` (truthy
+	--- consumes the owner's click).
 	--- `window_start` runs once per plugin per window. The `spawn` wait (50 ms) counts from when the request is queued.
 	on: (name: string, fn: (...any) -> ...any) -> (),
 
@@ -2039,10 +2272,23 @@ declare tern: {
 		window_title: (fn: (win: WindowInfo) -> string?) -> (),
 		--- Window only: status line segments for the focused pane; nil adds none.
 		status: (fn: (pane: StatusPaneInfo) -> { StatusSegment }?) -> (),
+		--- Window only: the icon tabs, pane rows and parked cards show for `program`: a program key (`codex`, `vim`,
+		--- `shell`; the icons' `data-program`) or a command name (`nvim`, `npm`; `TabInfo.program`). `icon` is a Tern
+		--- icon name (`provider-openai`, `provider:openai`, `sparkle`); nil takes this plugin's choice back. Wins over
+		--- the `program_icons` setting; the first plugin in id order wins a program. Raises on an unknown icon.
+		program_icon: (program: string, icon: string?) -> (),
 		--- Window only: drops this window's cached formatter results and redraws its tabs, status line and title on
 		--- the next frame, so answers that depend on more than their input (a clock, a file, a process result) show.
 		--- Call it from a timer, event or command, not from a formatter (that raises an error).
 		refresh: () -> (),
+	},
+
+	--- Window only: the Files pane.
+	files: {
+		--- Window only: adds a button to the Files pane's header, before More (`.ft-plugin[data-plugin][data-id]`);
+		--- a click runs `run` with the pane's folder and selection (hook `files button <id>`, 50 ms). Registering an
+		--- `id` again replaces that button in place. Raises ``tern.files.button: bad id `<id>` ``.
+		button: (def: FilesButtonDef) -> (),
 	},
 
 	--- Window only: installs global CSS as sheet `plugin:local:<id>:<name>`, replacing an earlier one of that name.

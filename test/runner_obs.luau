@@ -197,6 +197,17 @@ local rec8 = finished(run8)
 assert(rec8.state == "cancelled" and rec8.reason_code == "closed_by_user", "closed by user: " .. tostring(rec8.state) .. "/" .. tostring(rec8.reason_code))
 print("PASS pane closed by the user => cancelled/closed_by_user")
 
+-- 8b. session_ended re-reads Tern's state at once instead of waiting for the next slow tick
+local run8b = start_run(job)
+local ls0 = #fake.calls_of("ls")
+assert(fake.run_until(function() return #fake.calls_of("ls") > ls0 end, 20000, 500), "a slow tick ran")
+fake.remove_block(tonumber(run8b.block))
+fake.intent("1760000000001-testwin01-0001", { format = 1, kind = "session_ended" })
+fake.advance(2500)
+local rec8b = finished(run8b)
+assert(rec8b.state == "cancelled" and rec8b.reason_code == "closed_by_user", "session_ended: " .. tostring(rec8b.state) .. "/" .. tostring(rec8b.reason_code))
+print("PASS session_ended re-reads Tern's state at once")
+
 -- 9. finished-pane cap: keep at most settings.max_finished_panes finished run panes, oldest unfocused first
 local function our_blocks()
 	local n = 0

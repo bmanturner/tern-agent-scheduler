@@ -1,5 +1,5 @@
 --!strict
--- Standard cards (loading, error with copyable fixes, empty) and a props helper; both halves.
+-- An error card with copyable fixes, and a props helper; both halves.
 -- Cards set no `key` themselves: callers key them with cards.with.
 
 local ui = tern.ui
@@ -11,8 +11,6 @@ export type ErrorOpts = {
 	detail: string?,
 	-- Commands to run in a terminal; each line copies itself on click.
 	fixes: { string }?,
-	-- Action name of a Retry button; the block's `event` receives it as `ev.act`.
-	retry: string?,
 }
 
 -- `node` with `props` merged into its props (key, tone, actions, …).
@@ -23,15 +21,6 @@ function cards.with(node: Node, props: { [string]: any }): Node
 	end
 	node.p = p
 	return node
-end
-
--- A block's status card: a strong title over aligned `{label, value spans}` rows.
-function cards.status(title: string, rows: { { Spans } }): Node
-	return ui.card({ ui.span(title, "strong") }, { ui.kv(rows) })
-end
-
-function cards.loading(label: string): Node
-	return ui.card({ ui.span(label, "strong") }, { ui.progress(nil, { ui.span("Loading…", "muted") }) })
 end
 
 -- Copyable terminal commands under a muted lead line; each line copies itself on click. Lines are
@@ -57,18 +46,7 @@ function cards.error(title: string, message: string, opts: ErrorOpts?): Node
 	for _, n in cards.commands(o.fixes or {}) do
 		table.insert(body, n)
 	end
-	if o.retry then
-		table.insert(body, ui.row({ cards.with(ui.badge("Retry", "accent"), { actions = { click = o.retry } }) }))
-	end
-	return cards.with(ui.card({ ui.span(title, "strong") }, body), { tone = "error" })
-end
-
-function cards.empty(title: string, hint: string?): Node
-	local body: { Node } = {}
-	if hint then
-		table.insert(body, ui.text({ ui.span(hint, "muted") }))
-	end
-	return cards.with(ui.card({ ui.span(title, "strong") }, body), { tone = "muted" })
+	return cards.with(ui.card({ ui.span(title, "strong") }, body, { icon = "warn" }), { tone = "error" })
 end
 
 return cards

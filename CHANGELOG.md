@@ -2,6 +2,23 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.6.0 (2026-10-31)
+
+Built and tested on Tern 0.9.9. **Update Tern to 0.9.9:** on an older Tern, Settings › Setup flags the Tern version.
+
+### Added
+
+- **Agent Scheduler: New job from selection…** in the palette opens the New job form with the selected text as the prompt.
+- A timer button in the Files pane's toolbar starts a new job in the folder the pane shows.
+- Job details show the run totals (runs, succeeded, failed, missed) as a row of tiles above the history.
+- A run whose tab or session is closed is recorded as soon as Tern reports the session ended, instead of on the next check up to 15 seconds later.
+
+### Changed
+
+- The manager's buttons are Tern's own buttons, with keycaps, one highlighted action, and red for destructive ones.
+- Dialogs have an icon in their title and their buttons in a footer bar; the conditions dialog names the job beside its title.
+- The manager uses Tern's sans-serif face for its text.
+
 ## 0.5.0 (2026-10-28)
 
 Built and tested on Tern 0.9.6. **Update Tern to 0.9.6:** on an older Tern, Settings › Setup flags the Tern version.

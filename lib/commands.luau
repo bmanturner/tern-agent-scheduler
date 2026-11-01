@@ -23,14 +23,14 @@ local function on_remote_host(cx: WindowCx): boolean
 	return ok and type(host) == "table" and (host :: any).kind == "remote"
 end
 
--- The focused pane's working directory on its own host ("" when unknown).
-local function pane_cwd(cx: WindowCx): string
+-- The working directory of `pane` (default: the focused pane) on its own host ("" when unknown).
+local function pane_cwd(cx: WindowCx, pane: number?): string
 	local ok, info = pcall(function()
-		local pane = cx.session:focused()
-		if pane == nil then
+		local target = pane or cx.session:focused()
+		if target == nil then
 			return nil
 		end
-		return cx.session:pane(pane)
+		return cx.session:pane(target)
 	end)
 	if ok and info ~= nil and type(info.cwd) == "string" then
 		return info.cwd
@@ -83,6 +83,23 @@ end
 
 local function new_job(cx: WindowCx)
 	cx:new_block(const.MANAGER_KIND, { "new", pane_cwd(cx) }, "tab")
+end
+
+local SELECTION_MAX = 8000
+
+local function new_job_from_selection(cx: WindowCx)
+	local ok, sel = pcall(function()
+		return cx.session:selection(nil, { max_chars = SELECTION_MAX })
+	end)
+	local text = if ok and sel ~= nil then (sel.text:match("^%s*(.-)%s*$") or "") else ""
+	if text == "" or sel == nil then
+		cx:toast("info", "Nothing selected", "Select the text for the job's prompt, then run this again.")
+		return
+	end
+	cx:new_block(const.MANAGER_KIND, { "new", pane_cwd(cx, sel.pane), text }, "tab")
+	if sel.chars_clipped == true then
+		cx:toast("info", "Prompt shortened", "Only the first 8000 characters of the selection were used.")
+	end
 end
 
 local function job_group(job: any): string
@@ -223,6 +240,7 @@ function commands.register()
 		keys = { "ctrl+alt+shift+j" },
 		run = new_job,
 	})
+	tern.command({ id = "new-job-from-selection", title = "New job from selection…", icon = "selection", group = GROUP, run = new_job_from_selection })
 	tern.command({
 		id = "run-job-now",
 		title = "Run a job now…",
@@ -243,6 +261,18 @@ function commands.register()
 		run = go_to_needs_you,
 	})
 	tern.command({ id = "reload", title = "Reload", icon = "timer", group = GROUP, run = reload_plugin })
+	local okf, ferr = pcall(function()
+		tern.files.button({ id = "new-job", title = "New Agent Scheduler job in this folder", icon = "timer", run = function(files: FilesInfo, cx: WindowCx)
+			if files.root == nil then
+				cx:toast("info", "No folder", "Open a folder in the Files pane first.")
+				return
+			end
+			cx:new_block(const.MANAGER_KIND, { "new", files.root :: string }, "tab")
+		end })
+	end)
+	if not okf then
+		tern.log.warn("tern-agent-scheduler: Files button not registered", ferr)
+	end
 end
 
 return commands

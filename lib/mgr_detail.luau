@@ -304,11 +304,10 @@ local function expanded_card(run: any): Node
 		table.insert(facts, "session " .. run.session_id)
 	end
 	table.insert(facts, C.cost_text(run.cost))
-	table.insert(lines, ui.text({ ui.span(table.concat(facts, " · "), "muted") }))
-	return C.with(ui.card({ ui.span("Last message", "strong") }, lines), { key = "expanded" })
+	return C.with(ui.card({ ui.span("Last message", "strong") }, lines, { icon = "message", meta = { ui.span(table.concat(facts, " · "), "mono") } }), { key = "expanded" })
 end
 
--- History is text, not a chart. Counters are independent of ledger retention.
+-- Totals are a stats strip; history stays text. Counters are independent of ledger retention.
 
 -- View ---------------------------------------------------------------------------------------------------------
 
@@ -345,6 +344,7 @@ function D.view(state: State, embedded: boolean?, frame_now: number?): (Node, No
 	local runs = runs_of_job(state)
 	local sel = selected_run(state, runs)
 	local h = H.ensure(job.id)
+	local counts = h.totals
 	local status = if js.done then "✓ Finished" elseif job.enabled == false then "Ⅱ Paused" else "○ Active"
 	local live = A.runs_of(job.id)[1]
 	if live then status = if live.state == "needs_input" then "! Needs you" else "● Running" end
@@ -352,6 +352,12 @@ function D.view(state: State, embedded: boolean?, frame_now: number?): (Node, No
 	local children: { Node } = {
 		C.with(C.text({ ui.span(job.name, "strong") }, "title"), { role = "tas.detail-title" }),
 		C.with(C.text({ ui.span(status, if live then "accent" else "muted") }, "status"), { role = "tas.detail-status" }),
+		C.with(ui.stats({
+			{ label = "Runs", value = tostring(counts.total) },
+			{ label = "Succeeded", value = tostring(counts.ok) },
+			{ label = "Failed", value = tostring(counts.failed), tone = if counts.failed > 0 then "error" else nil },
+			{ label = "Missed", value = tostring(counts.missed), tone = if counts.missed > 0 then "warning" else nil },
+		}), { key = "totals", role = "tas.detail-totals" }),
 	}
 	local latest = runs[1]
 	if latest then
@@ -374,9 +380,8 @@ function D.view(state: State, embedded: boolean?, frame_now: number?): (Node, No
 	table.insert(children, C.with(ui.kv(facts), { key = "facts", role = "tas.detail-settings" }))
 	local prompt = jobs.prompt(d.job_id) or ""
 	table.insert(children, C.with(ui.kv({ kv("Prompt", clip(D.prompt_preview(prompt), if embedded then 160 else 240)) }), { key = "prompt", role = "tas.detail-prompt" }))
-	table.insert(children, C.with(C.action_button("Open prompt file", "p", "neutral", "prompt", "prompt-file", job.id), { role = "tas.prompt-action" }))
-	local counts = h.totals
-	local label = string.format("%d runs · %d failed · %d missed", counts.total, counts.failed, counts.missed)
+	table.insert(children, C.action_button("Open prompt file", { "p" }, "default", "prompt", "prompt-file", job.id, "sm"))
+	local label = "Recent runs"
 	if counts.total > #runs then label ..= string.format(" · latest %d of %d", #runs, counts.total) end
 	table.insert(children, C.with(ui.rule({ ui.span(label, "muted") }), { key = "run-heading", role = "tas.run-heading" }))
 	local items: { Node } = {}
@@ -410,23 +415,23 @@ function D.view(state: State, embedded: boolean?, frame_now: number?): (Node, No
 		ctx = C.text({ ui.span("No runs yet.", "muted") }, "ctx")
 	end
 	local acts: { Node } = {}
-	local function add(label: string, tone: string, act: string, key: string, value: string?)
-		local keys = { open_run = "enter", run = "r", edit = "e", pause = "space", delete = "dd", back = "esc", check_conditions = "i" }
-		table.insert(acts, C.action_button(label, keys[act] or "", if act == "delete" then "error" else tone, act, key, value))
+	local function add(label: string, variant: ButtonVariant, act: string, key: string, value: string?)
+		local keys: { [string]: { string } } = { open_run = { "enter" }, run = { "r" }, edit = { "e" }, pause = { "space" }, delete = { "d", "d" }, back = { "esc" }, check_conditions = { "i" } }
+		table.insert(acts, C.action_button(label, keys[act] or {}, variant, act, key, value))
 	end
 	if sel ~= nil then
 		local closed = sel.session_file ~= nil and not (sel.block ~= nil and sel.pane_closed_at == nil)
-		add(if closed then "Resume run" else "Open run", "accent", "open_run", "open", sel.run_id)
+		add(if closed then "Resume run" else "Open run", "primary", "open_run", "open", sel.run_id)
 	end
-	add("Run now", "neutral", "run", "run", job.id)
+	add("Run now", "default", "run", "run", job.id)
 	if type(job.conditions) == "table" and #job.conditions > 0 then
-		add("Check conditions", "neutral", "check_conditions", "check", job.id)
+		add("Check conditions", "default", "check_conditions", "check", job.id)
 	end
-	add("Edit", "neutral", "edit", "edit", job.id)
-	add(if job.enabled == false then "Resume" else "Pause", "neutral", "pause", "pause", job.id)
+	add("Edit", "default", "edit", "edit", job.id)
+	add(if job.enabled == false then "Resume" else "Pause", "default", "pause", "pause", job.id)
 	local armed = state.armed == job.id
-	add(if armed then "Confirm delete" else "Delete", if armed then "error" else "neutral", "delete", "delete", job.id)
-	add("Back", "neutral", "back", "back")
+	add(if armed then "Confirm delete" else "Delete", "danger", "delete", "delete", job.id)
+	add("Back", "quiet", "back", "back")
 	local back = table.remove(acts)
 	local dock = ui.col({ ctx, C.with(ui.row({
 		ui.node("row", { key = "job-actions", role = "tas.dock-job", gap = "xs" }, acts),

@@ -1,7 +1,7 @@
 --!strict
 -- The Agent Scheduler manager block (host half): list, detail and form modes plus layer sheets. The views live in
 -- lib/mgr_*.luau; this file owns the lifecycle (init/save/title), mode routing and the runner subscription.
--- Args: {"list"} or {"new", <cwd or "">}.
+-- Args: {"list"}, {"settings", <cwd>} or {"new", <cwd or "">, <prompt?>}.
 
 local ui = tern.ui
 local C = require("../lib/mgr_common")
@@ -55,6 +55,7 @@ local function saved_folds(v: any): { [string]: boolean }
 end
 
 local def: BlockDef<State> = {
+	font = "sans",
 	init = function(cx, args, saved)
 		local s: any = if type(saved) == "table" then saved else {}
 		local state: State = {
@@ -88,7 +89,7 @@ local def: BlockDef<State> = {
 		elseif saved == nil and args[1] == "settings" then
 			S.open_settings(state)
 		elseif saved == nil and args[1] == "new" then
-			F.open_new(state, { cwd = cwd })
+			F.open_new(state, { cwd = cwd, prompt = if type(args[3]) == "string" and args[3] ~= "" then args[3] else nil })
 		elseif s.mode == "detail" and type(s.selected_id) == "string" then
 			A.open_detail(state, s.selected_id)
 		end

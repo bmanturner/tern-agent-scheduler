@@ -3,7 +3,8 @@
 -- every OBS_POLL_S this finds each run's agent in cx.agents:list() and sends an `obs` intent when
 -- (state, model, last_message) changed, and again every OBS_HEARTBEAT_S while it persists. The
 -- `agent_finished` event also sends one at once, with `finished` = "done" | "failed", when a run's
--- turn ends, and `agent_state` sends a run's state change at once. The window never interprets the
+-- turn ends, and `agent_state` sends a run's state change at once. `session_ended` sends a bare
+-- `session_ended` intent so the host re-reads Tern's state now. The window never interprets the
 -- state; the host debounces and decides every transition.
 
 local const = require("./const")
@@ -182,6 +183,18 @@ function observer.on_state(ev: AgentStateEvent, cx: WindowCx)
 	observer.send_sample(block, entry, tern.now())
 end
 
+-- A session went away: ask the host to re-read Tern's state now when runs are in flight (their panes may be gone).
+function observer.on_session_ended(_ev: SessionEndedEvent, _cx: WindowCx)
+	pcall(wsnap.poll)
+	if #wsnap.inflight() == 0 then
+		return
+	end
+	local _, err = outbox.send("session_ended", nil)
+	if err ~= nil then
+		tern.log.warn("tern-agent-scheduler: session_ended", err)
+	end
+end
+
 -- Starts the polling chain (once per VM). The next timer is armed before the body runs, so an
 -- error in a pass doesn't end the chain.
 function observer.start()
@@ -226,6 +239,15 @@ function observer.start()
 	end)
 	if not oks then
 		tern.log.debug("tern-agent-scheduler: no agent_state event; polling only")
+	end
+	local oke = pcall(tern.on, "session_ended", function(ev: SessionEndedEvent, cx: WindowCx)
+		local okf, err = pcall(observer.on_session_ended, ev, cx)
+		if not okf then
+			tern.log.warn("tern-agent-scheduler: session_ended", err)
+		end
+	end)
+	if not oke then
+		tern.log.debug("tern-agent-scheduler: no session_ended event; polling only")
 	end
 end
 

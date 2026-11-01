@@ -72,6 +72,7 @@ local const = {
 }
 
 const.INTENT_KINDS = {
+	session_ended = true,
 	obs = true,
 	run_now = true,
 	pause = true,

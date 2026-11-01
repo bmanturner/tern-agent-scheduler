@@ -1,1 +1,2 @@
 PASS Open manager and New job follow the window's current host
+PASS Files button and New job from selection open a prefilled form

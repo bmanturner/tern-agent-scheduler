@@ -504,33 +504,33 @@ end
 
 local function row_badges(state: State, row: Row?, model: Model): { Node }
 	local out: { Node } = {}
-	local function add(label, key, act, value, tone)
-		table.insert(out, C.action_button(label, key, tone or "neutral", act, act, value))
+	local function add(label: string, keys: { string }, act: string, value: string?, variant: ButtonVariant?)
+		table.insert(out, C.action_button(label, keys, variant or "default", act, act, value))
 	end
 	if data_problem() ~= nil then
-		add("Start fresh", "", "start_fresh", nil, "error")
-		add("Open data folder", "", "open_data", nil)
+		add("Start fresh", {}, "start_fresh", nil, "danger")
+		add("Open data folder", {}, "open_data", nil)
 	end
 	if row ~= nil and row.kind ~= "invalid" then
 		local job: any = row.job
-		add("Open", "enter", "details", job.id, "accent")
-		add("Run now", "r", "run", job.id)
-		add("Edit", "e", "edit", job.id)
-		add(if job.enabled == false then "Resume" else "Pause", "space", "pause", job.id)
-		if state.cx.cols >= 110 then add("Duplicate", "c", "duplicate", job.id) end
+		add("Open", { "enter" }, "details", job.id, "primary")
+		add("Run now", { "r" }, "run", job.id)
+		add("Edit", { "e" }, "edit", job.id)
+		add(if job.enabled == false then "Resume" else "Pause", { "space" }, "pause", job.id)
+		if state.cx.cols >= 110 then add("Duplicate", { "c" }, "duplicate", job.id) end
 	end
 	if row ~= nil then
-		add(if state.armed == row.key then "Confirm delete" else "Delete", "dd", "delete", (row.job :: any).id, "error")
+		add(if state.armed == row.key then "Confirm delete" else "Delete", { "d", "d" }, "delete", (row.job :: any).id, "danger")
 	end
 	local job_actions = out
 	out = {}
-	add("New job", "n", "new", nil)
-	add("Settings", ",", "settings", nil)
-	if model.unseen then add("Mark all seen", "s", "seen", nil) end
-	add("Help", "?", "help", nil)
-	if state.undo_until ~= nil and tern.now() < state.undo_until then add("Undo", "u", "undo", nil, "accent") end
+	add("New job", { "n" }, "new", nil)
+	add("Settings", { "," }, "settings", nil)
+	if model.unseen then add("Mark all seen", { "s" }, "seen", nil) end
+	add("Help", { "?" }, "help", nil)
+	if state.undo_until ~= nil and tern.now() < state.undo_until then add("Undo", { "u" }, "undo", nil) end
 	-- Set apart and last, like Delete in the job group.
-	add(if jobs.paused_all() then "Resume all" else "Pause all", "P", "pause_all", nil, "warning")
+	add(if jobs.paused_all() then "Resume all" else "Pause all", { "shift", "p" }, "pause_all", nil, "quiet")
 	return { ui.node("row", { key = "job-actions", role = "tas.dock-job", gap = "sm" }, job_actions), ui.node("row", { key = "global-actions", role = "tas.dock-global", gap = "sm" }, out) }
 end
 
@@ -667,14 +667,14 @@ local function example_view(state: State): (Node, Node)
 	local job_actions: { Node } = {}
 	local problem = data_problem()
 	if problem ~= nil then
-		table.insert(job_actions, C.action_button("Start fresh", "", "error", "start_fresh", "start_fresh"))
-		table.insert(job_actions, C.action_button("Open data folder", "", "neutral", "open_data", "open_data"))
+		table.insert(job_actions, C.action_button("Start fresh", {}, "danger", "start_fresh", "start_fresh"))
+		table.insert(job_actions, C.action_button("Open data folder", {}, "default", "open_data", "open_data"))
 	end
-	table.insert(job_actions, C.action_button("Use example", "enter", "accent", "example", "example"))
+	table.insert(job_actions, C.action_button("Use example", { "enter" }, "primary", "example", "example"))
 	local global_actions: { Node } = {
-		C.action_button("New job", "n", "neutral", "new", "new"),
-		C.action_button("Settings", ",", "neutral", "settings", "settings"),
-		C.action_button("Help", "?", "neutral", "help", "help"),
+		C.action_button("New job", { "n" }, "default", "new", "new"),
+		C.action_button("Settings", { "," }, "default", "settings", "settings"),
+		C.action_button("Help", { "?" }, "default", "help", "help"),
 	}
 	local ctx: Node
 	if problem ~= nil then

@@ -299,15 +299,15 @@ function C.when_text(t: number, now: number): string
 	return (string.gsub(timefmt.date("%d %b ", t), "^0", "")) .. hm
 end
 
--- Every clickable action in the manager (docks, forms, dialogs) is this one button, so they all share one look.
-function C.action_button(label: string, key: string, tone: string, act: string, id: string, value: string?): Node
-	local kids: { Node } = { tern.ui.el("span", { text = label }) }
-	if key ~= "" then
-		table.insert(kids, tern.ui.el("kbd", { text = key }))
-	end
-	return tern.ui.el("button", { key = id, tone = tone,
-		role = if act == "delete" or act == "pause_all" then "tas.dock-danger" else "tas.dock-action",
-		actions = { click = act .. (if value then "=" .. value else "") } }, kids)
+-- A Tern button sending `act` (`act=value` with a value) on click; `keys` are the kbd key names its keycaps show.
+function C.action_button(label: string, keys: { string }, variant: ButtonVariant, act: string, id: string, value: string?, size: ("md" | "sm")?): Node
+	return tern.ui.button(label, {
+		key = id,
+		keys = if #keys > 0 then keys else nil,
+		variant = variant,
+		size = size,
+		actions = { click = act .. (if value then "=" .. value else "") },
+	})
 end
 
 function C.cost_text(cost: any): string

@@ -2,7 +2,7 @@
 local timefmt = require("./timefmt")
 -- lib/intents.luau : host side of the window -> host protocol (EN §2.3 + plan overrides 8-9).
 -- Files `intents/<t_ms13>-<win8>-<seq4>.json`, applied in name order inside a time budget and removed
--- after applying. 13 allowlisted kinds (const.INTENT_KINDS); everything else (create/update/delete/
+-- after applying. 15 allowlisted kinds (const.INTENT_KINDS); everything else (create/update/delete/
 -- settings included) is dropped at once. `carly_create` makes a job directly and answers through
 -- `replies/<reply>.json`.
 local conditions = require("./conditions")
@@ -15,6 +15,7 @@ local validate = require("./validate")
 
 export type Handlers = {
 	obs: ({ [string]: any }) -> (),
+	session_ended: () -> (),
 	run_now: (string) -> (boolean, string?),
 	stop: (string) -> boolean,
 	focus_run: (string) -> (),
@@ -342,6 +343,8 @@ local function apply(kind: string, p: { [string]: any }, h: Handlers)
 		end
 	elseif kind == "focus_manager" then
 		h.focus_manager()
+	elseif kind == "session_ended" then
+		h.session_ended()
 	elseif kind == "carly_create" then
 		carly_create(p, h)
 	elseif kind == "check_conditions" then

@@ -1966,9 +1966,9 @@ function F.view(state: State): (Node, Node)
 	local blocked = next(errs) ~= nil
 	local narrow = cx.cols < 70
 	local acts: { Node } = {
-		C.action_button("Save", if narrow then "" else "^⏎", if blocked then "muted" else "accent", "save", "save"),
-		C.action_button(if narrow then "Run" else "Save & run now", if narrow then "" else "^⇧⏎", "neutral", "save_run", "save_run"),
-		C.action_button("Cancel", if narrow then "" else "esc", "neutral", "cancel", "cancel"),
+		C.action_button("Save", if narrow then {} else { "ctrl", "enter" }, if blocked then "default" else "primary", "save", "save"),
+		C.action_button(if narrow then "Run" else "Save & run now", if narrow then {} else { "ctrl", "shift", "enter" }, "default", "save_run", "save_run"),
+		C.action_button("Cancel", if narrow then {} else { "esc" }, "quiet", "cancel", "cancel"),
 	}
 	local dock = C.with(ui.col({
 		C.text(status, "status"),

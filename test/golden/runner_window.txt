@@ -1,4 +1,5 @@
 PASS agent_state sends the run's new state at once
 PASS agent_state ignores exits and other panes
+PASS session_ended sends one intent only while runs are in flight
 PASS paused hooks show in the status line until all resume
 PASS no errors

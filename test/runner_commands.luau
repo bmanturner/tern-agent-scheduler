@@ -7,9 +7,12 @@ local defs = {}
 tern.command = function(def)
 	defs[def.id] = def
 end
+local buttons = {}
+tern.files = { button = function(def) buttons[def.id] = def end }
 commands.register()
 
 -- This machine's snapshot lists manager block 77, which the window can see as pane 9.
+local current_sel = nil
 fake.files["/d/snapshot.json"] = tern.json.encode({ format = 1, managers = { "77" }, jobs = {}, inflight = {} })
 
 local opened = {}
@@ -29,6 +32,9 @@ local function window(host_kind, cwd)
 			end,
 			resolve = function(_self, id)
 				return if id == "77" then 9 else nil
+			end,
+			selection = function(_self, _pane, _opts)
+				return current_sel
 			end,
 		},
 		new_block = function(_self, kind, args, how)
@@ -60,3 +66,22 @@ assert(opened[3].args[1] == "settings" and opened[3].how == "tab", "Settings ope
 local cwd, why = commands.focused_cwd(window("remote", "/home/needz/app"))
 assert(cwd == "" and why ~= nil, "focused_cwd refuses a remote pane")
 print("PASS Open manager and New job follow the window's current host")
+
+-- The Files button opens a new job in the folder the pane shows.
+local n0 = #opened
+buttons["new-job"].run({ root = "/Users/u/app", host = "", selection = {}, tab = "files" }, window("local", "/x"))
+assert(#opened == n0 + 1 and opened[n0 + 1].args[1] == "new" and opened[n0 + 1].args[2] == "/Users/u/app" and #opened[n0 + 1].args == 2, "Files button opens a job in the root")
+assert(opened[n0 + 1].how == "tab", "Files button opens a tab")
+buttons["new-job"].run({ root = nil, host = "", selection = {}, tab = "files" }, window("local", "/x"))
+assert(#opened == n0 + 1, "no root opens nothing")
+
+-- "New job from selection…" seeds the prompt with the trimmed selection, in the selected pane's folder.
+current_sel = { pane = 5, kind = "terminal", text = "  Fix the flaky test\n" }
+defs["new-job-from-selection"].run(window("local", "/Users/u/app"))
+assert(#opened == n0 + 2, "selection opens a form")
+local a = opened[n0 + 2].args
+assert(a[1] == "new" and a[2] == "/Users/u/app" and a[3] == "Fix the flaky test", "selection args: " .. tostring(a[3]))
+current_sel = nil
+defs["new-job-from-selection"].run(window("local", "/Users/u/app"))
+assert(#opened == n0 + 2, "no selection opens nothing")
+print("PASS Files button and New job from selection open a prefilled form")

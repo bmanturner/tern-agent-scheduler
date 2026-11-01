@@ -1,4 +1,4 @@
--- Tern 0.9.6 window events: `agent_state` sends a run's new state at once, and `budget` pauses show
+-- Window events: `agent_state` sends a run's new state at once, and `budget` pauses show
 -- in the status line until every paused hook resumes.
 tern.chrome = tern.chrome or { refresh = function() end }
 local observer = __mods.observer
@@ -48,6 +48,22 @@ observer.on_state({ pane = 4, old = "waiting_input", new = "exited" }, cx)
 observer.on_state({ pane = 7, old = "idle", new = "working" }, cx)
 assert(#intents() == 1, "no new intents, got " .. #intents())
 print("PASS agent_state ignores exits and other panes")
+
+observer.on_session_ended({ session = 3, name = "Scheduled runs", shown = false }, cx)
+local ended = intents()
+assert(#ended == 2, "one new intent, got " .. #ended)
+local n_ended = 0
+for _, it in ended do
+	if it.kind == "session_ended" then
+		n_ended += 1
+	end
+end
+assert(n_ended == 1, "one session_ended intent, got " .. n_ended)
+fake.files["/d/snapshot.json"] = tern.json.encode({ format = 1, jobs = {}, inflight = {} })
+__mods.wsnap.reset()
+observer.on_session_ended({ session = 3, name = "Scheduled runs", shown = false }, cx)
+assert(#intents() == 2, "no intent without runs in flight, got " .. #intents())
+print("PASS session_ended sends one intent only while runs are in flight")
 
 local PAUSED = "Agent Scheduler paused · it ran too long"
 status.budget("timer", "paused")

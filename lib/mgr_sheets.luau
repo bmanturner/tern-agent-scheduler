@@ -324,8 +324,15 @@ end
 
 -- Small dialogs ------------------------------------------------------------------------------------------
 
-local function dialog(head: string, size: string, body: { Node }): Node
-	return ui.node("overlay", { key = "dialog", head = head, size = size, modal = true }, body)
+-- A modal dialog; `foot` (keyed `foot`) is drawn in the overlay's footer bar.
+local function dialog(head: string, size: string, icon: string, body: { Node }, foot: Node, meta: string?): Node
+	table.insert(body, C.with(foot, { key = "foot" }))
+	return ui.node("overlay", { key = "dialog", head = head, meta = meta, icon = icon, size = size, modal = true, foot = "layer.dialog.foot" }, body)
+end
+
+-- Footer buttons, right-aligned; pass the quiet one first and the action last.
+local function foot_row(buttons: { Node }): Node
+	return ui.node("row", { gap = "sm", justify = "end" }, buttons)
 end
 
 local function job_name(job_id: string?): string
@@ -344,39 +351,36 @@ local function run_name(run_id: string?): string
 end
 
 local function confirm_stop_node(state: State, sheet: Sheet): Node
-	return dialog("Stop " .. run_name(sheet.run_id) .. "?", "sm", {
+	return dialog("Stop " .. run_name(sheet.run_id) .. "?", "sm", "stop", {
 		C.text({ ui.span("This closes the run's terminal. Its record stays, and Open run can resume the session.", "muted") }, "body"),
-		C.with(ui.row({
-			C.action_button("Stop run", "y", "error", "stop_yes", "yes"),
-			C.action_button("Keep", "esc", "neutral", "stop_no", "no"),
-		}), { key = "acts" }),
-	})
+	}, foot_row({
+		C.action_button("Keep", { "esc" }, "quiet", "stop_no", "no"),
+		C.action_button("Stop run", { "y" }, "danger", "stop_yes", "yes"),
+	}))
 end
 
 local function first_run_node(_state: State, _sheet: Sheet): Node
-	return dialog("Run it now and watch?", "md", {
+	return dialog("Run it now and watch?", "md", "play", {
 		C.text({
 			ui.span(
 				"The first run shows you any permission prompts, so later runs go smoothly. It opens the run's terminal (an omp session) and takes you there; if it stops to ask, answer in that terminal.",
 				"muted"
 			),
 		}, "body"),
-		C.with(ui.row({
-			C.action_button("Run now", "⏎", "accent", "first_yes", "yes"),
-			C.action_button("Not now", "esc", "neutral", "first_no", "no"),
-		}), { key = "acts" }),
-	})
+	}, foot_row({
+		C.action_button("Not now", { "esc" }, "quiet", "first_no", "no"),
+		C.action_button("Run now", { "enter" }, "primary", "first_yes", "yes"),
+	}))
 end
 
 local function run_anyway_node(_state: State, sheet: Sheet): Node
-	return dialog("Run anyway?", "md", {
+	return dialog("Run anyway?", "md", "warn", {
 		C.text({ ui.span("Not running: " .. tostring(sheet.text or "a condition said no") .. ".") }, "body"),
 		C.text({ ui.span("Run anyway runs it once now without checking its conditions.", "muted") }, "note"),
-		C.with(ui.row({
-			C.action_button("Run anyway", "⏎", "accent", "anyway_yes", "yes"),
-			C.action_button("Cancel", "esc", "neutral", "anyway_no", "no"),
-		}), { key = "acts" }),
-	})
+	}, foot_row({
+		C.action_button("Cancel", { "esc" }, "quiet", "anyway_no", "no"),
+		C.action_button("Run anyway", { "enter" }, "primary", "anyway_yes", "yes"),
+	}))
 end
 
 local RESULT_GLYPH: { [string]: { string } } = {
@@ -418,13 +422,11 @@ local function conditions_node(_state: State, sheet: Sheet): Node
 	for i, line in seen do
 		table.insert(body, C.text({ ui.span(line, "muted") }, "seen" .. i))
 	end
-	local acts: { Node } = {}
+	local acts: { Node } = { C.action_button("Close", { "esc" }, "quiet", "cond_close", "close") }
 	if sheet.job_id ~= nil and #seen > 0 then
-		table.insert(acts, C.action_button("Forget what it has seen", "f", "neutral", "cond_forget", "forget"))
+		table.insert(acts, C.action_button("Forget what it has seen", { "f" }, "default", "cond_forget", "forget"))
 	end
-	table.insert(acts, C.action_button("Close", "esc", "neutral", "cond_close", "close"))
-	table.insert(body, C.with(ui.row(acts), { key = "acts" }))
-	return dialog("Conditions · " .. name, "md", body)
+	return dialog("Conditions", "md", "list-checks", body, foot_row(acts), name)
 end
 
 local function help_group(key: string, title: string, rows: { HelpRow }): Node
@@ -444,7 +446,7 @@ local function help_group(key: string, title: string, rows: { HelpRow }): Node
 end
 
 local function help_node(_state: State, _sheet: Sheet): Node
-	return dialog("Help", "lg", {
+	return dialog("Help", "lg", "keyboard", {
 		ui.el("div", { key = "keys", class = "tas-help-cols" }, {
 			help_group("job", "The selected job", HELP_JOB),
 			ui.el("div", { key = "side", class = "tas-help-stack" }, {
@@ -457,11 +459,10 @@ local function help_node(_state: State, _sheet: Sheet): Node
 			ui.el("p", { text = C.AVAILABILITY }),
 			ui.el("p", { text = C.NO_WINDOW }),
 		}),
-		C.with(ui.row({
-			C.text({ ui.span("Most of these are also buttons under the list.", "muted") }, "note"),
-			C.action_button("Close", "esc", "neutral", "help_close", "close"),
-		}), { key = "foot", role = "tas.help-foot" }),
-	})
+	}, C.with(ui.row({
+		C.text({ ui.span("Most of these are also buttons under the list.", "muted") }, "note"),
+		C.action_button("Close", { "esc" }, "quiet", "help_close", "close"),
+	}), { role = "tas.help-foot" }))
 end
 
 -- Setup ----------------------------------------------------------------------------------------------------
