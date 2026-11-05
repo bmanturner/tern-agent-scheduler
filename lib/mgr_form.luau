@@ -337,7 +337,7 @@ function F.refresh_roles(state: State)
 		return
 	end
 	local cwd = expand(form.folder.text)
-	if cwd == "" or string.sub(cwd, 1, 1) ~= "/" or validate.unsafe_path(cwd) then
+	if cwd == "" or string.sub(cwd, 1, 1) ~= "/" or cwd:find("%c") ~= nil then
 		form.roles_for = nil
 		form.roles = nil
 		form.roles_err = nil
@@ -371,7 +371,7 @@ function F.refresh_branches(state: State)
 		return
 	end
 	local cwd = expand(form.folder.text)
-	if cwd == "" or string.sub(cwd, 1, 1) ~= "/" or validate.unsafe_path(cwd) then
+	if cwd == "" or string.sub(cwd, 1, 1) ~= "/" or cwd:find("%c") ~= nil then
 		form.branches_for = nil
 		form.branches = nil
 		form.branches_err = nil
@@ -405,7 +405,7 @@ local function check_folder(state: State, cb: ((boolean) -> ())?)
 		return
 	end
 	local path = expand(form.folder.text)
-	if path == "" or string.sub(path, 1, 1) ~= "/" or validate.unsafe_path(path) then
+	if path == "" or string.sub(path, 1, 1) ~= "/" or path:find("%c") ~= nil then
 		return
 	end
 	if form.folder_ok ~= nil and form.folder_ok.path == path then

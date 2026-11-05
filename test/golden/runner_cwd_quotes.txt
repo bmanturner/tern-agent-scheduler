@@ -1,0 +1,3 @@
+PASS quoted folder saves
+PASS control characters refused
+PASS launch argv carries the folder
