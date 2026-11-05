@@ -2,6 +2,15 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.7.0 (2026-11-05)
+
+Built and tested on Tern 0.9.9.
+
+### Added
+
+- Scripts, CI jobs and other agents can create jobs by writing a `script_create` request into the data folder and reading the reply. The fields and reply are a stable contract, and unknown fields are refused. See [From a script](README.md#from-a-script). Thanks to @roverdude24, whose #4 prompted it.
+- Jobs made this way are active immediately with your default approval. The manager marks them `by <source>` (or `by script`), and a toast and a desktop notification name who scheduled them.
+
 ## 0.6.0 (2026-10-31)
 
 Built and tested on Tern 0.9.9. **Update Tern to 0.9.9:** on an older Tern, Settings › Setup flags the Tern version.
