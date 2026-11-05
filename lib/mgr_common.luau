@@ -209,6 +209,20 @@ function C.short_label(label: string): string
 	return SHORT_LABELS[label] or label
 end
 
+-- Who made a job, for list and live rows; nil for the user's own. wide=false gives a one-glyph mark.
+function C.creator_mark(job: any, wide: boolean): string?
+	if job.created_by == "carly" then
+		return if wide then "by Carly" else "✦"
+	elseif job.created_by == "script" then
+		if not wide then
+			return "⚙"
+		end
+		local src = job.created_source
+		return "by " .. (if type(src) == "string" and src ~= "" then src else "script")
+	end
+	return nil
+end
+
 function C.text(spans: Spans, key: string): Node
 	return C.with(ui.text(spans), { key = key })
 end

@@ -20,6 +20,10 @@ Then run `bun run test`, and name the version in the next `CHANGELOG.md` entry.
 3. Commit, tag `vX.Y.Z`, push `main` and the tag.
 4. `gh release create vX.Y.Z --title vX.Y.Z --notes-file <that section>`.
 
+## Public contracts
+
+The `script_create` intent and its reply (README, "From a script") are a public API that scripts and other agents depend on. Add fields only as optional ones, never rename or remove a field or change what one means, and bump `format` only for a breaking change. `carly_create` and the other intent kinds are internal and may change freely.
+
 ## Window budget
 
 Every window-half call has a 50 ms budget for the plugin's own Lua (native calls don't count, but one call may take at most ten budgets of wall time). A call over it raises `tern: <hook> exceeded <n> ms` and Tern pauses that hook (every timer callback, say) for 5 s, doubling on repeats within 10 min, up to 5 min; `pcall` can't catch it. Keep timer passes far below it: the status and observer passes log anything over `const.WINDOW_SLOW_MS` (20 ms), and `window.luau` logs `budget` events and the status line shows *Agent Scheduler paused* while a hook is paused.

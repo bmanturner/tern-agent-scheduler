@@ -79,5 +79,24 @@ seg = status.view().seg
 assert(seg == nil or seg.text ~= PAUSED, "cleared once all resume")
 print("PASS paused hooks show in the status line until all resume")
 
+status.reset()
+status.diff({ jobs = {} }, nil, os.time())
+local made = {
+	jobs = {
+		{ id = "j_a", name = "n1", when = "Daily at 09:00", created_by = "script", created_source = "ci-bot" },
+		{ id = "j_b", name = "n2", when = "Daily", created_by = "script" },
+		{ id = "j_c", name = "n3", when = "Daily", created_by = "carly" },
+	},
+}
+local texts = {}
+for _, t in status.diff(made, nil, os.time()) do
+	texts[t.text] = true
+end
+assert(texts["ci-bot scheduled n1"] and texts["A script scheduled n2"] and texts["Carly scheduled n3"], "creator toasts")
+for _, t in status.diff(made, nil, os.time()) do
+	assert(not t.text:find("scheduled", 1, true), "toasted once: " .. t.text)
+end
+print("PASS creator toasts name Carly, the source, or a script")
+
 assert(#fake.errors == 0, "no error logs: " .. table.concat(fake.errors, "; "))
 print("PASS no errors")
