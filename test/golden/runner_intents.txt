@@ -8,5 +8,10 @@ PASS carly_create name derivation
 PASS carly_create folder, prompt cap, schedule errors
 PASS carly_create quiet_ok
 PASS carly_create cached role check
+PASS script_create success (source, default approval, snapshot, notification)
+PASS script_create without source
+PASS script_create refuses unknown and mistyped fields
+PASS script_create expired
+PASS carly_create still marked by Carly
 PASS replies pruned
 PASS no errors

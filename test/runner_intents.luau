@@ -1,4 +1,4 @@
--- The allowlist (15 kinds), dropped kinds, retry of undecodable files, carly_create and its replies.
+-- The allowlist (16 kinds), dropped kinds, retry of undecodable files, carly_create, script_create and their replies.
 local jobs, runner, intents = __mods.jobs, __mods.runner, __mods.intents
 
 fake.dirs["/home/u/proj"] = true
@@ -142,6 +142,74 @@ assert(got and got[1] == "default" and got[2] == "smol", "roles read and sorted"
 local r9 = carly("iiiiiiiiiiii", { name = "badrole", prompt = "p", when = "daily 09:00", folder = "/home/u/proj", role = "@nope" })
 assert(r9 and r9.ok == false and r9.error == "No role @nope here. Roles: @default, @smol, @task, @plan, @slow, @commit, @advisor, @tiny, @memory, @vision", "role copy: " .. tostring(r9 and r9.error))
 print("PASS carly_create cached role check")
+
+-- 5. script_create: the public contract
+local function script(reply, fields)
+	local p = { format = 1, kind = "script_create", reply = reply }
+	for k, v in pairs(fields) do
+		p[k] = v
+	end
+	send(p)
+	settle()
+	return fake.reply(reply)
+end
+local function last_notice()
+	local osa = fake.calls_of("osascript")
+	local argv = osa[#osa]
+	return argv and argv[#argv - 1]
+end
+local function snap_entry(id)
+	for _, j in ipairs(tern.json.decode(fake.read("/d/snapshot.json")).jobs) do
+		if j.id == id then
+			return j
+		end
+	end
+	return nil
+end
+
+local s1 = script("sssssssssss1", { source = "ci-bot", name = "nightly-ci", prompt = "p", when = "daily 09:00", folder = "~/proj" })
+assert(s1 and s1.ok == true, "script_create ok: " .. tern.json.encode(s1))
+assert(s1.source == "ci-bot" and type(s1.next_at) == "number" and s1.approval == "Hands-off", "reply fields: " .. tern.json.encode(s1))
+local sj = jobs.get(s1.job_id)
+assert(sj and sj.created_by == "script" and sj.created_source == "ci-bot" and sj.approval == "yolo", "job fields")
+local se = snap_entry(sj.id)
+assert(se and se.created_by == "script" and se.created_source == "ci-bot", "snapshot carries the creator")
+assert(last_notice() == "ci-bot scheduled nightly-ci \u{00B7} Hands-off \u{00B7} ~/proj", "notification: " .. tostring(last_notice()))
+print("PASS script_create success (source, default approval, snapshot, notification)")
+
+local s2 = script("sssssssssss2", { name = "plain-script", prompt = "p", when = "daily 10:00", folder = "/home/u/proj" })
+assert(s2 and s2.ok == true and s2.source == nil, "no source in reply: " .. tern.json.encode(s2))
+local sj2 = jobs.get(s2.job_id)
+assert(sj2.created_by == "script" and sj2.created_source == nil, "script job without source")
+assert(tostring(last_notice()):sub(1, #"A script scheduled plain-script") == "A script scheduled plain-script", "notification: " .. tostring(last_notice()))
+print("PASS script_create without source")
+
+local count_s = #jobs.list()
+local bad = {
+	{ "sssssssssss3", { approval = "always_ask", name = "x1", prompt = "p", when = "daily 09:00", folder = "/home/u/proj" }, "Unknown field \u{201C}approval\u{201D}." },
+	{ "sssssssssss4", { name = "x2", prompt = "p", when = "daily 09:00", cwd = "/home/u/proj" }, "Unknown field \u{201C}cwd\u{201D}." },
+	{ "sssssssssss5", { name = 5, prompt = "p", when = "daily 09:00", folder = "/home/u/proj" }, "name must be text." },
+	{ "sssssssssss6", { source = "ci bot", name = "x3", prompt = "p", when = "daily 09:00", folder = "/home/u/proj" }, "source: use 1 to 24 letters, digits, - or _." },
+	{ "sssssssssss7", { expires = "soon", name = "x4", prompt = "p", when = "daily 09:00", folder = "/home/u/proj" }, "expires must be a number (unix seconds)." },
+}
+for _, c in ipairs(bad) do
+	local r = script(c[1], c[2])
+	assert(r and r.ok == false and r.error == c[3], "refused " .. c[1] .. ": " .. tern.json.encode(r))
+end
+assert(#jobs.list() == count_s, "no job made from a refused request")
+print("PASS script_create refuses unknown and mistyped fields")
+
+local s8 = script("sssssssssss8", { expires = os.time() - 1, name = "late", prompt = "p", when = "daily 09:00", folder = "/home/u/proj" })
+assert(s8 and s8.ok == false and s8.error == "Timed out before Agent Scheduler could create it.", "expired copy: " .. tern.json.encode(s8))
+assert(#jobs.list() == count_s, "no job from an expired request")
+print("PASS script_create expired")
+
+local rc = carly("llllllllllll", { name = "carly-again", prompt = "p", when = "daily 11:00", folder = "/home/u/proj" })
+assert(rc and rc.ok == true and rc.source == nil, "carly ok: " .. tern.json.encode(rc))
+local cj = jobs.get(rc.job_id)
+assert(cj.created_by == "carly" and cj.created_source == nil, "carly job marked by Carly")
+assert(tostring(last_notice()):sub(1, #"Carly scheduled ") == "Carly scheduled ", "carly notification: " .. tostring(last_notice()))
+print("PASS carly_create still marked by Carly")
 
 -- replies are pruned after REPLY_TTL_S
 assert(#tern.fs.list("/d/replies") > 0, "replies exist")

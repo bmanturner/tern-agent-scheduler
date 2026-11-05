@@ -54,6 +54,14 @@ function validate.slug(name: string): string
 	return s
 end
 
+-- A script_create `source`: 1..24 letters, digits, - or _; else nil.
+function validate.source(v: any): string?
+	if type(v) == "string" and #v >= 1 and #v <= 24 and v:match("^[%w_%-]+$") then
+		return v
+	end
+	return nil
+end
+
 -- LA §2.3: ' " \ $ ` ! and control characters (newline included).
 function validate.unsafe_path(p: string): boolean
 	return p:find("['\"\\%$`!%c]") ~= nil

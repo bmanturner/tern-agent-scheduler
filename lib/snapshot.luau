@@ -73,6 +73,7 @@ local function job_entries(paused_all: boolean, home: string): ({ any }, { id: s
 			paused_reason = (not enabled) and st.paused_reason or nil,
 			only_when = if type(j.conditions) == "table" and #j.conditions > 0 then conditions.describe(j.conditions) else nil,
 			created_by = j.created_by or "user",
+			created_source = j.created_source,
 			last = last_of(st),
 		})
 		if not paused_all and next_run ~= nil and (nxt == nil or next_run < nxt.at) then

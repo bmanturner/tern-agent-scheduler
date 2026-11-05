@@ -86,6 +86,7 @@ const.INTENT_KINDS = {
 	ack_failed = true,
 	focus_manager = true,
 	carly_create = true,
+	script_create = true,
 	check_conditions = true,
 } :: { [string]: boolean }
 

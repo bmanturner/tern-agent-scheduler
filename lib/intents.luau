@@ -2,9 +2,10 @@
 local timefmt = require("./timefmt")
 -- lib/intents.luau : host side of the window -> host protocol (EN §2.3 + plan overrides 8-9).
 -- Files `intents/<t_ms13>-<win8>-<seq4>.json`, applied in name order inside a time budget and removed
--- after applying. 15 allowlisted kinds (const.INTENT_KINDS); everything else (create/update/delete/
--- settings included) is dropped at once. `carly_create` makes a job directly and answers through
--- `replies/<reply>.json`.
+-- after applying. 16 allowlisted kinds (const.INTENT_KINDS); everything else (create/update/delete/
+-- settings included) is dropped at once. `carly_create` and `script_create` make a job directly and
+-- answer through `replies/<reply>.json`. `script_create` is a public contract (README "From a script"):
+-- add fields only as optional, never rename or remove one.
 local conditions = require("./conditions")
 local const = require("./const")
 local jobs = require("./jobs")
@@ -54,7 +55,7 @@ local APPROVAL_LABEL: { [string]: string } = {
 
 -- Kinds with an `expires` stamp (unix seconds) are dropped once it has passed: the window told its
 -- caller they failed, so applying them later would duplicate or surprise.
-local EXPIRING: { [string]: boolean } = { carly_create = true, run_now = true, check_conditions = true }
+local EXPIRING: { [string]: boolean } = { carly_create = true, script_create = true, run_now = true, check_conditions = true }
 
 local function home(): string
 	return ((tern :: any).getenv("HOME") :: string?) or ""
@@ -68,6 +69,13 @@ local function str(v: any, max: number): string?
 		return v:sub(1, max)
 	end
 	return v
+end
+
+local function reply_id(v: any): string?
+	if type(v) == "string" and #v == 12 and v:match("^[a-z0-9]+$") then
+		return v
+	end
+	return nil
 end
 
 -- ---------- replies ----------
@@ -93,7 +101,7 @@ local function first_error(errs: { [string]: string }): string
 	return "Couldn't create the job."
 end
 
--- ---------- carly_create ----------
+-- ---------- carly_create / script_create ----------
 
 -- name derived from the prompt: first 5 words, lowercased, joined by "-", ≤ 40 chars, unique.
 local function derive_name(prompt: string): string
@@ -123,42 +131,42 @@ local function derive_name(prompt: string): string
 	return name
 end
 
-local function carly_create(p: { [string]: any }, h: Handlers)
-	local reply = p.reply
-	if type(reply) ~= "string" or not reply:match("^[a-z0-9]+$") or #reply ~= 12 then
-		log_warn("intents: carly_create without a valid reply id")
-		return
+-- Who asked for a job: the stored creator, a script's own name, and how the notification names it.
+type Origin = { created_by: string, source: string?, who: string }
+
+-- The creation both kinds share. f: name, prompt, when, folder, role (strings, may be ""), only_when,
+-- quiet_ok (raw request values). Always answers `reply`, now or once the folder check returns.
+local function create_job(reply: string, f: { [string]: any }, origin: Origin, h: Handlers)
+	local function failed(err: any)
+		log_warn("intents: " .. origin.created_by .. "_create failed", tostring(err))
+		pcall(reply_error, reply, "Agent Scheduler couldn't create the job.")
 	end
 	local ok, err = pcall(function()
-		local prompt = type(p.prompt) == "string" and p.prompt or ""
-		if #prompt > const.CARLY_PROMPT_MAX then
-			return reply_error(reply, "That prompt is too long for Carly. Use the manager.")
-		end
-		local name = str(p.name, 200) or ""
-		name = name:gsub("^%s+", ""):gsub("%s+$", "")
+		local prompt = f.prompt :: string
+		local name = (f.name :: string):gsub("^%s+", ""):gsub("%s+$", "")
 		if name == "" then
 			name = derive_name(prompt)
 		end
-		local role = (str(p.role, 100) or ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub("^@", "")
+		local role = (f.role :: string):gsub("^%s+", ""):gsub("%s+$", ""):gsub("^@", "")
 		if role == "" then
 			role = "default"
 		end
-		local folder = str(p.folder, 1100) or ""
-		local when = str(p.when, 200) or ""
+		local folder = f.folder :: string
+		local when = f.when :: string
 		local now = os.time()
 		local input: { [string]: any } = { name = name, prompt = prompt, when = when, role = role, cwd = folder }
-		if p.only_when ~= nil then
-			local ow, owerr = conditions.from_fields(p.only_when)
+		if f.only_when ~= nil then
+			local ow, owerr = conditions.from_fields(f.only_when)
 			if ow == nil then
 				return reply_error(reply, owerr or "only_when must be a table of fields.")
 			end
 			input.only_when = ow
 		end
-		if p.quiet_ok ~= nil then
-			if type(p.quiet_ok) ~= "boolean" then
+		if f.quiet_ok ~= nil then
+			if type(f.quiet_ok) ~= "boolean" then
 				return reply_error(reply, "quiet_ok must be true or false.")
 			end
-			input.quiet_ok = p.quiet_ok
+			input.quiet_ok = f.quiet_ok
 		end
 		local vok, errs, norm = validate.job(input, {
 			jobs = jobs.list(),
@@ -194,7 +202,7 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 							return reply_error(reply, string.format("No role @%s here. Roles: %s", role, table.concat(list, ", ")))
 						end
 					end
-					local job, cerrs = jobs.create(input, prompt, "carly", os.time())
+					local job, cerrs = jobs.create(input, prompt, origin.created_by, os.time(), origin.source)
 					if job == nil then
 						return reply_error(reply, first_error(cerrs or {}))
 					end
@@ -212,23 +220,24 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 					local folder_label = validate.tilde(job.cwd, home())
 					local approval = APPROVAL_LABEL[tostring(job.approval)] or tostring(job.approval)
 					-- a banner works without any window open; the job is live and may run commands
-					pcall(notify.plain, "Agent Scheduler", string.format("Carly scheduled %s · %s · %s", tostring(job.name), approval, folder_label))
+					pcall(notify.plain, "Agent Scheduler", string.format("%s scheduled %s · %s · %s", origin.who, tostring(job.name), approval, folder_label))
 					write_reply(reply, {
 						ok = true,
 						job_id = job.id,
 						name = job.name,
 						when = jobs.describe(job),
 						next = nxt,
+						next_at = if type(st.next_run) == "number" then st.next_run else nil,
 						folder = folder_label,
 						role = "@" .. tostring(job.role),
 						approval = approval,
 						only_when = if #conditions.describe(job.conditions) > 0 then conditions.describe(job.conditions) else "always",
 						quiet_ok = job.quiet_ok == true,
+						source = origin.source,
 					})
 				end)
 				if not cok then
-					log_warn("intents: carly_create failed", tostring(cerr))
-					pcall(reply_error, reply, "Agent Scheduler couldn't create the job.")
+					failed(cerr)
 				end
 			end)
 		end)
@@ -237,9 +246,91 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 		end
 	end)
 	if not ok then
-		log_warn("intents: carly_create failed", tostring(err))
-		pcall(reply_error, reply, "Agent Scheduler couldn't create the job.")
+		failed(err)
 	end
+end
+
+-- Carly's internal message: lenient (over-long text is cut), with Carly's own prompt cap.
+local function carly_create(p: { [string]: any }, h: Handlers)
+	local reply = reply_id(p.reply)
+	if reply == nil then
+		log_warn("intents: carly_create without a valid reply id")
+		return
+	end
+	local prompt = type(p.prompt) == "string" and p.prompt or ""
+	if #prompt > const.CARLY_PROMPT_MAX then
+		pcall(reply_error, reply, "That prompt is too long for Carly. Use the manager.")
+		return
+	end
+	create_job(reply, {
+		name = str(p.name, 200) or "",
+		prompt = prompt,
+		when = str(p.when, 200) or "",
+		folder = str(p.folder, 1100) or "",
+		role = str(p.role, 100) or "",
+		only_when = p.only_when,
+		quiet_ok = p.quiet_ok,
+	}, { created_by = "carly", who = "Carly" }, h)
+end
+
+-- The public request (README "From a script"): strict, so a misspelt or unsupported field (approval,
+-- cwd, …) fails loudly instead of quietly making a job the caller didn't ask for.
+local SCRIPT_FIELDS: { [string]: boolean } = {
+	format = true, kind = true, reply = true, expires = true, source = true,
+	name = true, prompt = true, when = true, folder = true, role = true, quiet_ok = true, only_when = true,
+}
+local SCRIPT_TEXT = { "name", "prompt", "when", "folder", "role", "source" }
+
+local function script_problem(p: { [string]: any }): string?
+	local keys: { string } = {}
+	for k in pairs(p) do
+		table.insert(keys, tostring(k))
+	end
+	table.sort(keys)
+	for _, k in ipairs(keys) do
+		if not SCRIPT_FIELDS[k] then
+			return string.format("Unknown field “%s”.", k)
+		end
+	end
+	for _, k in ipairs(SCRIPT_TEXT) do
+		if p[k] ~= nil and type(p[k]) ~= "string" then
+			return k .. " must be text."
+		end
+	end
+	if p.expires ~= nil and type(p.expires) ~= "number" then
+		return "expires must be a number (unix seconds)."
+	end
+	if p.source ~= nil and validate.source(p.source) == nil then
+		return "source: use 1 to 24 letters, digits, - or _."
+	end
+	return nil
+end
+
+local function script_create(p: { [string]: any }, h: Handlers)
+	local reply = reply_id(p.reply)
+	if reply == nil then
+		log_warn("intents: script_create without a valid reply id")
+		return
+	end
+	local ok, problem = pcall(script_problem, p)
+	if not ok then
+		log_warn("intents: script_create failed", tostring(problem))
+		pcall(reply_error, reply, "Agent Scheduler couldn't create the job.")
+		return
+	elseif problem ~= nil then
+		pcall(reply_error, reply, problem)
+		return
+	end
+	local source: string? = p.source
+	create_job(reply, {
+		name = p.name or "",
+		prompt = p.prompt or "",
+		when = p.when or "",
+		folder = p.folder or "",
+		role = p.role or "",
+		only_when = p.only_when,
+		quiet_ok = p.quiet_ok,
+	}, { created_by = "script", source = source, who = source or "A script" }, h)
 end
 
 -- ---------- the other kinds ----------
@@ -347,9 +438,11 @@ local function apply(kind: string, p: { [string]: any }, h: Handlers)
 		h.session_ended()
 	elseif kind == "carly_create" then
 		carly_create(p, h)
+	elseif kind == "script_create" then
+		script_create(p, h)
 	elseif kind == "check_conditions" then
-		local reply = p.reply
-		if type(reply) ~= "string" or not reply:match("^[a-z0-9]+$") or #reply ~= 12 then
+		local reply = reply_id(p.reply)
+		if reply == nil then
 			log_warn("intents: check_conditions without a valid reply id")
 			return
 		end
@@ -413,8 +506,8 @@ function intents.drain(deadline_ms: number, h: Handlers): number
 						log_warn("intents: dropping intent", name, tostring(kind))
 					elseif EXPIRING[kind] and type(p.expires) == "number" and p.expires < os.time() then
 						log_warn("intents: dropping expired intent", name, kind)
-						local reply = p.reply
-						if kind == "carly_create" and type(reply) == "string" and reply:match("^[a-z0-9]+$") and #reply == 12 then
+						local reply = reply_id(p.reply)
+						if (kind == "carly_create" or kind == "script_create") and reply ~= nil then
 							pcall(reply_error, reply, "Timed out before Agent Scheduler could create it.")
 						end
 					else

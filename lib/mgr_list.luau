@@ -298,15 +298,16 @@ local function clip(text: string, max: number): string
 	return string.sub(first, 1, (utf8.offset(first, max) or max + 1) - 1) .. "…"
 end
 
--- `by Carly` is the only marker of a job Carly created, so it stays at every width: the role chip goes first, and
--- below tier 3 the mark shrinks to a glyph.
+-- The creator mark (`by Carly`, `by <source>`, `by script`) is the only sign a job wasn't made in the manager, so it
+-- stays at every width: the role chip goes first, and below tier 3 the mark shrinks to a glyph.
 local function job_label(job: any, tier: number): Spans
 	local spans: { Span | string } = { ui.span(job.name, "strong") }
 	if tier >= 3 then
 		table.insert(spans, ui.span("  @" .. tostring(job.role), "muted"))
 	end
-	if job.created_by == "carly" then
-		table.insert(spans, ui.span(if tier >= 3 then "  by Carly" else "  ✦", "muted"))
+	local mark = C.creator_mark(job, tier >= 3)
+	if mark ~= nil then
+		table.insert(spans, ui.span("  " .. mark, "muted"))
 	end
 	return spans
 end

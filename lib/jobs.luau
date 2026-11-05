@@ -200,7 +200,8 @@ local function materialize(job: Job, d: { [string]: any }, now: number)
 	if job.unattended_note == nil then job.unattended_note = true end
 	if job.enabled == nil then job.enabled = true end
 	if job.allow_home == nil then job.allow_home = false end
-	if job.created_by ~= "carly" then job.created_by = "user" end
+	if job.created_by ~= "carly" and job.created_by ~= "script" then job.created_by = "user" end
+	job.created_source = if job.created_by == "script" then validate.source(job.created_source) else nil
 	if job.created_at == nil then job.created_at = now end
 	if job.updated_at == nil then job.updated_at = now end
 	if job.tz == nil then job.tz = tz_record() end
@@ -615,7 +616,7 @@ local function save_both(): boolean
 	return ok
 end
 
-function jobs.create(input: validate.JobInput, prompt: string, created_by: string, now: number): (Job?, { [string]: string }?)
+function jobs.create(input: validate.JobInput, prompt: string, created_by: string, now: number, source: string?): (Job?, { [string]: string }?)
 	if data_blocked() then
 		return nil, { name = SAVE_FAILED_COPY }
 	end
@@ -634,7 +635,8 @@ function jobs.create(input: validate.JobInput, prompt: string, created_by: strin
 	local id = ids.job_id(id_taken)
 	local job: Job = norm
 	job.id = id
-	job.created_by = created_by == "carly" and "carly" or "user"
+	job.created_by = if created_by == "carly" or created_by == "script" then created_by else "user"
+	job.created_source = if job.created_by == "script" then source else nil
 	job.created_at = now
 	job.updated_at = now
 	materialize(job, settings_tbl.defaults, now)

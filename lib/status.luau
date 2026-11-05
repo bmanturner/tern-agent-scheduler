@@ -239,7 +239,7 @@ type Memo = {
 	needs_toasted: { [string]: boolean },
 	had_history: boolean,
 	setup_ok: boolean,
-	carly_toasted: { [string]: boolean },
+	created_toasted: { [string]: boolean },
 }
 
 local memo: Memo = {
@@ -250,7 +250,7 @@ local memo: Memo = {
 	needs_toasted = {},
 	had_history = false,
 	setup_ok = true,
-	carly_toasted = {},
+	created_toasted = {},
 }
 
 local function clip(s: string, max: number): string
@@ -335,11 +335,14 @@ function status.diff(snap: { [string]: any }, hot: { [string]: any }?, now: numb
 			local id = tostring(j.id)
 			local before = memo.jobs[id]
 			if before == nil then
-				if j.created_by == "carly" and not memo.carly_toasted[id] then
-					memo.carly_toasted[id] = true
+				if (j.created_by == "carly" or j.created_by == "script") and not memo.created_toasted[id] then
+					memo.created_toasted[id] = true
+					local who = if j.created_by == "carly" then "Carly"
+						elseif type(j.created_source) == "string" and j.created_source ~= "" then j.created_source
+						else "A script"
 					table.insert(out, {
 						level = "success",
-						text = "Carly scheduled " .. tostring(j.name),
+						text = who .. " scheduled " .. tostring(j.name),
 						sub = tostring(j.when) .. " · next " .. next_text(j.next_run),
 					})
 				end
@@ -383,7 +386,7 @@ function status.reset()
 		needs_toasted = {},
 		had_history = false,
 		setup_ok = true,
-		carly_toasted = {},
+		created_toasted = {},
 	}
 	view = { seg = nil, stalled = false, stall_age = 0, setup_bad = false, needs = {}, context = nil }
 end

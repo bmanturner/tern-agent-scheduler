@@ -82,8 +82,9 @@ function M.agent_row(row: Row, now: number, tier: number, selected: boolean): No
 	if tier >= 3 then
 		table.insert(badges, { text = "@" .. tostring(job.role) })
 	end
-	if job.created_by == "carly" then
-		table.insert(badges, { text = if tier >= 3 then "by Carly" else "✦" })
+	local mark = C.creator_mark(job, tier >= 3)
+	if mark ~= nil then
+		table.insert(badges, { text = mark })
 	end
 
 	local stats: { [string]: any } = { age = ms_since(now, since) }
