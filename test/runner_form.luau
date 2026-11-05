@@ -60,3 +60,12 @@ assert(row.control.options[1].label == "Run once if under 90m late")
 assert(row.control.options[2].label == "Run once, however late")
 assert(row.control.options[3].label == "Skip missed runs")
 print("PASS compact missed-run labels preserve threshold and policy")
+
+-- Stop after menu reaches the validator's limit, and every choice validates.
+local STOPS, const = __mods.mgr_common.STOPS, __mods.const
+assert(STOPS[#STOPS].s == const.MAXRUN_MAX_S, "longest stop is the 8h limit")
+for _, o in STOPS do
+	local ok, errs = __mods.validate.job({ max_runtime_s = o.s }, { jobs = {}, now = 0, home = "/home/u" })
+	assert(ok, o.label .. " validates: " .. tostring(errs and errs.max_runtime_s))
+end
+print("PASS stop menu covers 5 min to 8 hours")

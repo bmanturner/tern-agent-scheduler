@@ -177,6 +177,8 @@ C.STOPS = {
 	{ s = 3600, label = "1 hour" },
 	{ s = 7200, label = "2 hours" },
 	{ s = 14400, label = "4 hours" },
+	{ s = 21600, label = "6 hours" },
+	{ s = 28800, label = "8 hours" },
 }
 
 function C.trim(s: string): string
