@@ -3,3 +3,4 @@ PASS every toggle reveals dependents, preserves drafts and keyboard order
 PASS collapsing clears stale Check now results
 PASS compact missed-run labels preserve threshold and policy
 PASS stop menu covers 5 min to 8 hours
+PASS no focus trap after a validation error
