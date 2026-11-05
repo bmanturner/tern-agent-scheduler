@@ -2,6 +2,14 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.7.1 (2026-11-05)
+
+Built and tested on Tern 0.9.12. **Update Tern to 0.9.12:** on an older Tern, Settings › Setup flags the Tern version.
+
+### Changed
+
+- Agent Scheduler is now built and tested on Tern 0.9.12.
+
 ## 0.7.0 (2026-11-05)
 
 Built and tested on Tern 0.9.9.
