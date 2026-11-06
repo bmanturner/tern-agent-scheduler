@@ -8,7 +8,7 @@ Built and tested on Tern 0.9.12.
 
 ### Fixed
 
-- Jobs can use folders with `'`, `"`, `$`, `` ` ``, `\` or `!` in their path. Only control characters are refused now.
+- A job's folder can have quotes, `$` or `!` in its name. The form used to refuse these folders; now it refuses only control characters, such as a newline.
 - **Stop after** offers 6 and 8 hours, the limits the form already accepted.
 - After a validation error in the job form, every field can still be reached: Tab and Shift-Tab leave the prompt editor with its text kept, and clicking another row finishes an open text edit.
 
