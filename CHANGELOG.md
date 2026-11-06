@@ -2,6 +2,18 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.7.2 (2026-11-05)
+
+Built and tested on Tern 0.9.12.
+
+### Fixed
+
+- Jobs can use folders with `'`, `"`, `$`, `` ` ``, `\` or `!` in their path. Only control characters are refused now.
+- **Stop after** offers 6 and 8 hours, the limits the form already accepted.
+- After a validation error in the job form, every field can still be reached: Tab and Shift-Tab leave the prompt editor with its text kept, and clicking another row finishes an open text edit.
+
+Thanks to @roverdude24 for these fixes (#4).
+
 ## 0.7.1 (2026-11-05)
 
 Built and tested on Tern 0.9.12. **Update Tern to 0.9.12:** on an older Tern, Settings › Setup flags the Tern version.
