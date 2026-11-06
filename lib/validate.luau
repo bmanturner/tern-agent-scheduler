@@ -38,7 +38,7 @@ export type Ctx = {
 
 local MIN_INTERVAL_COPY = "Agent runs shorter than 5 minutes apart tend to overlap. Use every 5m or more."
 local HOME_COPY = "omp may work in a temporary folder instead of your home folder. Pick a project folder for predictable results."
-local UNSAFE_COPY = "Folders with quotes, $ or ! in the name aren't supported yet."
+local UNSAFE_COPY = "Folder names can't contain control characters (like a newline)."
 local RUNTIME_COPY = "Use a time like 45m or 2h (up to 8h)."
 
 local function trim(s: string): string
@@ -306,7 +306,7 @@ function validate.job(fields: JobInput, ctx: Ctx): (boolean, { [string]: string 
 				errs.cwd = "Use a full folder path starting with / or ~."
 			elseif #p > 1024 then
 				errs.cwd = "That folder path is too long."
-			elseif validate.unsafe_path(p) then
+			elseif p:find("%c") ~= nil then -- cwd only travels as an argv element (`tern new --cwd`), never shell text
 				errs.cwd = UNSAFE_COPY
 			else
 				local allow = fields.allow_home

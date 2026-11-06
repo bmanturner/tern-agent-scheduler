@@ -337,7 +337,7 @@ function F.refresh_roles(state: State)
 		return
 	end
 	local cwd = expand(form.folder.text)
-	if cwd == "" or string.sub(cwd, 1, 1) ~= "/" or validate.unsafe_path(cwd) then
+	if cwd == "" or string.sub(cwd, 1, 1) ~= "/" or cwd:find("%c") ~= nil then
 		form.roles_for = nil
 		form.roles = nil
 		form.roles_err = nil
@@ -371,7 +371,7 @@ function F.refresh_branches(state: State)
 		return
 	end
 	local cwd = expand(form.folder.text)
-	if cwd == "" or string.sub(cwd, 1, 1) ~= "/" or validate.unsafe_path(cwd) then
+	if cwd == "" or string.sub(cwd, 1, 1) ~= "/" or cwd:find("%c") ~= nil then
 		form.branches_for = nil
 		form.branches = nil
 		form.branches_err = nil
@@ -405,7 +405,7 @@ local function check_folder(state: State, cb: ((boolean) -> ())?)
 		return
 	end
 	local path = expand(form.folder.text)
-	if path == "" or string.sub(path, 1, 1) ~= "/" or validate.unsafe_path(path) then
+	if path == "" or string.sub(path, 1, 1) ~= "/" or path:find("%c") ~= nil then
 		return
 	end
 	if form.folder_ok ~= nil and form.folder_ok.path == path then
@@ -1871,7 +1871,7 @@ end
 
 local function base_hints(cols: number, editing: string?): string
 	if editing == "prompt" then
-		return if cols < 56 then "^⏎ done · esc revert" else "⏎ newline · ^⏎ done · esc revert"
+		return if cols < 56 then "^⏎ done · esc revert" else "⏎ newline · ^⏎ done · ⇥ next · esc revert"
 	elseif editing ~= nil then
 		return if cols < 56 then "⏎ done · ^⏎ save" else "⏎ done · ^⏎ save · esc revert"
 	elseif cols < 56 then
@@ -1940,7 +1940,7 @@ function F.view(state: State): (Node, Node)
 				maxLines = 14,
 				placeholder = "What should the agent do? Say what to do if something is unclear.",
 			}),
-			C.text({ ui.span("⏎ newline · ^⏎ done · esc revert", "muted") }, "keys"),
+			C.text({ ui.span("⏎ newline · ^⏎ done · ⇥ next · esc revert", "muted") }, "keys"),
 		}
 		table.insert(children, C.with(ui.col(ed), { key = "pe", role = "omp.prefs.editor" }))
 	end
@@ -2017,7 +2017,7 @@ local function key_text(state: State, k: Key): boolean
 			F.save(state, k.shift)
 		end
 		return true
-	elseif name == "tab" and not multi then
+	elseif name == "tab" then
 		stop_edit(state, false)
 		set_focus(state, P.move(F.sections(state), e.row, if k.shift then -1 else 1) or e.row)
 		return true
@@ -2327,6 +2327,11 @@ function F.event(state: State, ev: UiEvent)
 		end
 		activate(state, item)
 	elseif kind == "select" and type(item) == "string" and string.find(item, "=", 1, true) == nil then
+		-- A click on another row finishes the open edit (keeping it), so no field traps focus.
+		local e = form.editing
+		if e ~= nil and e.row ~= item and P.find(F.sections(state), item) ~= nil then
+			stop_edit(state, false)
+		end
 		if form.editing == nil and form.menu == nil then
 			form.focus = item
 		end

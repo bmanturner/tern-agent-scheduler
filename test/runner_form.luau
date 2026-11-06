@@ -60,3 +60,33 @@ assert(row.control.options[1].label == "Run once if under 90m late")
 assert(row.control.options[2].label == "Run once, however late")
 assert(row.control.options[3].label == "Skip missed runs")
 print("PASS compact missed-run labels preserve threshold and policy")
+
+-- Stop after menu reaches the validator's limit, and every choice validates.
+local STOPS, const = __mods.mgr_common.STOPS, __mods.const
+assert(STOPS[#STOPS].s == const.MAXRUN_MAX_S, "longest stop is the 8h limit")
+for _, o in STOPS do
+	local ok, errs = __mods.validate.job({ max_runtime_s = o.s }, { jobs = {}, now = 0, home = "/home/u" })
+	assert(ok, o.label .. " validates: " .. tostring(errs and errs.max_runtime_s))
+end
+print("PASS stop menu covers 5 min to 8 hours")
+
+-- After a validation error, the prompt editor and text fields never trap focus.
+do
+	local f2 = F.new({ name = "Trap", prompt = "", cwd = "/home/u/proj" }, nil, "New job")
+	local s2 = { form = f2, cx = { render = function() end, focus = function() end, cols = 100 } }
+	F.save(s2, false)
+	assert(f2.focus == "prompt" and f2.submitted, "error sends focus to Prompt")
+	F.key(s2, { name = "enter" })
+	assert(f2.editing ~= nil and f2.editing.row == "prompt", "enter opens the prompt editor")
+	F.key(s2, { name = "h", text = "h" })
+	F.key(s2, { name = "tab" })
+	assert(f2.editing == nil and f2.focus == "when" and f2.prompt.text == "h", "tab leaves the prompt editor, keeping text")
+	F.key(s2, { name = "tab", shift = true })
+	assert(f2.focus == "prompt", "shift+tab moves back")
+	F.key(s2, { name = "down" })
+	F.key(s2, { name = "enter" })
+	assert(f2.editing ~= nil and f2.editing.row == "when", "When is editable")
+	F.event(s2, { ev = "select", id = "main.prefs", item = "folder" })
+	assert(f2.editing == nil and f2.focus == "folder", "a click on Folder leaves the When edit")
+end
+print("PASS no focus trap after a validation error")
