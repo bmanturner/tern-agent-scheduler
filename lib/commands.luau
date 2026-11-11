@@ -56,6 +56,14 @@ local function send(cx: WindowCx, kind: string, payload: { [string]: any }?): bo
 	return true
 end
 
+-- This window's key, so the host acts in this window (runs open here, panes are focused here).
+function commands.window_key(cx: any): string?
+	local ok, key = pcall(function()
+		return cx:window_key()
+	end)
+	return if ok and type(key) == "string" then key else nil
+end
+
 -- Opens the manager on the window's current host, starting in the focused pane's folder there. On
 -- this machine an open manager is focused instead; a remote host's managers aren't in this
 -- machine's snapshot, so there it always opens one.
@@ -72,7 +80,7 @@ local function open_manager(cx: WindowCx)
 					return cx.session:resolve(tostring(id))
 				end)
 				if ok and pane ~= nil then
-					send(cx, "focus_manager", nil)
+					send(cx, "focus_manager", { block = tostring(id), window = commands.window_key(cx) })
 					return
 				end
 			end
@@ -164,11 +172,11 @@ local function run_job_now(cx: WindowCx)
 			end
 			local run_id: any = item.run_id
 			if type(run_id) == "string" then
-				send(cx2, "focus_run", { run_id = run_id })
+				send(cx2, "focus_run", { run_id = run_id, window = commands.window_key(cx2) })
 			elseif item.invalid == true then
 				cx2:toast("info", tostring(item.label) .. " needs fixing", "Open the manager to fix it.")
 			else
-				if send(cx2, "run_now", { job_id = item.job_id, expires = os.time() + RUN_NOW_TTL_S }) then
+				if send(cx2, "run_now", { job_id = item.job_id, expires = os.time() + RUN_NOW_TTL_S, window = commands.window_key(cx2) }) then
 					cx2:toast("info", tostring(item.label) .. " queued")
 				end
 			end
@@ -184,7 +192,7 @@ local function go_to_needs_you(cx: WindowCx)
 		cx:toast("info", "Nothing needs you right now")
 		return
 	end
-	send(cx, "focus_run", { run_id = tostring(needs[1].run_id) })
+	send(cx, "focus_run", { run_id = tostring(needs[1].run_id), window = commands.window_key(cx) })
 end
 
 -- Reloads only this plugin (`tern plugin reload <id>`); without a tern binary, every plugin.

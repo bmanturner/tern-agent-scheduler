@@ -14,16 +14,17 @@ local roles = require("./roles")
 local store = require("./store")
 local validate = require("./validate")
 
+-- `window` arguments: the key of the window that sent the intent (`cx:window_key()`), nil when it didn't say.
 export type Handlers = {
 	obs: ({ [string]: any }) -> (),
 	session_ended: () -> (),
-	run_now: (string) -> (boolean, string?),
+	run_now: (string, string?) -> (boolean, string?),
 	stop: (string) -> boolean,
-	focus_run: (string) -> (),
-	open_run: (string) -> (),
+	focus_run: (string, string?) -> (),
+	open_run: (string, string?) -> (),
 	ack_failed: (string) -> (),
 	roles_request: (string) -> (),
-	focus_manager: () -> (),
+	focus_manager: (string?, string?) -> (),
 	changed: () -> (),
 	check_conditions: (string, (any) -> ()) -> (),
 }
@@ -351,6 +352,15 @@ local function job_id_of(p: { [string]: any }): string?
 	return nil
 end
 
+-- The sending window's key (`""` is the first window's).
+local function window_of(p: { [string]: any }): string?
+	local w = p.window
+	if type(w) == "string" and #w <= 64 and w:match("^[%w%-_%.:]*$") then
+		return w
+	end
+	return nil
+end
+
 local function apply(kind: string, p: { [string]: any }, h: Handlers)
 	if kind == "obs" then
 		local block = p.block
@@ -377,7 +387,7 @@ local function apply(kind: string, p: { [string]: any }, h: Handlers)
 	elseif kind == "run_now" then
 		local id = job_id_of(p)
 		if id ~= nil then
-			local ok, why = h.run_now(id)
+			local ok, why = h.run_now(id, window_of(p))
 			if not ok then
 				log_warn("intents: run_now refused", tostring(why))
 			end
@@ -410,12 +420,12 @@ local function apply(kind: string, p: { [string]: any }, h: Handlers)
 	elseif kind == "focus_run" then
 		local id = run_id_of(p)
 		if id ~= nil then
-			h.focus_run(id)
+			h.focus_run(id, window_of(p))
 		end
 	elseif kind == "open_run" then
 		local id = run_id_of(p)
 		if id ~= nil then
-			h.open_run(id)
+			h.open_run(id, window_of(p))
 		end
 	elseif kind == "ack_failed" then
 		local id = run_id_of(p)
@@ -433,7 +443,11 @@ local function apply(kind: string, p: { [string]: any }, h: Handlers)
 			end
 		end
 	elseif kind == "focus_manager" then
-		h.focus_manager()
+		local block = p.block
+		if type(block) == "number" then
+			block = string.format("%.0f", block)
+		end
+		h.focus_manager(if type(block) == "string" and block:match("^%d+$") and #block <= 24 then block else nil, window_of(p))
 	elseif kind == "session_ended" then
 		h.session_ended()
 	elseif kind == "carly_create" then

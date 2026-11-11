@@ -162,6 +162,10 @@ local def: BlockDef<State> = {
 	end,
 
 	event = function(state, ev, _cx)
+		-- Tern says which window sent the event; runs started and opened from here go to that window
+		if type(ev.window) == "string" then
+			state.window = ev.window
+		end
 		if state.sheet ~= nil then
 			S.event(state, ev)
 		elseif state.mode == "form" and state.form ~= nil then

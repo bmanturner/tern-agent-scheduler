@@ -101,6 +101,8 @@ local S = {
 	keepalive = nil :: { ok: boolean, text: string }?,
 	data_probe = nil :: boolean?,
 	roles_probe = nil :: boolean?,
+	last_window = nil :: string?, -- the window key the user last acted from (manager, palette, Carly); kv "last_window"
+	refresh_due = false, -- re-read tern state on the next pump (a launch finished after a reload)
 }
 
 -- ---------- small helpers ----------
@@ -196,6 +198,43 @@ local function tern_bin(): string?
 	return bins.found().tern
 end
 
+-- Where a request came from: the window key Tern reported, else the requesting block (a manager pane) whose
+-- window the tern state knows.
+export type Origin = { window: string?, block: string? }
+
+-- The window key a block lives in, from the latest tern state; nil when unknown (then the first window).
+local function block_window(block: any, st: tern_state.State?): string?
+	local s = st or S.tstate
+	local b = if s ~= nil and block ~= nil then s.blocks[tostring(block)] else nil
+	return if b ~= nil then b.window else nil
+end
+
+-- The window holding a run's pane: as last seen (keys can change when Tern restarts), else where it launched.
+local function run_window(run: Run): string?
+	return block_window(run.block, nil) or (if type(run.window) == "string" then run.window else nil)
+end
+
+local function origin_window(o: Origin?, st: tern_state.State?): string?
+	if o == nil then
+		return nil
+	end
+	if type(o.window) == "string" then
+		return o.window
+	end
+	return block_window(o.block, st)
+end
+
+-- Remembers the window the user last acted from: runs nobody started from a window (schedules) open there.
+local function note_window(window: string?)
+	if type(window) ~= "string" or window == S.last_window then
+		return
+	end
+	S.last_window = window
+	pcall(function()
+		T().kv.set("last_window", window)
+	end)
+end
+
 -- ---------- outcome bookkeeping ----------
 
 local function alert(run: Run, key: string, text: string)
@@ -282,7 +321,7 @@ local function maybe_close_after(run: Run)
 			if b == nil then
 				return
 			end
-			tern_state.snapshot(b, function(st)
+			tern_state.snapshot_all(b, function(st)
 				if st == nil then
 					return
 				end
@@ -417,7 +456,7 @@ local function capture_tail(run: Run, cb: (string?) -> ())
 	if b == nil or block == nil then
 		return cb(nil)
 	end
-	proc({ b, "capture", tostring(block), "--surfaces" }, { timeout_ms = 5000 }, function(r)
+	proc(tern_state.with_window({ b, "capture", tostring(block), "--surfaces" }, run_window(run)), { timeout_ms = 5000 }, function(r)
 		if r.status ~= 0 then
 			return cb(nil)
 		end
@@ -553,7 +592,7 @@ function close_block(run: Run, cb: (() -> ())?)
 	end
 	run.close_requested = true
 	pcall(ledger.save, run)
-	proc({ b, "close", tostring(block) }, { timeout_ms = 8000 }, function()
+	proc(tern_state.with_window({ b, "close", tostring(block) }, run_window(run)), { timeout_ms = 8000 }, function()
 		run.pane_closed_at = wall()
 		pcall(ledger.save, run)
 		if cb then
@@ -662,7 +701,7 @@ local function process_liveness(st: tern_state.State, asked_at: number)
 	end
 end
 
--- Re-reads `tern ls --json`, then runs liveness and the pane cap. Single flight; cb(State?) afterwards.
+-- Re-reads every window's tern state, then runs liveness and the pane cap. Single flight; cb(State?) afterwards.
 local function refresh_state(cb: ((tern_state.State?) -> ())?)
 	local b = tern_bin()
 	if b == nil then
@@ -678,8 +717,9 @@ local function refresh_state(cb: ((tern_state.State?) -> ())?)
 		return
 	end
 	S.ls_busy = true
+	S.refresh_due = false
 	local asked = wall()
-	tern_state.snapshot(b, function(st)
+	tern_state.snapshot_all(b, function(st)
 		S.ls_busy = false
 		if st ~= nil then
 			S.tstate = st
@@ -828,6 +868,8 @@ function start_launch(run: Run, rt: RT)
 		focus = tostring(run.focus_override or defaults.focus or "keep"),
 		trigger = tostring(run.trigger),
 		slot_local = slot_local(tonumber(run.slot) or wall()),
+		-- a run started from a window opens there; any other in the window the user last acted from
+		window = if type(run.window) == "string" then run.window else (block_window(run.from_block, nil) or S.last_window),
 	}
 	req.context = rt.cond_context
 	rt.stage = "queued"
@@ -837,7 +879,7 @@ function start_launch(run: Run, rt: RT)
 			if res ~= nil then
 				local tb = tern_bin()
 				if tb ~= nil then
-					proc({ tb, "close", res.block }, { timeout_ms = 8000 }, function() end)
+					proc(tern_state.with_window({ tb, "close", res.block }, res.window), { timeout_ms = 8000 }, function() end)
 				end
 			end
 			return
@@ -848,12 +890,13 @@ function start_launch(run: Run, rt: RT)
 				if res.block ~= tostring(run.block) then
 					local tb = tern_bin()
 					if tb ~= nil then
-						proc({ tb, "close", res.block }, { timeout_ms = 8000 }, function() end)
+						proc(tern_state.with_window({ tb, "close", res.block }, res.window), { timeout_ms = 8000 }, function() end)
 					end
 				end
 				return
 			end
 			run.block = res.block
+			run.window = res.window -- nil when its window closed and the first window took it
 			S.by_block[res.block] = tostring(run.run_id)
 			transition(run, "running", nil, {
 				block = res.block,
@@ -1492,7 +1535,7 @@ local function drop_deleted()
 				S.by_block[tostring(run.block)] = nil
 				local b = tern_bin()
 				if b ~= nil then
-					proc({ b, "close", tostring(run.block) }, { timeout_ms = 8000 }, function() end)
+					proc(tern_state.with_window({ b, "close", tostring(run.block) }, run_window(run)), { timeout_ms = 8000 }, function() end)
 				end
 			end
 			remove_inflight(id)
@@ -1775,7 +1818,7 @@ function pump()
 		if gap or now - S.last_slow >= const.TICK_S then
 			S.last_slow = now
 			slow_tick(now, gap)
-		elseif exited_any then
+		elseif exited_any or S.refresh_due then
 			refresh_state(nil)
 		elseif S.cap_check_due then
 			refresh_state(nil)
@@ -1871,7 +1914,8 @@ function runner.changed()
 	notify_subs()
 end
 
-function runner.run_now(job_id: string, opts: { focus_override: string?, bypass: string? }?): (boolean, string?)
+-- opts.origin: where the request came from; the run opens in that window.
+function runner.run_now(job_id: string, opts: { focus_override: string?, bypass: string?, origin: Origin? }?): (boolean, string?)
 	local settings = jobs.settings()
 	if settings.paused_all == true then
 		return false, "Resume all jobs to run."
@@ -1896,8 +1940,14 @@ function runner.run_now(job_id: string, opts: { focus_override: string?, bypass:
 	if run == nil then
 		return false, "Agent Scheduler can't write its data right now."
 	end
-	if opts ~= nil and opts.bypass ~= nil then
-		run.cond_bypass = opts.bypass
+	local origin = if opts ~= nil then opts.origin else nil
+	local window = origin_window(origin, nil)
+	note_window(window)
+	local from_block = if window == nil and origin ~= nil then origin.block else nil
+	if (opts ~= nil and opts.bypass ~= nil) or window ~= nil or from_block ~= nil then
+		run.cond_bypass = if opts ~= nil then opts.bypass else nil
+		run.window = window
+		run.from_block = from_block -- its window is looked up at launch, when the tern state may know it
 		ledger.save(run)
 	end
 	return true, nil
@@ -1960,36 +2010,50 @@ function runner.stop(run_id: string): boolean
 	return true
 end
 
-function runner.focus_run(run_id: string)
+function runner.focus_run(run_id: string, origin: Origin?)
 	local run = S.runs[run_id] or ledger.get(run_id)
 	local b = tern_bin()
+	note_window(origin_window(origin, nil))
 	if run == nil or run.block == nil or b == nil then
 		return
 	end
-	proc({ b, "focus", tostring(run.block) }, { timeout_ms = 8000 }, function() end)
+	proc(tern_state.with_window({ b, "focus", tostring(run.block) }, run_window(run)), { timeout_ms = 8000 }, function() end)
 end
 
--- LA §10: focus the live pane, else resume the session in a new tab. cb(ok, err) is optional.
-function runner.open_run(run_id: string, cb: ((boolean, string?) -> ())?)
+-- LA §10: focus the live pane, else resume the session in a new tab of the requesting window.
+-- cb(ok, err, elsewhere) is optional; `elsewhere` is true when the pane was shown in another window than the
+-- one the request came from (a pane can't move between windows).
+function runner.open_run(run_id: string, cb: ((boolean, string?, boolean?) -> ())?, origin: Origin?)
 	local run = S.runs[run_id] or ledger.get(run_id)
 	local found = bins.get()
-	local done = cb or function(_ok: boolean, _err: string?) end
+	local done = cb or function(_ok: boolean, _err: string?, _elsewhere: boolean?) end
 	if run == nil then
-		return done(false, "That run no longer exists.")
+		return done(false, "That run no longer exists.", nil)
 	end
 	if found == nil then
-		return done(false, "Agent Scheduler can't find tern or omp. Check Setup.")
+		return done(false, "Agent Scheduler can't find tern or omp. Check Setup.", nil)
 	end
-	tern_state.snapshot(found.tern, function(st)
-		local key = tostring(run.job_id) .. "/" .. tostring(run.run_id)
-		local blk = st ~= nil and st.by_run[key] or nil
-		if blk ~= nil then
-			proc({ found.tern, "focus", blk.id }, { timeout_ms = 8000 }, function()
-				done(true, nil)
-			end)
-		else
-			launcher.resume(run, found, done)
+	tern_state.snapshot_all(found.tern, function(st)
+		local from = origin_window(origin, st)
+		note_window(from)
+		if st == nil then
+			if S.runs[run_id] ~= nil then
+				-- its pane may well be open: resuming it too would run two omp on one session
+				return done(false, "Couldn't reach Tern's session service. Try again.", nil)
+			end
+			return launcher.resume(run, found, from, done)
 		end
+		local key = tostring(run.job_id) .. "/" .. tostring(run.run_id)
+		local blk = st.by_run[key]
+		if blk == nil then
+			return launcher.resume(run, found, from, done)
+		end
+		proc(tern_state.with_window({ found.tern, "focus", blk.id }, blk.window), { timeout_ms = 8000 }, function(r)
+			if r.status ~= 0 then
+				return done(false, "Couldn't show the run: " .. tostring(r.stderr or ""):sub(1, 120), nil)
+			end
+			done(true, nil, from ~= nil and blk.window ~= nil and blk.window ~= from)
+		end)
 	end)
 end
 
@@ -2042,14 +2106,20 @@ function runner.branches(cwd: string, cb: ({ string }?, string?) -> ())
 	)
 end
 
-function runner.focus_manager()
+-- Focuses a manager: origin.block when it is one (the window half asks for one it can see), else the newest.
+function runner.focus_manager(origin: Origin?)
 	prune_managers()
 	local b = tern_bin()
 	local block = S.managers[#S.managers]
+	local window: string? = nil
+	if origin ~= nil and origin.block ~= nil and table.find(S.managers, origin.block) ~= nil then
+		block, window = origin.block, origin.window
+	end
+	note_window(origin_window(origin, nil))
 	if b == nil or block == nil then
 		return
 	end
-	proc({ b, "focus", block }, { timeout_ms = 8000 }, function() end)
+	proc(tern_state.with_window({ b, "focus", block }, window or block_window(block, nil)), { timeout_ms = 8000 }, function() end)
 end
 
 -- ---------- setup rows (UX §6.2) ----------
@@ -2068,12 +2138,12 @@ end
 setup_rows = function(): { SetupRow }
 	local f = bins.found()
 	local rows: { SetupRow } = {}
-	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 9, 12)
+	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 9, 16)
 	table.insert(rows, {
 		id = "tern",
 		label = "Tern version",
 		ok = tern_ok,
-		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.9.12. Update Tern.",
+		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.9.16. Update Tern.",
 	})
 	table.insert(rows, {
 		id = "omp",
@@ -2157,7 +2227,7 @@ function runner.check_setup(cb: ({ SetupRow }) -> ())
 				S.keepalive = { ok = false, text = "Tern's command-line tool wasn't found." }
 				return after_keepalive()
 			end
-			tern_state.snapshot(tb, function(st)
+			tern_state.snapshot_all(tb, function(st)
 				if st == nil then
 					S.keepalive = { ok = false, text = "Tern's session service isn't reachable." }
 					return after_keepalive()
@@ -2206,13 +2276,15 @@ handlers = {
 		refresh_state(nil)
 	end,
 	obs = on_obs,
-	run_now = function(id: string)
-		return runner.run_now(id, nil)
+	run_now = function(id: string, window: string?)
+		return runner.run_now(id, { origin = { window = window } })
 	end,
 	stop = runner.stop,
-	focus_run = runner.focus_run,
-	open_run = function(id: string)
-		runner.open_run(id, nil)
+	focus_run = function(id: string, window: string?)
+		runner.focus_run(id, { window = window })
+	end,
+	open_run = function(id: string, window: string?)
+		runner.open_run(id, nil, { window = window })
 	end,
 	ack_failed = runner.ack_failed,
 	roles_request = function(cwd: string)
@@ -2221,7 +2293,9 @@ handlers = {
 			S.pub_dirty = true
 		end)
 	end,
-	focus_manager = runner.focus_manager,
+	focus_manager = function(block: string?, window: string?)
+		runner.focus_manager({ block = block, window = window })
+	end,
 	changed = runner.changed,
 	check_conditions = runner.check_conditions,
 }
@@ -2298,6 +2372,32 @@ function runner.load()
 	pcall(function()
 		T().on("pane_exited", function(ev: any)
 			table.insert(S.events, ev)
+		end)
+	end)
+	pcall(function()
+		local w = T().kv.get("last_window")
+		if type(w) == "string" then
+			S.last_window = w
+		end
+	end)
+	-- A `tern new` that outlived the previous VM (a reload mid-launch) reports here instead of its callback: look
+	-- for its pane now rather than on the next slow tick.
+	pcall(function()
+		T().on("process_exit", function(ev: any)
+			if type(ev) == "table" and tostring(ev.stdout or ""):find('"block"%s*:%s*%d') ~= nil then
+				S.refresh_due = true
+			end
+		end)
+	end)
+	-- Before a reload replaces this VM (or the plugin is turned off): persist what the pump would have flushed.
+	pcall(function()
+		T().on("unload", function(_cx: any)
+			for _, run in pairs(S.runs) do
+				pcall(ledger.save, run)
+			end
+			S.dirty_runs = {}
+			pcall(jobs.save_state)
+			pcall(publish, wall())
 		end)
 	end)
 	S.last_house = now

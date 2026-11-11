@@ -1,0 +1,5 @@
+PASS no window known: first window
+PASS open run focuses the pane in its own window
+PASS run started from window 2 lives there
+PASS resume opens in the requesting window
+PASS closed window falls back to the first

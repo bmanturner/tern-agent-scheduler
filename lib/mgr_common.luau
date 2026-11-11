@@ -121,6 +121,7 @@ export type Sheet = {
 export type State = {
 	cx: BlockCx,
 	pane_id: string,
+	window: string?, -- key of the window this manager is in, from the latest event that carried one (`ev.window`)
 	token: number?,
 	mode: string, -- "list" | "detail" | "form"
 	sel: { sec: string, key: string }?,
@@ -251,6 +252,11 @@ end
 function C.notice(state: State, text: string?)
 	state.notice = text
 	state.notice_at = tern.now()
+end
+
+-- Where the manager's requests come from, so runs open and panes show in its window.
+function C.origin(state: State): { window: string?, block: string? }
+	return { window = state.window, block = state.pane_id }
 end
 
 -- Sends a raw `focus` frame op (`target` nil = clear focus).

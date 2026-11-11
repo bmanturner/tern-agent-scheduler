@@ -28,8 +28,9 @@ export type LaunchRequest = {
 	images: { string }?, -- staged image files, relative to the run dir (images/1.png, …); set by stage_images
 	images_skipped: { { name: string, why: string } }?,
 	context: { { title: string, name: string, source: string, text: string } }?,
+	window: string?, -- the window key to open the run in; nil for the first window. Cleared when that window is gone.
 }
-export type LaunchResult = { block: string, tab: string?, session: string?, placement_used: string }
+export type LaunchResult = { block: string, tab: string?, session: string?, placement_used: string, window: string? }
 export type LaunchError = { code: string, text: string }
 
 local launcher = {}
@@ -107,7 +108,7 @@ function launcher.omp_argv(req: LaunchRequest): { string }
 end
 
 -- Full `tern new …` argv. verb: "new_session" (create the run session), "new_tab" (tab in the run
--- session), "new_tab_shown" (tab in the shown session).
+-- session), "new_tab_shown" (tab in the shown session). In req.window's sessions when it is set.
 function launcher.argv(req: LaunchRequest, verb: string?): { string }
 	local v = verb or "new_session"
 	local a: { string } = { req.bins.tern, "new" }
@@ -126,7 +127,7 @@ function launcher.argv(req: LaunchRequest, verb: string?): { string }
 	for _, s in ipairs(launcher.omp_argv(req)) do
 		table.insert(a, s)
 	end
-	return a
+	return tern_state.with_window(a, req.window)
 end
 
 local function human_duration(secs: number): string
@@ -475,18 +476,19 @@ local function pump()
 	local run_key = tostring(req.run.job_id or req.job.id) .. "/" .. tostring(req.run.run_id)
 
 	local function succeeded(block: string, tab: string?, session: string?, placement: string)
-		reply({ block = block, tab = tab, session = session, placement_used = placement }, nil)
+		reply({ block = block, tab = tab, session = session, placement_used = placement, window = req.window }, nil)
 		-- best effort, after the run has its block id
 		local function focus()
 			if req.focus == "front" then
-				proc({ req.bins.tern, "focus", block }, { timeout_ms = 8000 }, function()
+				proc(tern_state.with_window({ req.bins.tern, "focus", block }, req.window), { timeout_ms = 8000 }, function()
 					release()
 				end)
 			else
 				release()
 			end
 		end
-		proc({ req.bins.tern, "rename", block, tab_title(tostring(req.run.job_name or req.job.name or "run")) }, { timeout_ms = 8000 }, function()
+		local title = tab_title(tostring(req.run.job_name or req.job.name or "run"))
+		proc(tern_state.with_window({ req.bins.tern, "rename", block, title }, req.window), { timeout_ms = 8000 }, function()
 			focus()
 		end)
 	end
@@ -511,9 +513,13 @@ local function pump()
 		tern_state.snapshot(req.bins.tern, function(st, r)
 			local state = st
 			if state == nil then
+				if req.window ~= nil and tern_state.window_gone(r) then
+					req.window = nil -- that window closed: the first window takes the run
+					return attempt(n)
+				end
 				local text = tostring(r and r.stdout or "") .. tostring(r and r.stderr or "")
 				if text:find("no sessions", 1, true) then
-					state = { sessions = {}, session_ids = {}, blocks = {}, by_run = {} }
+					state = { sessions = {}, session_ids = {}, blocks = {}, by_run = {}, windows = {} }
 				elseif text:find("no Tern is running", 1, true) then
 					return failed(n, "tern_unreachable", "Tern's session service isn't reachable.")
 				else
@@ -558,6 +564,10 @@ local function pump()
 						return failed(n, "launch_error", "tern new printed no block id")
 					end
 					-- each fallback verb is tried at most once, then the attempt fails normally (MAX_ATTEMPTS applies)
+					if req.window ~= nil and tern_state.window_gone(res) then
+						req.window = nil
+						return attempt(n)
+					end
 					if v == "new_tab" and text:find("there is no session", 1, true) and not tried.new_session then
 						placement = "session"
 						return launch("new_session")
@@ -593,10 +603,11 @@ function launcher.queued(): number
 	return #queue + (busy and 1 or 0)
 end
 
--- LA §10 "Open run" when the pane is gone: a new tab in the shown session resuming omp's session file.
--- cb(ok, err). The resumed pane is a user session; its command has no `@…/prompt.md` attachment, which is
--- what tern_state anchors the run marker on, so it is not mistaken for the run's pane.
-function launcher.resume(run: { [string]: any }, bins: Bins, cb: (boolean, string?) -> ())
+-- LA §10 "Open run" when the pane is gone: a new tab resuming omp's session file, in the shown session of
+-- `window` (the first window for nil, or when that window is gone). cb(ok, err). The resumed pane is a user
+-- session; its command has no `@…/prompt.md` attachment, which is what tern_state anchors the run marker on, so
+-- it is not mistaken for the run's pane.
+function launcher.resume(run: { [string]: any }, bins: Bins, window: string?, cb: (boolean, string?) -> ())
 	local file = run.session_file
 	if type(file) ~= "string" or file == "" then
 		return cb(false, "That run's session was removed, so it can't be reopened.")
@@ -624,9 +635,11 @@ function launcher.resume(run: { [string]: any }, bins: Bins, cb: (boolean, strin
 	if run.allow_home == true then
 		table.insert(argv, "--allow-home")
 	end
-	proc(argv, { timeout_ms = const.LAUNCH_TIMEOUT_MS }, function(res)
+	proc(tern_state.with_window(argv, window), { timeout_ms = const.LAUNCH_TIMEOUT_MS }, function(res)
 		if res.status == 0 then
 			cb(true, nil)
+		elseif window ~= nil and tern_state.window_gone(res) then
+			launcher.resume(run, bins, nil, cb)
 		else
 			cb(false, "Couldn't reopen the run: " .. tostring(res.stderr or ""):sub(1, 120))
 		end

@@ -300,7 +300,7 @@ function carly.register()
 		sig = "(name: string) -> string",
 		doc = fit("Runs a scheduled job now, with its saved settings. `name` is matched case-insensitively (a unique prefix of 3+ characters works); an unknown or ambiguous name fails and lists the matches. Fails if the job is already running or needs fixing. Returns \"Queued\"; the run starts within a few seconds."),
 	}, function(...: any): any
-		local a, _cx, call = split_args(...)
+		local a, cx, call = split_args(...)
 		local name = str(a[1])
 		if name == nil or name == "" then
 			return fail(call, "Which job? Use jobs_list() for the names.")
@@ -321,7 +321,14 @@ function carly.register()
 				return fail(call, tostring(job.name) .. " is already running.")
 			end
 		end
-		local sent, serr = outbox.send("run_now", { job_id = tostring(job.id), expires = os.time() + EXPIRES_S })
+		local window: string? = nil
+		pcall(function()
+			local key = (cx :: any):window_key()
+			if type(key) == "string" then
+				window = key
+			end
+		end)
+		local sent, serr = outbox.send("run_now", { job_id = tostring(job.id), expires = os.time() + EXPIRES_S, window = window })
 		if sent == nil then
 			return fail(call, tostring(serr))
 		end

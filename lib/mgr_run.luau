@@ -9,7 +9,7 @@ type State = C.State
 local R = {}
 
 local function start(state: State, job_id: string, opts: { override: string?, toast: boolean })
-	local ok, err = runner.run_now(job_id, { focus_override = opts.override })
+	local ok, err = runner.run_now(job_id, { focus_override = opts.override, origin = C.origin(state) })
 	if ok then
 		if opts.toast then
 			local job: any = jobs.get(job_id)

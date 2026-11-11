@@ -2,6 +2,22 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.8.0 (2026-11-10)
+
+Built and tested on Tern 0.9.16. **Update Tern to 0.9.16:** on an older Tern, Settings › Setup flags the Tern version.
+
+### Changed
+
+- With several Tern windows, runs open in a window you use: a run you start from the manager, the palette or Carly opens in that window, and scheduled runs open in the window you last used Agent Scheduler from. They used to always go to the first window.
+- After a plugin reload, a run whose launch was still finishing is picked up right away instead of on the next check.
+- Run records are saved before the plugin reloads or is turned off.
+
+### Fixed
+
+- **Open run** (Enter or a double-click on a run) works when the run's tab is in another Tern window. It used to do nothing visible, or resume the session in a window you weren't looking at. When the tab is in your other window, the manager now says so.
+- A run whose tab is in a window other than the first is no longer recorded as closed by you.
+- When a run's tab can't be shown, the manager says why instead of doing nothing.
+
 ## 0.7.2 (2026-11-05)
 
 Built and tested on Tern 0.9.12.

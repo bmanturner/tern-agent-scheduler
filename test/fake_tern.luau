@@ -1,7 +1,8 @@
 -- test/fake_tern.luau : a global `tern` for the runner tests (prepended by test/run.ts to runner_*.luau).
 -- In-memory fs / kv, a virtual clock (monotonic ms + wall seconds, both driven by fake.advance), a JSON codec
--- with tern semantics, and a scripted `tern.process.run` that models the tern CLI (ls/new/rename/focus/close),
--- omp, /bin/test, /usr/bin/tail and osascript. Every spawn is recorded in fake.calls.
+-- with tern semantics, and a scripted `tern.process.run` that models the tern CLI (ls/inspect/new/rename/focus/
+-- close/capture, per-window sessions and `--window KEY`), omp, /bin/test, /usr/bin/tail and osascript. Every spawn
+-- is recorded in fake.calls (`window`: the `--window` it carried, nil without one).
 -- `os` here is the writable copy made by the test prelude; time and date are driven from the fake.
 local fake_clock = __mods.fake -- America/Chicago fake (test/fake_chicago.luau)
 __mods.cron.clock = fake_clock
@@ -29,8 +30,10 @@ local fake = {
 	roles_json = '{"key":"modelRoles","value":{"default":"anthropic/claude-opus-5-5:medium","smol":"anthropic/claude-haiku-5-5:low","tiny":"anthropic/claude-haiku-5-5","judge":"x/y"},"type":"record"}',
 }
 fake.live_panes = {} -- pane ids (strings) reported by tern.pane.list()
+-- Open windows' keys; the first is the "first window" commands without --window act on. Sessions carry `window`.
+fake.windows = { "" }
 fake.installed = {
-	[fake.tern_bin] = "tern 0.9.12 (test)\n",
+	[fake.tern_bin] = "tern 0.9.16 (test)\n",
 	[fake.omp_bin] = "omp/18.9.1\n",
 }
 
@@ -419,17 +422,21 @@ local function new_id()
 	fake.next_id += 1
 	return fake.next_id
 end
-local function find_session(name)
+local function find_session(name, window)
 	for _, s in ipairs(fake.sessions) do
-		if s.name == name then
+		if s.name == name and (s.window or "") == window then
 			return s
 		end
 	end
 	return nil
 end
-function fake.ls_json()
+function fake.ls_json(window)
+	window = window or fake.windows[1] or ""
 	local sessions = json.array({})
 	for _, s in ipairs(fake.sessions) do
+		if (s.window or "") ~= window then
+			continue
+		end
 		local tabs = json.array({})
 		for n, t in ipairs(s.tabs) do
 			local blocks = json.array({})
@@ -449,6 +456,31 @@ function fake.ls_json()
 		sessions[#sessions + 1] = { id = s.id, name = s.name, shown = s.shown == true, tabs = tabs }
 	end
 	return json.encode({ sessions = sessions, detached = json.array({}) })
+end
+function fake.inspect_json()
+	local j = json.decode(fake.ls_json(nil))
+	local clients = json.array({})
+	for i, w in ipairs(fake.windows) do
+		clients[#clients + 1] = { conn = i, window = w, kind = "window", since = 0 }
+	end
+	clients[#clients + 1] = { conn = 99, window = "", kind = "cli", since = 0 }
+	j.clients = clients
+	j.panes = json.array({})
+	j.detached = json.array({})
+	return json.encode(j)
+end
+-- The window key whose sessions hold block `id`, or nil.
+function fake.window_of(id)
+	for _, s in ipairs(fake.sessions) do
+		for _, t in ipairs(s.tabs) do
+			for _, bid in ipairs(t.blocks) do
+				if bid == id then
+					return s.window or ""
+				end
+			end
+		end
+	end
+	return nil
 end
 function fake.block_for_run(run_id)
 	for id, b in pairs(fake.blocks) do
@@ -490,7 +522,7 @@ local function fail(stderr)
 	return { status = 1, stdout = "", stderr = stderr, timed_out = false }
 end
 
-local function tern_new(argv)
+local function tern_new(argv, window)
 	local kind = argv[3]
 	local name, i = nil, 4
 	if argv[i] and argv[i]:sub(1, 2) ~= "--" then
@@ -512,19 +544,19 @@ local function tern_new(argv)
 	end
 	local session, tab
 	if kind == "session" then
-		if find_session(name) then
+		if find_session(name, window) then
 			return fail("session already exists")
 		end
-		session = { id = new_id(), name = name, shown = false, tabs = {} }
+		session = { id = new_id(), name = name, shown = false, tabs = {}, window = window }
 		table.insert(fake.sessions, session)
 	elseif name ~= nil then
-		session = find_session(name)
+		session = find_session(name, window)
 		if session == nil then
 			return fail("there is no session named " .. name)
 		end
 	else
 		for _, s in ipairs(fake.sessions) do
-			if s.shown then
+			if s.shown and (s.window or "") == window then
 				session = s
 			end
 		end
@@ -581,13 +613,42 @@ local function respond(argv, opts)
 	else
 		key = base
 	end
-	fake.calls[#fake.calls + 1] = { argv = argv, opts = opts, key = key }
+	-- `--window KEY` (before a `--` separator) picks the window; positional parsing sees argv without it
+	local window, args = nil, argv
+	if base == "tern" then
+		args = {}
+		local i, rest = 1, false
+		while i <= #argv do
+			if not rest and argv[i] == "--window" then
+				window, i = argv[i + 1], i + 2
+			else
+				rest = rest or argv[i] == "--"
+				args[#args + 1] = argv[i]
+				i += 1
+			end
+		end
+	end
+	fake.calls[#fake.calls + 1] = { argv = argv, opts = opts, key = key, window = window }
 	local custom = fake.override[key]
 	if custom then
-		local r = custom(argv, opts)
+		local r = custom(args, opts, window)
 		if r ~= nil then
 			return r
 		end
+	end
+	if base == "tern" and key ~= "--version" then
+		if window ~= nil and table.find(fake.windows, window) == nil then
+			local keys = {}
+			for _, w in ipairs(fake.windows) do
+				keys[#keys + 1] = '"' .. w .. '"'
+			end
+			return fail(string.format("tern %s: no window has key %s; window keys: %s", key, window, table.concat(keys, ", ")))
+		end
+		window = window or fake.windows[1] or ""
+	end
+	-- a block command only finds blocks in its window's sessions
+	local function here(id)
+		return fake.window_of(id) == window
 	end
 	if key == "--version" then
 		local v = fake.installed[argv[1]]
@@ -596,24 +657,39 @@ local function respond(argv, opts)
 		end
 		return ok(v)
 	elseif key == "ls" then
-		return ok(fake.ls_json())
+		return ok(fake.ls_json(window))
+	elseif key == "inspect" then
+		return ok(fake.inspect_json())
 	elseif key == "new" then
-		return tern_new(argv)
+		return tern_new(args, window)
 	elseif key == "rename" then
-		local t = find_tab(tonumber(argv[3]))
+		local id = tonumber(args[3])
+		if not here(id) then
+			return fail("tern rename: no block is called `" .. tostring(args[3]) .. "`")
+		end
+		local t = find_tab(id)
 		if t then
-			t.name = argv[4]
+			t.name = args[4]
 		end
 		return ok()
 	elseif key == "focus" then
+		if not here(tonumber(args[3])) then
+			return fail("tern focus: no block is called `" .. tostring(args[3]) .. "`")
+		end
 		for id, b in pairs(fake.blocks) do
-			b.focused = (string.format("%.0f", id) == argv[3])
+			b.focused = (string.format("%.0f", id) == args[3])
 		end
 		return ok()
 	elseif key == "close" then
-		fake.remove_block(tonumber(argv[3]))
+		if not here(tonumber(args[3])) then
+			return fail("tern close: no block is called `" .. tostring(args[3]) .. "`")
+		end
+		fake.remove_block(tonumber(args[3]))
 		return ok()
 	elseif key == "capture" then
+		if not here(tonumber(args[3])) then
+			return fail("tern capture: no block is called `" .. tostring(args[3]) .. "`")
+		end
 		return ok("something failed\n")
 	elseif key == "config" then
 		return ok(fake.roles_json)

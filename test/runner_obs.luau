@@ -199,8 +199,8 @@ print("PASS pane closed by the user => cancelled/closed_by_user")
 
 -- 8b. session_ended re-reads Tern's state at once instead of waiting for the next slow tick
 local run8b = start_run(job)
-local ls0 = #fake.calls_of("ls")
-assert(fake.run_until(function() return #fake.calls_of("ls") > ls0 end, 20000, 500), "a slow tick ran")
+local ls0 = #fake.calls_of("inspect")
+assert(fake.run_until(function() return #fake.calls_of("inspect") > ls0 end, 20000, 500), "a slow tick ran")
 fake.remove_block(tonumber(run8b.block))
 fake.intent("1760000000001-testwin01-0001", { format = 1, kind = "session_ended" })
 fake.advance(2500)

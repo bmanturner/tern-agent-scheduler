@@ -177,14 +177,17 @@ function A.start_fresh(state: State)
 	end
 end
 
--- Opens a run's terminal: focus when its pane lives, else resume its session in a new tab.
+-- Opens a run's terminal: focus when its pane lives, else resume its session in a new tab of this window.
 function A.open_run(state: State, run_id: string)
-	runner.open_run(run_id, function(ok, err)
+	runner.open_run(run_id, function(ok, err, elsewhere)
 		if not ok then
 			C.notice(state, err or "Couldn't open the run.")
 			C.render(state)
+		elseif elsewhere then
+			C.notice(state, "That run's tab is in your other Tern window, so it's shown there.")
+			C.render(state)
 		end
-	end)
+	end, C.origin(state))
 end
 
 -- The live run of a job, else its last run.

@@ -1135,7 +1135,7 @@ local function do_run_anyway(state: State, sheet: Sheet)
 	if job_id == nil then
 		return
 	end
-	local ok, err = runner.run_now(job_id, { focus_override = sheet.override, bypass = sheet.code or "cond" })
+	local ok, err = runner.run_now(job_id, { focus_override = sheet.override, bypass = sheet.code or "cond", origin = C.origin(state) })
 	if ok then
 		C.toast(state, "info", job_name(job_id) .. " started", "Ran without checking its conditions.")
 	else
