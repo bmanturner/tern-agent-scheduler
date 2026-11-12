@@ -35,7 +35,7 @@ local loading = MODULES[1]
 local registered = false
 
 -- Tern pauses a hook that runs over its time budget (5 s, doubling on repeats, at most 5 min) and
--- resumes it on its own. Log it, and let the status line say so while anything is paused.
+-- resumes it on its own. Log it, and let the scheduler status say so while anything is paused.
 local okb = pcall(tern.on, "budget", function(ev: BudgetEvent, _cx: WindowCx)
 	if ev.state == "paused" then
 		tern.log.warn(

@@ -1,5 +1,5 @@
 -- Window events: `agent_state` sends a run's new state at once, and `budget` pauses show
--- in the status line until every paused hook resumes.
+-- in the scheduler status until every paused hook resumes.
 tern.chrome = tern.chrome or { refresh = function() end }
 local observer = __mods.observer
 local status = __mods.status

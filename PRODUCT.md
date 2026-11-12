@@ -27,7 +27,7 @@ It's meant to match what other tools already offer, not to stand apart from them
 ## Operating Context
 
 - A job is a saved prompt plus a schedule, a folder, an omp role, an approval mode and a time limit. A run is one execution of it.
-- Runs start in a background **Scheduled runs** session without taking focus. The user hears about them through the status line, toasts and desktop notifications when something needs them or fails.
+- Runs start in a background **Scheduled runs** session without taking focus. The user hears about them through the widget bar, toasts and desktop notifications when something needs them or fails.
 - Jobs run only while Tern's session service is running. Nothing runs while the computer is asleep. Missed runs follow the job's catch-up setting.
 - The manager is a Tern block. The palette has Open manager, New job, Run a job now and Go to run that needs you. Carly, Tern's assistant, can create, list, run and pause jobs.
 - Remote hosts each keep their own jobs and manager.

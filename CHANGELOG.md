@@ -2,6 +2,14 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.9.0 (2026-11-12)
+
+Built and tested on Tern 0.9.18. **Update Tern to 0.9.18:** on an older Tern, Settings › Setup flags the Tern version.
+
+### Added
+
+- An **Agent Scheduler** widget for Tern's widget bar (`tern-agent-scheduler/status`). Add it from the palette's **Edit widgets…**. It shows the same status the status line used to: the next run, runs in progress, and runs that need you or failed. Tern 0.9.17 replaced the status line with the widget bar, where plugin status only appears if your bar includes **Plugin segments**; that still works too.
+
 ## 0.8.0 (2026-11-10)
 
 Built and tested on Tern 0.9.16. **Update Tern to 0.9.16:** on an older Tern, Settings › Setup flags the Tern version.

@@ -33,7 +33,7 @@ fake.live_panes = {} -- pane ids (strings) reported by tern.pane.list()
 -- Open windows' keys; the first is the "first window" commands without --window act on. Sessions carry `window`.
 fake.windows = { "" }
 fake.installed = {
-	[fake.tern_bin] = "tern 0.9.16 (test)\n",
+	[fake.tern_bin] = "tern 0.9.18 (test)\n",
 	[fake.omp_bin] = "omp/18.9.1\n",
 }
 

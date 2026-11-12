@@ -9,7 +9,7 @@ Scheduled [omp](https://github.com/can1357/oh-my-pi) agent runs for [Tern](https
   <img alt="The Agent Scheduler manager's timeline: results since you last looked (a failed test run, a quiet audit and finished runs with their summaries) above the Now rule, a run in progress on it with its model, tool calls, cost and current tool, then the next runs and a paused job" src="docs/screenshots/manager-light.png">
 </picture>
 
-Write a prompt, pick a folder and say when ("weekdays 9am", "every 2h", `0 9 * * 1-5`). At that time Agent Scheduler starts omp in a background **Scheduled runs** session, watches it, and records how the run ended. Your focus never moves. The status line, toasts and desktop notifications tell you when something needs you or fails, and every run keeps its session so you can open it and carry on.
+Write a prompt, pick a folder and say when ("weekdays 9am", "every 2h", `0 9 * * 1-5`). At that time Agent Scheduler starts omp in a background **Scheduled runs** session, watches it, and records how the run ended. Your focus never moves. The **Agent Scheduler** widget, toasts and desktop notifications tell you when something needs you or fails, and every run keeps its session so you can open it and carry on.
 
 A job can also wait for something worth doing: new commits on a branch, working hours, a daily run or spend limit, a script of yours, or a model's answer to a question you write. Runs that don't qualify are skipped quietly and noted in the job's history.
 
@@ -23,7 +23,7 @@ A job can also wait for something worth doing: new commits on a branch, working 
 
 ## Install
 
-Built and tested on Tern 0.9.16. Runs on macOS or Linux (not Windows yet) and needs [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
+Built and tested on Tern 0.9.18. Runs on macOS or Linux (not Windows yet) and needs [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
 
 > [!IMPORTANT]
 > Jobs run while Tern's session service is running. It keeps running after you close every window, as long as a terminal or a run tab is open. Nothing runs while your computer is asleep, or after a restart until you open Tern; missed runs then follow each job's **If your Mac was asleep** setting.
@@ -33,6 +33,8 @@ tern plugin install github.com/bmanturner/tern-agent-scheduler
 ```
 
 Press `ctrl+alt+shift+m` to open the manager (`ctrl+alt+shift+s` also works on macOS). With no jobs yet, it offers three examples to start from; Enter opens one in the New job form, and nothing is saved until you save it. To update, run the install command again with `--force`; [CHANGELOG.md](CHANGELOG.md) lists what changed.
+
+To see the scheduler in Tern's widget bar, open the palette's **Edit widgets…** and add **Agent Scheduler** (`tern-agent-scheduler/status`). It shows the next run, runs in progress, and runs that need you or failed; click it to open the manager, or the run that needs you. If your bar has **Plugin segments**, the same status also shows there.
 
 ## Create a job
 
@@ -126,7 +128,7 @@ At 150 columns or wider, a job's details sit beside the list and follow the sele
   <img alt="A wide manager with the timeline on the left and the selected job's details on the right: run totals (runs, succeeded, failed, missed), its latest result, schedule, folder, role and prompt, and one line per run with its outcome, duration and cost" src="docs/screenshots/job-details-light.png">
 </picture>
 
-Job details show the run totals (runs, succeeded, failed and missed, counted separately), the latest result, the job's settings and prompt, and one line per recent run with its outcome, duration and cost. **Settings › Display › Time format** picks **Automatic** (your system's 12- or 24-hour preference, else 24-hour), **12-hour** or **24-hour** for every time Agent Scheduler shows, including notifications, the status line and Carly.
+Job details show the run totals (runs, succeeded, failed and missed, counted separately), the latest result, the job's settings and prompt, and one line per recent run with its outcome, duration and cost. **Settings › Display › Time format** picks **Automatic** (your system's 12- or 24-hour preference, else 24-hour), **12-hour** or **24-hour** for every time Agent Scheduler shows, including notifications, the widget and Carly.
 
 New results fade three seconds after you open the manager; choose **Stay until marked seen** under **Settings › Display › New results** to keep them highlighted. Press `s` or click **Mark all seen** to clear them; the button and key only appear when there is something to mark. A failure marker stays on the job until its next success.
 
@@ -209,9 +211,9 @@ Name request files `<digits>-<letters and digits>-<digits>.json` (they're applie
 ## Good to know
 
 - **A run waiting for your approval** is only noticed while a desktop Tern window is open.
-- **In the browser (`tern web serve`) and on iPhone and iPad,** the manager works, but palette commands, the status line, notices of runs that need you and Carly's job tools need a desktop Tern window.
+- **In the browser (`tern web serve`) and on iPhone and iPad,** the manager works, but palette commands, the widget, notices of runs that need you and Carly's job tools need a desktop Tern window.
 - **With several Tern windows,** each window has its own sessions. A run you start (manager, palette or Carly) opens in that window's **Scheduled runs** session, and scheduled runs open in the window you last used Agent Scheduler from (the first window until you have). **Open run** shows a run's tab in whichever window holds it; a tab can't move between windows, so if it's in another window the manager says so. A run whose tab is gone reopens in the window you opened it from.
-- **Remote hosts:** jobs run on the machine the plugin is installed on. To schedule runs on a remote host you've attached in Tern, install the plugin there too (run the install command in a pane on that host); it keeps its own jobs and manager, which **Open manager** and **New job…** open while you're in one of that host's sessions. This computer's status line, notifications, Carly and the other palette commands cover only this computer's jobs, and a run on the remote host that waits for your approval isn't noticed.
+- **Remote hosts:** jobs run on the machine the plugin is installed on. To schedule runs on a remote host you've attached in Tern, install the plugin there too (run the install command in a pane on that host); it keeps its own jobs and manager, which **Open manager** and **New job…** open while you're in one of that host's sessions. This computer's widget, notifications, Carly and the other palette commands cover only this computer's jobs, and a run on the remote host that waits for your approval isn't noticed.
 - **Failures:** a run that hits its time limit is stopped. After three failures in a row the job pauses itself and tells you.
 - **Finished run tabs:** the 5 most recent are kept and older ones are closed (**Settings › Limits** changes the number); their sessions can still be resumed.
 
@@ -235,7 +237,7 @@ tern plugin link .   # Tern reloads the plugin when a file changes
 bun install && bun run test
 ```
 
-The host half (`host.luau`, `lib/runner.luau`) owns the clock and launching, and `lib/cond_eval.luau` checks a job's Only when conditions; the window half (`window.luau`) adds palette commands, the status line, run observation and Carly. The manager is a block (`blocks/manager.luau`, with `lib/mgr_*.luau` and `manager.css`). Design notes are in [`docs/design/`](docs/design/).
+The host half (`host.luau`, `lib/runner.luau`) owns the clock and launching, and `lib/cond_eval.luau` checks a job's Only when conditions; the window half (`window.luau`) adds palette commands, the widget-bar status, run observation and Carly. The manager is a block (`blocks/manager.luau`, with `lib/mgr_*.luau` and `manager.css`). Design notes are in [`docs/design/`](docs/design/).
 
 Bug reports and pull requests are welcome in [GitHub issues](https://github.com/bmanturner/tern-agent-scheduler/issues). CI runs `bun run test` on every pull request.
 

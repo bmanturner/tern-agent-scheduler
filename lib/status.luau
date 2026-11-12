@@ -1,6 +1,6 @@
 --!strict
 local timefmt = require("./timefmt")
--- Window half: the status-line segment (UX §2.3, §7.4), the scheduler stall check (EN §5.5) and
+-- Window half: the status segment and the widget-bar widget (UX §2.3, §7.4), the scheduler stall check (EN §5.5) and
 -- toasts from snapshot transitions (UX §7.3). The formatter only reads an upvalue; a timer
 -- refreshes it from the cached snapshot. Nothing here runs at load time.
 
@@ -489,7 +489,7 @@ function status.update(cx: WindowCx?, now: number)
 	end
 end
 
--- Registers the status segment and its refresh timer.
+-- Registers the status segment, the widget and their refresh timer.
 function status.register()
 	if registered then
 		return
@@ -502,6 +502,18 @@ function status.register()
 		end
 		return { seg }
 	end)
+	tern.chrome.widget("status", {
+		name = "Agent Scheduler",
+		description = "Next scheduled run, runs in progress, and runs that need you or failed.",
+		icon = "timer",
+		render = function(_pane: StatusPaneInfo?): WidgetView?
+			local seg = view.seg
+			if seg == nil then
+				return nil
+			end
+			return { text = seg.text, icon = seg.icon, tone = seg.tone, command = seg.command }
+		end,
+	})
 	local function arm()
 		tern.timer(REFRESH_MS, function(cx)
 			local t0 = tern.now()
