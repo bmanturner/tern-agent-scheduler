@@ -16,10 +16,13 @@ export type View = {
 	setup_ok: boolean,
 	scheduler: string,
 	welcome: boolean,
+	host_widget: boolean?, -- the host registered the status widget; windows then step aside (lib/status.luau)
 }
 
 local rev = 0
 local rev_seeded = false
+local last_snap: { [string]: any }? = nil
+local last_hot: { [string]: any }? = nil
 local RECENT_MAX = 30
 local FAILED_UNSEEN_DAYS = 7
 
@@ -193,22 +196,39 @@ function snapshot.publish(view: View, now: number)
 	end
 	store.write_text("snapshot.json", text)
 
+	local hot: { [string]: any } = {
+		v = 1,
+		rev = rev,
+		hb = now,
+		paused_all = paused_all,
+		running = running,
+		needs_input = needs_input,
+		failed_unseen = failed_unseen,
+		setup_ok = view.setup_ok,
+		scheduler = view.scheduler,
+		health = health,
+		next = nxt,
+		welcome = view.welcome,
+		host_widget = view.host_widget == true,
+	}
+	-- The host widget (lib/host_widget.luau) computes from these, as a window does from snapshot.json and "hot".
+	last_snap = {
+		jobs = job_rows,
+		inflight = inflight,
+		recent = recent,
+		paused_all = paused_all,
+		hb = now,
+		setup_ok = view.setup_ok,
+	}
+	last_hot = hot
 	pcall(function()
-		(tern :: any).kv.set("hot", {
-			v = 1,
-			rev = rev,
-			hb = now,
-			paused_all = paused_all,
-			running = running,
-			needs_input = needs_input,
-			failed_unseen = failed_unseen,
-			setup_ok = view.setup_ok,
-			scheduler = view.scheduler,
-			health = health,
-			next = nxt,
-			welcome = view.welcome,
-		})
+		(tern :: any).kv.set("hot", hot)
 	end)
+end
+
+-- The plain snapshot fields and the "hot" table of the last publish (nil before the first).
+function snapshot.last(): ({ [string]: any }?, { [string]: any }?)
+	return last_snap, last_hot
 end
 
 return snapshot

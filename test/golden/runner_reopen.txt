@@ -1,0 +1,3 @@
+PASS reopen keeps the run's settings
+PASS reopen leaves other chats alone
+PASS reopen quoting

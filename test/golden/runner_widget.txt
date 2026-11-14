@@ -1,0 +1,3 @@
+PASS host widget shows the next run
+PASS host widget follows runs, refresh throttled
+PASS window widget only for window-side warnings

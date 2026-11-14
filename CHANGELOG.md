@@ -2,6 +2,18 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.10.0 (2026-11-14)
+
+Built and tested on Tern 0.9.21. **Update Tern to 0.9.21:** on an older Tern, Settings › Setup flags the Tern version.
+
+### Changed
+
+- The **Agent Scheduler** widget is now drawn by Tern's session service, so it stays current without a window polling for it and shows in windows attached from other computers. A window still shows *scheduler stalled* or *paused* itself.
+
+### Fixed
+
+- When Tern reopens a run's chat after a restart or in a fork, the chat keeps the run's approval mode and settings and doesn't send the prompt again.
+
 ## 0.9.0 (2026-11-12)
 
 Built and tested on Tern 0.9.18. **Update Tern to 0.9.18:** on an older Tern, Settings › Setup flags the Tern version.

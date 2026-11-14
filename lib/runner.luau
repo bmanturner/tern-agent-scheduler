@@ -23,6 +23,8 @@ local notify = require("./notify")
 local platform = require("./platform")
 local intents = require("./intents")
 local cond_eval = require("./cond_eval")
+local reopen = require("./reopen")
+local host_widget = require("./host_widget")
 
 type Run = { [string]: any }
 type RT = {
@@ -1576,6 +1578,7 @@ local function publish(now: number)
 		setup_ok = setup_ok(),
 		scheduler = "ok",
 		welcome = welcome,
+		host_widget = host_widget.active(),
 	}, now)
 	if not ok then
 		log_error("runner: publish", tostring(err))
@@ -1840,6 +1843,7 @@ function pump()
 		if S.pub_dirty then
 			publish(now)
 		end
+		host_widget.update(now)
 		if S.sub_dirty then
 			notify_subs()
 		end
@@ -2138,12 +2142,12 @@ end
 setup_rows = function(): { SetupRow }
 	local f = bins.found()
 	local rows: { SetupRow } = {}
-	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 9, 18)
+	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 9, 21)
 	table.insert(rows, {
 		id = "tern",
 		label = "Tern version",
 		ok = tern_ok,
-		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.9.18. Update Tern.",
+		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.9.21. Update Tern.",
 	})
 	table.insert(rows, {
 		id = "omp",
@@ -2369,6 +2373,18 @@ function runner.load()
 	note_start_gap(now)
 	S.last_wall, S.last_mono = now, T().now()
 	S.last_slow = 0
+	pcall(host_widget.register)
+	-- Tern reopening a run's chat (after a restart, or in a fork): keep the run's omp settings, not its prompt.
+	pcall(function()
+		T().on("reopen", function(ev: any): string?
+			local ok, cmd = pcall(reopen.command, ev)
+			if ok then
+				return cmd
+			end
+			log_warn("tern-agent-scheduler: reopen", tostring(cmd))
+			return nil
+		end)
+	end)
 	pcall(function()
 		T().on("pane_exited", function(ev: any)
 			table.insert(S.events, ev)

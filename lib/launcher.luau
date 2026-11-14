@@ -603,6 +603,25 @@ function launcher.queued(): number
 	return #queue + (busy and 1 or 0)
 end
 
+-- omp's argv for reopening a run's chat, without the flag and the session: the run's session dir, approval
+-- mode and config, and no `@…/prompt.md`. Shared by "Open run" and the `reopen` filter (lib/reopen.luau).
+function launcher.resume_args(run: { [string]: any }, bins: Bins): { string }
+	local dir = store.path(tostring(run.run_dir))
+	local argv: { string } = {
+		bins.omp,
+		"--session-dir",
+		dir .. "/session",
+		"--approval-mode",
+		launcher.approval_cli(tostring(run.approval or "yolo")),
+		"--config",
+		dir .. "/omp.yml",
+	}
+	if run.allow_home == true then
+		table.insert(argv, "--allow-home")
+	end
+	return argv
+end
+
 -- LA §10 "Open run" when the pane is gone: a new tab resuming omp's session file, in the shown session of
 -- `window` (the first window for nil, or when that window is gone). cb(ok, err). The resumed pane is a user
 -- session; its command has no `@…/prompt.md` attachment, which is what tern_state anchors the run marker on, so
@@ -612,29 +631,12 @@ function launcher.resume(run: { [string]: any }, bins: Bins, window: string?, cb
 	if type(file) ~= "string" or file == "" then
 		return cb(false, "That run's session was removed, so it can't be reopened.")
 	end
-	local dir = store.path(tostring(run.run_dir))
-	local argv: { string } = {
-		bins.tern,
-		"new",
-		"tab",
-		"--json",
-		"--cwd",
-		tostring(run.cwd),
-		"--keep-open",
-		"--",
-		bins.omp,
-		"--session-dir",
-		dir .. "/session",
-		"--resume",
-		file,
-		"--approval-mode",
-		launcher.approval_cli(tostring(run.approval or "yolo")),
-		"--config",
-		dir .. "/omp.yml",
-	}
-	if run.allow_home == true then
-		table.insert(argv, "--allow-home")
+	local argv: { string } = { bins.tern, "new", "tab", "--json", "--cwd", tostring(run.cwd), "--keep-open", "--" }
+	for _, a in launcher.resume_args(run, bins) do
+		table.insert(argv, a)
 	end
+	table.insert(argv, "--resume")
+	table.insert(argv, file)
 	proc(tern_state.with_window(argv, window), { timeout_ms = const.LAUNCH_TIMEOUT_MS }, function(res)
 		if res.status == 0 then
 			cb(true, nil)

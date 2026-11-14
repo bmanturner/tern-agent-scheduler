@@ -23,7 +23,7 @@ A job can also wait for something worth doing: new commits on a branch, working 
 
 ## Install
 
-Built and tested on Tern 0.9.18. Runs on macOS or Linux (not Windows yet) and needs [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
+Built and tested on Tern 0.9.21. Runs on macOS or Linux (not Windows yet) and needs [omp](https://github.com/can1357/oh-my-pi). On Linux, desktop notifications use `notify-send` (libnotify).
 
 > [!IMPORTANT]
 > Jobs run while Tern's session service is running. It keeps running after you close every window, as long as a terminal or a run tab is open. Nothing runs while your computer is asleep, or after a restart until you open Tern; missed runs then follow each job's **If your Mac was asleep** setting.
@@ -213,7 +213,7 @@ Name request files `<digits>-<letters and digits>-<digits>.json` (they're applie
 - **A run waiting for your approval** is only noticed while a desktop Tern window is open.
 - **In the browser (`tern web serve`) and on iPhone and iPad,** the manager works, but palette commands, the widget, notices of runs that need you and Carly's job tools need a desktop Tern window.
 - **With several Tern windows,** each window has its own sessions. A run you start (manager, palette or Carly) opens in that window's **Scheduled runs** session, and scheduled runs open in the window you last used Agent Scheduler from (the first window until you have). **Open run** shows a run's tab in whichever window holds it; a tab can't move between windows, so if it's in another window the manager says so. A run whose tab is gone reopens in the window you opened it from.
-- **Remote hosts:** jobs run on the machine the plugin is installed on. To schedule runs on a remote host you've attached in Tern, install the plugin there too (run the install command in a pane on that host); it keeps its own jobs and manager, which **Open manager** and **New job…** open while you're in one of that host's sessions. This computer's widget, notifications, Carly and the other palette commands cover only this computer's jobs, and a run on the remote host that waits for your approval isn't noticed.
+- **Remote hosts:** jobs run on the machine the plugin is installed on. To schedule runs on a remote host you've attached in Tern, install the plugin there too (run the install command in a pane on that host); it keeps its own jobs and manager, which **Open manager** and **New job…** open while you're in one of that host's sessions. The widget shows the jobs of the host your focused pane is on, when that host runs Agent Scheduler 0.10.0 or later; notifications, Carly and the other palette commands cover only this computer's jobs, and a run on the remote host that waits for your approval isn't noticed.
 - **Failures:** a run that hits its time limit is stopped. After three failures in a row the job pauses itself and tells you.
 - **Finished run tabs:** the 5 most recent are kept and older ones are closed (**Settings › Limits** changes the number); their sessions can still be resumed.
 
@@ -237,7 +237,7 @@ tern plugin link .   # Tern reloads the plugin when a file changes
 bun install && bun run test
 ```
 
-The host half (`host.luau`, `lib/runner.luau`) owns the clock and launching, and `lib/cond_eval.luau` checks a job's Only when conditions; the window half (`window.luau`) adds palette commands, the widget-bar status, run observation and Carly. The manager is a block (`blocks/manager.luau`, with `lib/mgr_*.luau` and `manager.css`). Design notes are in [`docs/design/`](docs/design/).
+The host half (`host.luau`, `lib/runner.luau`) owns the clock and launching, draws the widget-bar widget (`lib/host_widget.luau`) and fills in a reopened run chat's command (`lib/reopen.luau`), and `lib/cond_eval.luau` checks a job's Only when conditions; the window half (`window.luau`) adds palette commands, the status segment, run observation and Carly. The manager is a block (`blocks/manager.luau`, with `lib/mgr_*.luau` and `manager.css`). Design notes are in [`docs/design/`](docs/design/).
 
 Bug reports and pull requests are welcome in [GitHub issues](https://github.com/bmanturner/tern-agent-scheduler/issues). CI runs `bun run test` on every pull request.
 

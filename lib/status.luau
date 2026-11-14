@@ -1,7 +1,9 @@
 --!strict
 local timefmt = require("./timefmt")
--- Window half: the status segment and the widget-bar widget (UX §2.3, §7.4), the scheduler stall check (EN §5.5) and
--- toasts from snapshot transitions (UX §7.3). The formatter only reads an upvalue; a timer
+-- Window half: the status segment (UX §2.3, §7.4), the scheduler stall check (EN §5.5) and toasts from snapshot
+-- transitions (UX §7.3). The widget-bar widget is drawn by the host (lib/host_widget.luau); a window registers its
+-- own, which wins in that window, only for what the host can't say: the host has no widget, the scheduler stalled,
+-- or one of this window's hooks is paused. The formatter only reads an upvalue; a timer
 -- refreshes it from the cached snapshot. Nothing here runs at load time.
 
 local const = require("./const")
@@ -33,6 +35,49 @@ export type View = {
 export type Toast = { level: ToastLevel, text: string, sub: string? }
 
 local view: View = { seg = nil, stalled = false, stall_age = 0, setup_bad = false, needs = {}, context = nil }
+local registered = false
+local window_widget = false -- this window has its own status widget registered
+
+local function window_render(_pane: StatusPaneInfo?): WidgetView?
+	return status.widget_view(view.seg)
+end
+
+-- The window's own widget wins over the host's in this window: register it only when the host has none,
+-- the scheduler stalled, or one of this window's hooks is paused.
+local function sync_widget(v: View)
+	if not registered then
+		return
+	end
+	local h = wsnap.hot()
+	local want = not (h ~= nil and h.host_widget == true) or v.stalled or next(paused_hooks) ~= nil
+	if want == window_widget then
+		return
+	end
+	local ok, err = pcall(tern.chrome.widget, "status", if want then status.widget_spec(window_render) else nil)
+	if ok then
+		window_widget = want
+	else
+		tern.log.warn("tern-agent-scheduler: widget", err)
+	end
+end
+
+-- The widget's view of a status segment.
+function status.widget_view(seg: StatusSegment?): WidgetView?
+	if seg == nil then
+		return nil
+	end
+	return { text = seg.text, icon = seg.icon, tone = seg.tone, command = seg.command }
+end
+
+-- The status widget's spec; the host and a window offer the same one.
+function status.widget_spec(render: (StatusPaneInfo?) -> WidgetView?): WidgetSpec
+	return {
+		name = "Agent Scheduler",
+		description = "Next scheduled run, runs in progress, and runs that need you or failed.",
+		icon = "timer",
+		render = render,
+	}
+end
 
 -- Compact age: "<1m", "4m", "14h", "3d".
 local function span(secs: number): string
@@ -389,6 +434,7 @@ function status.reset()
 		created_toasted = {},
 	}
 	view = { seg = nil, stalled = false, stall_age = 0, setup_bad = false, needs = {}, context = nil }
+	window_widget = false
 end
 
 -- ---- upvalue accessors -----------------------------------------------------------------------------
@@ -413,6 +459,7 @@ function status.budget(hook: string, state: string)
 		paused_hooks[hook] = nil
 	end
 	status.recompute(os.time())
+	sync_widget(view)
 	pcall(tern.chrome.refresh)
 end
 
@@ -428,7 +475,6 @@ end
 
 -- ---- timer + registration --------------------------------------------------------------------------
 
-local registered = false
 local ready_shown = false
 local stall_toasted = false
 local last_key = ""
@@ -456,6 +502,7 @@ function status.update(cx: WindowCx?, now: number)
 		nv.seg = PAUSED_SEG
 	end
 	view = nv
+	sync_widget(nv)
 
 	if cx ~= nil then
 		if hot ~= nil and hot.welcome == true and not ready_shown then
@@ -489,7 +536,7 @@ function status.update(cx: WindowCx?, now: number)
 	end
 end
 
--- Registers the status segment, the widget and their refresh timer.
+-- Registers the status segment, the window's widget when it needs one (sync_widget), and their refresh timer.
 function status.register()
 	if registered then
 		return
@@ -502,18 +549,7 @@ function status.register()
 		end
 		return { seg }
 	end)
-	tern.chrome.widget("status", {
-		name = "Agent Scheduler",
-		description = "Next scheduled run, runs in progress, and runs that need you or failed.",
-		icon = "timer",
-		render = function(_pane: StatusPaneInfo?): WidgetView?
-			local seg = view.seg
-			if seg == nil then
-				return nil
-			end
-			return { text = seg.text, icon = seg.icon, tone = seg.tone, command = seg.command }
-		end,
-	})
+	sync_widget(view)
 	local function arm()
 		tern.timer(REFRESH_MS, function(cx)
 			local t0 = tern.now()
