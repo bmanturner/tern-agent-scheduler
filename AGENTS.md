@@ -22,7 +22,7 @@ Then run `bun run test`, and name the version in the next `CHANGELOG.md` entry.
 
 ## Public contracts
 
-The `script_create` intent and its reply (README, "From a script") are a public API that scripts and other agents depend on. Add fields only as optional ones, never rename or remove a field or change what one means, and bump `format` only for a breaking change. `carly_create` and the other intent kinds are internal and may change freely.
+The `script_create` intent and its reply ([docs/script-api.md](docs/script-api.md), summarised in the README's "From a script") are a public API that scripts and other agents depend on. Add fields only as optional ones, never rename or remove a field or change what one means, and bump `format` only for a breaking change. `carly_create` and the other intent kinds are internal and may change freely.
 
 ## Window budget
 

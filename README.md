@@ -90,58 +90,46 @@ The form's second page, **Only when**, has one section per kind of condition. Ea
 | Your own check | Your script says yes. |
 | Ask an AI | A model you pick reads your question, looks at the job's folder (read-only) and answers run. It's checked last, so it's only asked when everything else says yes. |
 
-Once a condition is on, **Check now** at the top of the page runs every condition that's on without starting anything, and shows each answer in a **Right now** row under that condition.
+Once a condition is on, **Check now** at the top of the page runs every condition that's on without starting anything, and shows each answer in a **Right now** row under that condition. **Run now** checks them too and asks **Run anyway?** when one says no.
 
 For example, a nightly review that should only run after someone pushed: set **When** to `daily 02:00`, then on **Only when** turn on **New commits** and pick `main`. Nights with nothing new show up in history as one folded "Skipped N times" row.
 
-A run that doesn't qualify is listed in the job's history as **skipped** with the reason; repeats fold into one row, and nothing notifies you. The first run of a new-commits job notes where the branch is and waits for something new. If a condition can't be checked (not a git folder, a script that fails), the run is blocked and you're told once; after three in a row the job pauses.
-
-**Your own check** runs your script in the job's folder with a 30 s limit, passing a JSON file that describes the run as its argument:
-
-| Your script | Means |
-| --- | --- |
-| Exits 0 | Run |
-| Exits 1 | Skip |
-| Exits with anything else | The run is blocked |
-| Prints `REASON: …` | Shown in history |
-| Prints `CONTEXT: …` lines | Passed to the agent |
-| Prints `CURSOR: …` | Handed back to your script next time |
-
-Saving the job approves the script as it is then; if it changes, runs are blocked until you open the job and save again. Carly can set every condition except your own check.
-
-**Ask an AI** is for judgement calls a script can't easily make, such as *"Are there open pull requests that still need a review?"* Before a due run, omp runs in the background with your question, the job's name, folder, time and last run, and whatever the other conditions found (for example the new commits).
-
-- It can read and search files (and read web pages) but can't change anything or run commands.
-- It has 60 s to end with `ANSWER: run` or `ANSWER: skip` and a reason. A skip is listed in history with that reason; a run hands the reason to the job's agent in `trigger.md`. An answer it can't give blocks the run, like a failing script.
-- Each check is one model call (about $0.001 with `@smol`) and counts toward Limits. **Check now** asks it too.
-
-**Run now** checks the conditions first and asks **Run anyway?** when one says no. `i` checks them without running anything.
+Skipped runs are quiet: they're listed in history with the reason, and nothing notifies you. A condition that can't be checked (not a git folder, a script that fails) blocks the run and tells you; after three in a row the job pauses. [docs/conditions.md](docs/conditions.md) covers each condition in detail, including the script protocol and how Ask an AI decides.
 
 ## The manager
 
-The default **Timeline** lists the results since you last looked, a **Now** rule, then each active job at its next run; paused, manual-only and broken jobs sit at the bottom. A run in progress sits on the Now rule, which only appears when something is above it or on it. When nothing is new, one line says so ("Nothing new since 08:00."), and on a first visit it names the first run ("Nothing has run yet. pr-review-digest runs first, 18:00 (in 9h 52m)."). More than eight new results fold into one summary per job, with failures still listed one by one.
+The default **Timeline** lists:
 
-At 150 columns or wider, a job's details sit beside the list and follow the selection; Enter moves to its runs and Escape returns to the jobs. In narrower panes, Enter opens the details full-width. **Settings › Display › Layout** brings back the **Classic job list**, grouped into Needs you, Needs fixing, Running, Upcoming and Paused & finished.
+- **New results** since you last looked. More than eight fold into one summary per job, with failures still listed one by one. When nothing is new, one line says so ("Nothing new since 08:00.").
+- A **Now** rule, with any run in progress on it. It only appears when something is above it or on it.
+- **Each active job** at its next run, then paused, manual-only and broken jobs at the bottom.
+
+New results fade three seconds after you open the manager. Press `s` or click **Mark all seen** to clear them sooner. A failure marker stays on the job until its next success.
+
+At 150 columns or wider, the selected job's details sit beside the list; Enter moves to its runs and Escape returns to the jobs. In narrower panes, Enter opens the details full-width.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/job-details-dark.png">
   <img alt="A wide manager with the timeline on the left and the selected job's details on the right: run totals (runs, succeeded, failed, missed), its latest result, schedule, folder, role and prompt, and one line per run with its outcome, duration and cost" src="docs/screenshots/job-details-light.png">
 </picture>
 
-Job details show the run totals (runs, succeeded, failed and missed, counted separately), the latest result, the job's settings and prompt, and one line per recent run with its outcome, duration and cost. **Settings › Display › Time format** picks **Automatic** (your system's 12- or 24-hour preference, else 24-hour), **12-hour** or **24-hour** for every time Agent Scheduler shows, including notifications, the widget and Carly.
-
-New results fade three seconds after you open the manager; choose **Stay until marked seen** under **Settings › Display › New results** to keep them highlighted. Press `s` or click **Mark all seen** to clear them; the button and key only appear when there is something to mark. A failure marker stays on the job until its next success.
+Job details show the run totals (runs, succeeded, failed and missed, counted separately), the latest result, the job's settings and prompt, and one line per recent run with its outcome, duration and cost.
 
 | Key | Does |
 | --- | --- |
 | `enter` | Open the job, or the tab of a run that needs you |
 | `n` / `e` / `c` | New / edit / duplicate |
+| `p` | Open the job's prompt in an editor |
 | `r` | Run now |
+| `x` | Stop the run in progress |
 | `i` | Check the job's conditions now |
 | `o` | Open the run's tab, or resume its session if the tab is gone |
+| `a` | Jump to the next run that needs you |
 | `space` | Pause or resume |
+| `P` | Pause or resume all jobs |
 | `d` `d` | Delete (`u` undoes it for 10 s) |
 | `s` | Mark all results seen |
+| `,` | Settings |
 | `?` | Help: every key, and when jobs run |
 
 From anywhere in Tern, the palette has **Agent Scheduler: Open manager** (`ctrl+alt+shift+m`), **New job…** (`ctrl+alt+shift+j`), **New job from selection…** (the selected text becomes the prompt), **Run a job now…** (`ctrl+alt+shift+r`), **Go to run that needs you** (`ctrl+alt+shift+a`) and **Reload** (reloads only this plugin). The Files pane's toolbar has a timer button that starts a new job in the folder it shows.
@@ -152,8 +140,8 @@ Press `,` in the manager, or pick **Agent Scheduler: Settings** in the palette.
 
 | Section | What's there |
 | --- | --- |
-| Status | Whether Agent Scheduler is ready to run jobs, and what to fix if it isn't. **Check again** checks again. |
-| Display | Time format, layout, and how new results are shown. |
+| Status | Whether Agent Scheduler is ready to run jobs, and what to fix if it isn't. |
+| Display | **Time format** (automatic, 12- or 24-hour, used everywhere including notifications and Carly), **Layout** (Timeline, or the **Classic job list** grouped into Needs you, Needs fixing, Running, Upcoming and Paused & finished), and **New results** (fade, or stay until marked seen). |
 | Where runs start | Which session runs appear in, its name, and whether it comes to the front. |
 | Limits | How many jobs run at once (2), how many finished run tabs to keep (5), and how late a missed run may still start. |
 | Setup | omp's path, if it's somewhere unusual, and the data folder. |
@@ -169,53 +157,28 @@ With each request, Agent Scheduler tells Carly to use it, rather than her own sc
 
 ### From a script
 
-Scripts, CI jobs and other agents can create a job by dropping a request file into the data folder (see [Your data](#your-data)). Tern must be running. Agent Scheduler picks the request up on its next pass, usually within 2–3 seconds, deletes it, and answers in `replies/<reply>.json`.
+Scripts, CI jobs and other agents can create a job by dropping a JSON request file into the data folder (see [Your data](#your-data)), and read the answer from a reply file:
 
-```sh
-D="$HOME/Library/Application Support/Tern/plugin-data/tern-agent-scheduler"   # macOS
-# D="$HOME/.local/state/tern/plugin-data/tern-agent-scheduler"                # Linux
-ID=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 12)
-F="$D/intents/$(date +%s)000-mytool-1.json"
-cat >"$F.tmp" <<EOF
-{ "format": 1, "kind": "script_create", "reply": "$ID", "source": "mytool",
+```json
+{ "format": 1, "kind": "script_create", "reply": "k3x9a2bc7q1m", "source": "mytool",
   "name": "nightly-tests", "prompt": "Run the test suite and summarise any failures.",
   "when": "weekdays 2am", "folder": "~/Dev/app",
   "only_when": { "new_commits": true, "branch": "main" } }
-EOF
-mv "$F.tmp" "$F"
-for _ in $(seq 20); do [ -f "$D/replies/$ID.json" ] && break; sleep 0.5; done
-cat "$D/replies/$ID.json"
 ```
 
-The request is one JSON object:
-
-| Field | |
-| --- | --- |
-| `format` | `1` |
-| `kind` | `"script_create"` |
-| `reply` | Required. Exactly 12 lowercase letters and digits, unique per request; names the reply file. |
-| `prompt`, `when`, `folder` | Required. What the agent should do, the schedule as you'd type it in the form, and the project folder (a full path or `~/…`). |
-| `name` | Optional. Made from the prompt when missing. |
-| `role` | Optional omp role, e.g. `@smol`; `@default` when missing. |
-| `quiet_ok` | Optional `true` or `false`: **Quiet when nothing to report**. |
-| `only_when` | Optional object: `new_commits` (true/false), `branch`, `folders` (list or comma-separated text), `days` (`weekdays`, `weekends`, `every day` or `mon,wed`), `from` and `to` (`09:00`, `6pm`), `quiet_hours` (true runs outside those hours), `max_runs`, `max_usd`, `per` (`day` or `week`), `ask` (a question for a model) and `ask_model` (its role). |
-| `source` | Optional. Your tool's name, 1–24 letters, digits, `-` or `_`; the manager marks the job `by <source>` (`by script` without one). |
-| `expires` | Optional unix seconds. A request still waiting after that is refused instead of applied late. |
-
-Any other field is refused, so a typo can't quietly make a job you didn't ask for. The job is active immediately with your default approval (**Hands-off** unless you've changed it in Settings); a request can't choose its approval. You get a toast and a desktop notification, as with Carly.
-
-The reply is `{"format":1,"ok":true,...}` with `job_id`, `name`, `when`, `next` (text), `next_at` (unix seconds; missing for manual-only jobs), `folder`, `role`, `approval`, `only_when`, `quiet_ok` and `source`, or `{"format":1,"ok":false,"error":"..."}` with the message the form would show. Replies are deleted after about five minutes.
-
-Name request files `<digits>-<letters and digits>-<digits>.json` (they're applied in name order), and write them under another name first and rename them into place, as above, so a half-written file is never read. Files over 16 KiB are deleted without a reply, and so is a file that still isn't valid JSON after a minute. A request without a valid `reply` is dropped without a reply.
+As with Carly, the job is active immediately with your default approval. [docs/script-api.md](docs/script-api.md) has a complete shell example, every field, the reply format and the file naming rules.
 
 ## Good to know
 
 - **A run waiting for your approval** is only noticed while a desktop Tern window is open.
 - **In the browser (`tern web serve`) and on iPhone and iPad,** the manager works, but palette commands, the widget, notices of runs that need you and Carly's job tools need a desktop Tern window.
 - **With several Tern windows,** each window has its own sessions. A run you start (manager, palette or Carly) opens in that window's **Scheduled runs** session, and scheduled runs open in the window you last used Agent Scheduler from (the first window until you have). **Open run** shows a run's tab in whichever window holds it; a tab can't move between windows, so if it's in another window the manager says so. A run whose tab is gone reopens in the window you opened it from.
-- **Remote hosts:** jobs run on the machine the plugin is installed on. To schedule runs on a remote host you've attached in Tern, install the plugin there too (run the install command in a pane on that host); it keeps its own jobs and manager, which **Open manager** and **New job…** open while you're in one of that host's sessions. The widget shows the jobs of the host your focused pane is on, when that host runs Agent Scheduler 0.10.0 or later; notifications, Carly and the other palette commands cover only this computer's jobs, and a run on the remote host that waits for your approval isn't noticed.
+- **Remote hosts:** jobs run on the machine the plugin is installed on. To schedule runs on a remote host you've attached in Tern, install the plugin there too (run the install command in a pane on that host). It keeps its own jobs and manager, which **Open manager** and **New job…** open while you're in one of that host's sessions, and the widget shows the jobs of the host your focused pane is on when that host runs Agent Scheduler 0.10.0 or later.
+- **Remote host limits:** notifications, Carly and the other palette commands cover only this computer's jobs, and a run on a remote host that waits for your approval isn't noticed.
 - **Failures:** a run that hits its time limit is stopped. After three failures in a row the job pauses itself and tells you.
 - **Finished run tabs:** the 5 most recent are kept and older ones are closed (**Settings › Limits** changes the number); their sessions can still be resumed.
+- **Agent Scheduler paused · it ran too long** in the widget means Tern paused one of the plugin's hooks for exceeding its time budget. It resumes on its own within seconds to minutes; click it to reload the plugin sooner.
+- **scheduler stalled** means the scheduler hasn't ticked lately, so due runs aren't starting. If Tern paused it, it resumes on its own; otherwise run **Agent Scheduler: Reload** from the palette.
 
 ## Your data
 
@@ -230,6 +193,8 @@ To uninstall, run `tern plugin remove tern-agent-scheduler`. Delete the data fol
 
 ## Develop
 
+You need [Bun](https://bun.sh) for the tests; they run the plugin's Luau against fake `tern` and `omp` binaries, so they don't need Tern itself.
+
 ```sh
 git clone https://github.com/bmanturner/tern-agent-scheduler
 cd tern-agent-scheduler
@@ -237,7 +202,13 @@ tern plugin link .   # Tern reloads the plugin when a file changes
 bun install && bun run test
 ```
 
-The host half (`host.luau`, `lib/runner.luau`) owns the clock and launching, draws the widget-bar widget (`lib/host_widget.luau`) and fills in a reopened run chat's command (`lib/reopen.luau`), and `lib/cond_eval.luau` checks a job's Only when conditions; the window half (`window.luau`) adds palette commands, the status segment, run observation and Carly. The manager is a block (`blocks/manager.luau`, with `lib/mgr_*.luau` and `manager.css`). Design notes are in [`docs/design/`](docs/design/).
+Tests compare output against the files in `test/golden/`; `bun run test --update` rewrites them after an intended change.
+
+- **Host half** (`host.luau`, `lib/runner.luau`): the clock, launching, the widget-bar widget (`lib/host_widget.luau`), reopened run chats (`lib/reopen.luau`) and Only when checks (`lib/cond_eval.luau`).
+- **Window half** (`window.luau`): palette commands, the status segment, run observation and Carly.
+- **Manager** block: `blocks/manager.luau`, with `lib/mgr_*.luau` and `manager.css`.
+
+[`docs/design/architecture.md`](docs/design/architecture.md) is the overview; the rest of the design notes are in [`docs/design/`](docs/design/).
 
 Bug reports and pull requests are welcome in [GitHub issues](https://github.com/bmanturner/tern-agent-scheduler/issues). CI runs `bun run test` on every pull request.
 

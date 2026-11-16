@@ -4,7 +4,7 @@ local timefmt = require("./timefmt")
 -- Files `intents/<t_ms13>-<win8>-<seq4>.json`, applied in name order inside a time budget and removed
 -- after applying. 16 allowlisted kinds (const.INTENT_KINDS); everything else (create/update/delete/
 -- settings included) is dropped at once. `carly_create` and `script_create` make a job directly and
--- answer through `replies/<reply>.json`. `script_create` is a public contract (README "From a script"):
+-- answer through `replies/<reply>.json`. `script_create` is a public contract (docs/script-api.md):
 -- add fields only as optional, never rename or remove one.
 local conditions = require("./conditions")
 local const = require("./const")
@@ -274,7 +274,7 @@ local function carly_create(p: { [string]: any }, h: Handlers)
 	}, { created_by = "carly", who = "Carly" }, h)
 end
 
--- The public request (README "From a script"): strict, so a misspelt or unsupported field (approval,
+-- The public request (docs/script-api.md): strict, so a misspelt or unsupported field (approval,
 -- cwd, …) fails loudly instead of quietly making a job the caller didn't ask for.
 local SCRIPT_FIELDS: { [string]: boolean } = {
 	format = true, kind = true, reply = true, expires = true, source = true,
