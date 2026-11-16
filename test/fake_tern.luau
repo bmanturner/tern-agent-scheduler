@@ -33,9 +33,11 @@ fake.live_panes = {} -- pane ids (strings) reported by tern.pane.list()
 -- Open windows' keys; the first is the "first window" commands without --window act on. Sessions carry `window`.
 fake.windows = { "" }
 fake.installed = {
-	[fake.tern_bin] = "tern 0.9.23 (test)\n",
+	[fake.tern_bin] = "tern 0.9.24 (test)\n",
 	[fake.omp_bin] = "omp/18.9.1\n",
 }
+fake.children = {} -- every child tern.process.spawn returned, oldest first
+local next_pid = 1000
 
 -- ---------- clock ----------
 local real_time, real_date = os.time, os.date
@@ -818,6 +820,72 @@ tern = {
 			fake.at(fake.latency, function()
 				cb(copy)
 			end)
+		end,
+		-- Like run, but the result streams to opts.stdout as lines and ends with opts.exit. A result with
+		-- timed_out = true hangs until kill.
+		spawn = function(argv, opts)
+			local result = respond(argv, opts)
+			next_pid += 1
+			local child = { pid = next_pid, killed = nil, ended = false }
+			local hanging = result.timed_out == true
+			local function finish(status, stderr)
+				if child.ended then
+					return
+				end
+				child.ended = true
+				if opts.stderr ~= nil then
+					if stderr ~= "" then
+						opts.stderr(stderr)
+					end
+					stderr = ""
+				end
+				if opts.exit ~= nil then
+					opts.exit({ pid = child.pid, status = status, stderr = stderr })
+				end
+			end
+			function child.write(self, _data)
+				if self.ended then
+					error("child ended")
+				end
+			end
+			function child.close_stdin(self)
+				if self.ended then
+					error("child ended")
+				end
+			end
+			function child.kill(self, signal)
+				if self.ended then
+					return
+				end
+				self.killed = signal or "terminate"
+				if hanging then
+					fake.at(fake.latency, function()
+						finish(-1, "")
+					end)
+				end
+			end
+			table.insert(fake.children, child)
+			if not hanging then
+				fake.at(fake.latency, function()
+					if child.killed ~= nil then
+						finish(-1, "")
+						return
+					end
+					local s = tostring(result.stdout or "")
+					local i = 1
+					while opts.stdout ~= nil and i <= #s do
+						local j = string.find(s, "\n", i, true)
+						local line = string.sub(s, i, (j or #s + 1) - 1)
+						if string.sub(line, -1) == "\r" then
+							line = string.sub(line, 1, -2)
+						end
+						opts.stdout(line)
+						i = if j ~= nil then j + 1 else #s + 1
+					end
+					finish(result.status or 0, tostring(result.stderr or ""))
+				end)
+			end
+			return child
 		end,
 	},
 	pane = {

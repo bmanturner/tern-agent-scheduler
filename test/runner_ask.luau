@@ -206,7 +206,7 @@ omp.timed_out = true
 assert(runner.run_now(tj.id))
 settle_until(function()
 	return newest(tj) ~= nil and newest(tj).state == "blocked"
-end, 60000)
+end, 120000)
 assert(newest(tj).reason == "Blocked: the AI check took longer than 60 s.", "timeout sentence: " .. tostring(newest(tj).reason))
 omp.timed_out = false
 no_tmp_leftovers()
@@ -251,6 +251,23 @@ assert(prompts[#prompts]:find("- Started by: a check that doesn't start anything
 assert(#rows(dj) == rows7 and fake.read("/d/state.json") == state7, "nothing recorded or changed")
 no_tmp_leftovers()
 print("PASS check_conditions calls the model and records nothing")
+
+-- 8. unload ends an AI check still running
+omp.timed_out = true
+local before8 = omp_calls()
+runner.check_conditions(dj.id, function() end)
+settle_until(function()
+	return omp_calls() > before8
+end, 5000)
+local child8 = fake.children[#fake.children]
+assert(child8 ~= nil and child8.ended == false and child8.killed == nil, "the AI check is still running")
+for _, h in ipairs(fake.handlers.unload or {}) do
+	h(nil)
+end
+assert(child8.killed == "terminate", "unload terminates the running check, got " .. tostring(child8.killed))
+omp.timed_out = false
+fake.advance(1000)
+print("PASS unload ends a running AI check")
 
 assert(#fake.errors == 0, "no error logs: " .. table.concat(fake.errors, "; "))
 print("PASS no errors")

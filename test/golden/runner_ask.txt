@@ -5,4 +5,5 @@ PASS commits + ask: commit subjects reach the prompt as untrusted data
 PASS unclear answer and timeout => blocked/cond_error, one alert
 PASS Limits count AI check spend
 PASS check_conditions calls the model and records nothing
+PASS unload ends a running AI check
 PASS no errors

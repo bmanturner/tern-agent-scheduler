@@ -39,6 +39,7 @@ local function on_change(state: State)
 		runner.remove_manager(state.pane_id)
 		return
 	end
+	C.sync_status(state)
 	C.render(state)
 end
 
@@ -101,6 +102,7 @@ local def: BlockDef<State> = {
 		if jobs.settings().welcomed ~= true then
 			jobs.set_settings({ welcomed = true })
 		end
+		C.sync_status(state)
 		return state
 	end,
 

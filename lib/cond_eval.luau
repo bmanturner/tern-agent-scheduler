@@ -64,6 +64,73 @@ local function proc(argv: { string }, opts: { [string]: any }, cb: (any) -> ())
 	end
 end
 
+-- Checks spawned and not yet exited; stop_all ends them.
+local children: { [any]: boolean } = {}
+
+-- Runs argv through tern.process.spawn and calls cb once with a process.run-shaped result
+-- ({status, stdout, stderr, timed_out, raised}). stdout keeps only lines passing `keep` (all when nil), joined by
+-- "\n", and at most `max_bytes` of them; the child is killed after `timeout_ms`.
+local function spawn_collect(
+	argv: { string },
+	opts: { cwd: string?, env: { [string]: string }?, timeout_ms: number, max_bytes: number?, keep: ((string) -> boolean)? },
+	cb: (any) -> ()
+)
+	local parts: { string } = {}
+	local size, full, timed_out, ended = 0, false, false, false
+	local child: any = nil
+	local ok, err = pcall(function()
+		child = T().process.spawn(argv, {
+			cwd = opts.cwd,
+			env = opts.env,
+			split = "lines",
+			stdout = function(line: string)
+				if full or (opts.keep ~= nil and not opts.keep(line)) then
+					return
+				end
+				table.insert(parts, line)
+				size += #line + 1
+				if opts.max_bytes ~= nil and size >= opts.max_bytes then
+					full = true
+				end
+			end,
+			exit = function(res: any)
+				ended = true
+				if child ~= nil then
+					children[child] = nil
+				end
+				local out = table.concat(parts, "\n")
+				if opts.max_bytes ~= nil then
+					out = string.sub(out, 1, opts.max_bytes)
+				end
+				cb({ status = res.status, stdout = out, stderr = tostring(res.stderr or ""), timed_out = timed_out, raised = false })
+			end,
+		})
+	end)
+	if not ok then
+		cb({ status = -1, stdout = "", stderr = tostring(err), timed_out = false, raised = true })
+		return
+	end
+	children[child] = true
+	T().timer(opts.timeout_ms, function()
+		if not ended then
+			timed_out = true
+			pcall(function()
+				child:kill("kill")
+			end)
+		end
+	end)
+end
+
+-- Ends every check still running (a reload, or the plugin turning off): their callbacks go with this VM.
+function cond_eval.stop_all()
+	for child in children do
+		pcall(function()
+			child:kill("terminate")
+		end)
+	end
+	table.clear(children)
+end
+
 local function home(): string
 	local ok, h = pcall(function()
 		return T().getenv("HOME")
@@ -499,9 +566,9 @@ local function eval_check(job: Job, c: { [string]: any }, base: Mark?, opts: { [
 			if not wrote then
 				return finish({ result = "error", text = "couldn't start your check " .. tostring(c.path), error_code = "check_unstarted" })
 			end
-			proc(
+			spawn_collect(
 				{ abs, store.path(in_rel) },
-				{ cwd = job.cwd, timeout_ms = CHECK_TIMEOUT_MS, env = { PATH = check_path() } },
+				{ cwd = job.cwd, env = { PATH = check_path() }, timeout_ms = CHECK_TIMEOUT_MS, max_bytes = SCRIPT_MAX },
 				function(r: any)
 					pcall(store.remove, in_rel)
 					if r.timed_out == true then
@@ -676,13 +743,20 @@ local function eval_ask(job: Job, c: { [string]: any }, opts: { [string]: any },
 			"--model", "@" .. tostring(c.role or "smol"), "--approval-mode", "always-ask",
 			"--tools", "read,grep,glob", "--thinking", "off", "--max-time", "55", "@" .. store.path(rel),
 		}
-		proc(argv, { cwd = job.cwd, timeout_ms = ASK_TIMEOUT_MS, env = { PATH = check_path() } }, function(r: any)
+		spawn_collect(argv, {
+			cwd = job.cwd,
+			env = { PATH = check_path() },
+			timeout_ms = ASK_TIMEOUT_MS,
+			keep = function(line: string): boolean
+				return string.find(line, '"agent_end"', 1, true) ~= nil
+			end,
+		}, function(r: any)
 			pcall(store.remove, rel)
 			if r.timed_out == true then
 				return finish({ result = "error", text = "the AI check took longer than 60 s", error_code = "ask_timeout" })
 			end
 			if r.raised == true then
-				-- e.g. "tern.process.run /opt/homebrew/bin/omp: No such file or directory (os error 2)"; a missing job
+				-- e.g. "tern.process.spawn /opt/homebrew/bin/omp: No such file or directory (os error 2)"; a missing job
 				-- folder raises here too.
 				local why = tostring(r.stderr or ""):match(": ([^:]+)$")
 				return finish(unstarted(if why ~= nil then "couldn't start the AI check: " .. clip(why, 80) else "couldn't start the AI check"))

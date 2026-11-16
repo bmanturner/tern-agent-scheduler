@@ -7,6 +7,8 @@ local ui = tern.ui
 local textfield = require("./textfield")
 local validate = require("./validate")
 local platform = require("./platform")
+local snapshot = require("./snapshot")
+local fmt = require("./fmt")
 
 local C = {}
 
@@ -145,6 +147,9 @@ export type State = {
 	looked_at: number?,
 	seen_results: { [string]: boolean }?,
 	seen_pending: { [string]: boolean }?,
+	-- Failure label last sent with cx:status, and whether one was sent at all (C.sync_status).
+	status_label: string?,
+	status_synced: boolean?,
 }
 
 C.SPLIT_COLS = 150
@@ -421,6 +426,30 @@ end
 function C.render(state: State)
 	pcall(function()
 		state.cx:render()
+	end)
+end
+
+-- Mirrors the status line's failure count onto the block (cx:status): "error" with the label while failed runs are
+-- unacknowledged, cleared otherwise. Calls Tern only when the label changed. Never "working"/"blocked": either
+-- makes Tern ask before the manager pane closes.
+function C.sync_status(state: State)
+	local snap, hot = snapshot.last()
+	local recent = if snap ~= nil and type(snap.recent) == "table" then snap.recent else {}
+	local label = if hot ~= nil then fmt.failed_label(tonumber(hot.failed_unseen) or 0, recent) else nil
+	if label ~= nil then
+		label = fmt.clip(label, 200)
+	end
+	if state.status_synced and label == state.status_label then
+		return
+	end
+	state.status_synced = true
+	state.status_label = label
+	pcall(function()
+		if label ~= nil then
+			state.cx:status("error", { msg = label })
+		else
+			state.cx:status(nil)
+		end
 	end)
 end
 

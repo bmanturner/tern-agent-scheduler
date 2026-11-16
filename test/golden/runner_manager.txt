@@ -10,3 +10,4 @@ PASS results with no last-looked time are titled Results so far
 PASS mark all seen only when something is unseen
 PASS first visit names the first run
 PASS empty state: example heading, Use example action opens a draft
+PASS manager block mirrors unacknowledged failures

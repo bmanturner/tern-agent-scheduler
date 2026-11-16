@@ -96,6 +96,7 @@ local S = {
 	cap_over = false,
 	pub_dirty = true,
 	sub_dirty = false,
+	failed_unseen = nil :: number?, -- the published failed count managers last heard about
 	dirty_runs = {} :: { [string]: boolean },
 	last_catchup_launch = 0,
 	welcome_until = nil :: number?,
@@ -1842,6 +1843,13 @@ function pump()
 		end
 		if S.pub_dirty then
 			publish(now)
+			-- Acks and the 7-day expiry change the failed count without a run change; managers mirror it.
+			local _, hot = snapshot.last()
+			local failed = if hot ~= nil then tonumber(hot.failed_unseen) else nil
+			if failed ~= S.failed_unseen then
+				S.failed_unseen = failed
+				S.sub_dirty = true
+			end
 		end
 		host_widget.update(now)
 		if S.sub_dirty then
@@ -2142,12 +2150,12 @@ end
 setup_rows = function(): { SetupRow }
 	local f = bins.found()
 	local rows: { SetupRow } = {}
-	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 9, 23)
+	local tern_ok = f.tern ~= nil and version_at_least(f.tern_version or "", 0, 9, 24)
 	table.insert(rows, {
 		id = "tern",
 		label = "Tern version",
 		ok = tern_ok,
-		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.9.23. Update Tern.",
+		text = tern_ok and (f.tern_version or "") or "Agent Scheduler is built and tested on Tern 0.9.24. Update Tern.",
 	})
 	table.insert(rows, {
 		id = "omp",
@@ -2408,6 +2416,7 @@ function runner.load()
 	-- Before a reload replaces this VM (or the plugin is turned off): persist what the pump would have flushed.
 	pcall(function()
 		T().on("unload", function(_cx: any)
+			pcall(cond_eval.stop_all)
 			for _, run in pairs(S.runs) do
 				pcall(ledger.save, run)
 			end

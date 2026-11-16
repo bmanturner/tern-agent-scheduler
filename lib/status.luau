@@ -8,6 +8,7 @@ local timefmt = require("./timefmt")
 
 local const = require("./const")
 local wsnap = require("./wsnap")
+local fmt = require("./fmt")
 
 local status = {}
 
@@ -231,21 +232,8 @@ function status.compute(snap: { [string]: any }?, hot: { [string]: any }?, now: 
 		end
 		seg = { text = text, icon = "bell", tone = "warning", command = CMD_NEEDS }
 	else
-		local failed = math.floor(num(h.failed_unseen))
-		if failed > 0 then
-			local text: string
-			if failed == 1 then
-				local name = "a job"
-				for _, r in recent do
-					if r.state == "failed" or r.state == "timed_out" then
-						name = tostring(r.job_name)
-						break
-					end
-				end
-				text = name .. " failed"
-			else
-				text = string.format("%d failed", failed)
-			end
+		local text = fmt.failed_label(math.floor(num(h.failed_unseen)), recent)
+		if text ~= nil then
 			seg = { text = text, icon = "x-circle", tone = "error", command = CMD_OPEN }
 		elseif #running == 1 then
 			local started: any = running[1].started

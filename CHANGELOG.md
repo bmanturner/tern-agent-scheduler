@@ -2,6 +2,18 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.11.0 (2026-11-16)
+
+Built and tested on Tern 0.9.24. **Update Tern to 0.9.24:** on an older Tern, Settings › Setup flags the Tern version, and script and AI checks can't start.
+
+### Added
+
+- The Agent Scheduler pane shows an error state on its tab, in the inbox and in the Agents widget while failed runs are unacknowledged ("Nightly review failed", "2 failed"), and clears it once you've seen them.
+
+### Changed
+
+- Script and AI checks stream their output instead of buffering all of it, and a check still running when the plugin reloads or turns off is stopped instead of left running.
+
 ## 0.10.1 (2026-11-16)
 
 Built and tested on Tern 0.9.23. **Update Tern to 0.9.23:** on an older Tern, Settings › Setup flags the Tern version.

@@ -175,3 +175,32 @@ assert(use ~= nil, "dock offers Use example")
 __mods.mgr_list.event(empty, { ev = "action", act = "example" })
 assert(empty.form ~= nil, "Use example opens the New job form")
 print("PASS empty state: example heading, Use example action opens a draft")
+
+-- The manager block mirrors unacknowledged failures with cx:status("error"), and clears it once acknowledged
+local calls = {}
+local st = { cx = { pane = 1, render = function() end, status = function(_, s, o)
+ table.insert(calls, { s = s, msg = o and o.msg })
+end } }
+local fj = jobs.create({ name = "Failing", when = "manual", cwd = "/home/u/proj" }, "review", "user", now)
+local fr = ledger.new(fj, { run_id = "r_" .. fj.id:sub(3) .. "_1", now = now - 60, slot = now - 60 })
+ledger.transition(fr, "failed", nil, { summary = "boom" }, now - 60)
+ledger.save(fr)
+runner.changed()
+C.sync_status(st)
+local snap, hot = __mods.snapshot.last()
+assert(hot ~= nil and hot.failed_unseen >= 1, "a failed run is unacknowledged")
+assert(#calls == 1 and calls[1].s == "error", "error status while failed runs are unacknowledged")
+assert(calls[1].msg == __mods.fmt.failed_label(hot.failed_unseen, snap.recent), "status text matches the status line: " .. tostring(calls[1].msg))
+C.sync_status(st)
+assert(#calls == 1, "an unchanged label calls Tern once")
+for _, r in ledger.recent(nil, 80) do
+ if r.state == "failed" or r.state == "timed_out" then
+  runner.ack_failed(r.run_id)
+ end
+end
+fake.advance(2000)
+C.sync_status(st)
+local _, hot2 = __mods.snapshot.last()
+assert(hot2.failed_unseen == 0, "acknowledged runs are no longer counted")
+assert(#calls == 2 and calls[2].s == nil, "status cleared once acknowledged")
+print("PASS manager block mirrors unacknowledged failures")

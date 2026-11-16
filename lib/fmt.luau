@@ -89,4 +89,21 @@ function fmt.first_line(text: string): string
 	return string.match(text, "^[^\r\n]*") or ""
 end
 
+-- The status line's failure text: "<job> failed" for one unacknowledged failed/timed-out run (the newest such
+-- entry in `recent` names it, else "a job"), "N failed" for more; nil when `failed` <= 0.
+function fmt.failed_label(failed: number, recent: { any }): string?
+	if failed <= 0 then
+		return nil
+	end
+	if failed > 1 then
+		return string.format("%d failed", failed)
+	end
+	for _, r in recent do
+		if r.state == "failed" or r.state == "timed_out" then
+			return tostring(r.job_name) .. " failed"
+		end
+	end
+	return "a job failed"
+end
+
 return fmt
