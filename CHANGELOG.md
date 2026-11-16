@@ -2,6 +2,16 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.10.1 (2026-11-16)
+
+Built and tested on Tern 0.9.23. **Update Tern to 0.9.23:** on an older Tern, Settings › Setup flags the Tern version.
+
+**On macOS, check Tern's permissions:** Tern 0.9.23 removed Tern Daemon, so scheduled runs now use Tern's own macOS permissions. If you gave Tern Daemon Full Disk Access, Local Network or Developer Tools, give them to Tern instead (palette › *Set up macOS permissions*). Otherwise, runs that work in protected folders or reach your local network can fail while you're away.
+
+### Changed
+
+- A script check's approval is now pinned with SHA-256 instead of a weaker checksum, so an edited script can't pass as the one you approved. Checks you approved before keep working; saving the job pins them the new way.
+
 ## 0.10.0 (2026-11-14)
 
 Built and tested on Tern 0.9.21. **Update Tern to 0.9.21:** on an older Tern, Settings › Setup flags the Tern version.

@@ -1569,7 +1569,7 @@ local function pin_checks(state: State, form: Form, cb: ({ [string]: string }) -
 			C.render(state)
 			return
 		end
-		acks[path] = "ck1:" .. ids.fnv64(text)
+		acks[path] = cond_eval.ack(text)
 		cb(acks)
 	end)
 end

@@ -262,6 +262,19 @@ function cond_eval.read_script(abs: string, cb: (string?, string?, string?) -> (
 	end)
 end
 
+-- The approval pin saved with a script check: SHA-256 of the script's bytes.
+function cond_eval.ack(text: string): string
+	return "ck2:" .. T().sha256(text)
+end
+
+-- Whether `ack` still approves `text`. ck1 pins (FNV-64, saved before 0.10.1) keep working until the job is saved again.
+function cond_eval.ack_matches(ack: string, text: string): boolean
+	if string.sub(ack, 1, 4) == "ck1:" then
+		return ack == "ck1:" .. ids.fnv64(text)
+	end
+	return ack == cond_eval.ack(text)
+end
+
 local function check_path(): string
 	local dirs: { string } = {}
 	local omp = bins.found().omp
@@ -443,7 +456,7 @@ local function eval_check(job: Job, c: { [string]: any }, base: Mark?, opts: { [
 			if text == nil then
 				return finish({ result = "error", text = tostring(err_text), error_code = err_code })
 			end
-			if c.ack ~= nil and "ck1:" .. ids.fnv64(text) ~= c.ack then
+			if c.ack ~= nil and not cond_eval.ack_matches(c.ack, text) then
 				local msg = string.format("your check %s changed since you approved it. Open Edit and save to approve it again", tostring(c.path))
 				return finish({ result = "error", text = msg, error_code = "check_changed", alert = msg })
 			end

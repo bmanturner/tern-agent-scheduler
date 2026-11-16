@@ -1,7 +1,7 @@
 -- Job conditions ("Only when"): commits baseline/skip folding/launch with trigger.md/watermark commit, window,
 -- budget, script checks (say no, errors alert once and pause, changed script), Run now and Run anyway, the dry
 -- run, jobs without conditions, quiet results, and Carly's check_conditions intent.
-local jobs, runner, ledger, ids = __mods.jobs, __mods.runner, __mods.ledger, __mods.ids
+local jobs, runner, ledger, ids, cond_eval = __mods.jobs, __mods.runner, __mods.ledger, __mods.ids, __mods.cond_eval
 
 fake.dirs["/home/u/proj"] = true
 fake.write(fake.omp_bin, "binary")
@@ -43,6 +43,10 @@ fake.override["has-work.sh"] = function(argv)
 	table.insert(check_inputs, fake.read(argv[2]) or "")
 	return { status = check.status, stdout = check.stdout, stderr = "", timed_out = false }
 end
+
+assert(tern.sha256("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "fake sha256 empty")
+assert(tern.sha256("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "fake sha256 abc")
+assert(tern.sha256(string.rep("a", 1000)) == "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3", "fake sha256 multi-block")
 
 local function jsonl(lines)
 	local out = {}
@@ -191,7 +195,8 @@ assert(newest(bj).reason_code == "cond_budget" and newest(bj).reason == "Skipped
 print("PASS budget reached => skipped")
 
 -- 8. a script check says no
-local acks = { ["./scripts/has-work.sh"] = "ck1:" .. ids.fnv64(SCRIPT) }
+local acks = { ["./scripts/has-work.sh"] = cond_eval.ack(SCRIPT) }
+assert(acks["./scripts/has-work.sh"]:match("^ck2:%x+$") ~= nil, "new pins are ck2")
 local kj = jobs.create({ name = "scripted", prompt = "x", when = "manual", cwd = "/home/u/proj", only_when = { check = { path = "./scripts/has-work.sh" } }, check_acks = acks }, "x", "user", os.time())
 assert(kj and kj.conditions[1].ack == acks["./scripts/has-work.sh"], "check pinned at save")
 assert(runner.run_now(kj.id))
@@ -241,6 +246,19 @@ assert(newest(kj).state == "blocked" and newest(kj).reason:find("changed since y
 assert(#check_inputs == calls11, "a changed script never runs")
 jobs.pause(kj.id, "user")
 print("PASS changed script is blocked, not run")
+
+-- 11b. a ck1 pin saved before 0.10.1 still approves its unchanged script
+script.text = SCRIPT
+check.status, check.stdout = 1, "REASON: queue empty\n"
+local lj = jobs.create({ name = "legacy-pin", prompt = "x", when = "manual", cwd = "/home/u/proj", only_when = { check = { path = "./scripts/has-work.sh" } }, check_acks = { ["./scripts/has-work.sh"] = "ck1:" .. ids.fnv64(SCRIPT) } }, "x", "user", os.time())
+assert(lj, "legacy-pin job created")
+assert(runner.run_now(lj.id))
+settle_until(function()
+	return newest(lj) ~= nil and newest(lj).state == "skipped"
+end, 60000)
+assert(newest(lj).reason_code == "cond_check", "ck1 pin still runs the check: " .. tostring(newest(lj).reason_code))
+jobs.pause(lj.id, "user")
+print("PASS a ck1 pin still approves its unchanged script")
 
 -- 12. Run now with a false condition skips; Run anyway launches and leaves the watermark alone
 jobs.resume(cj.id, os.time())

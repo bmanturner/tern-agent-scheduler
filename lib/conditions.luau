@@ -541,7 +541,7 @@ function conditions.check_stored(list: any): string?
 			if id ~= "check" or type(c.path) ~= "string" then
 				return BAD
 			end
-			if c.ack ~= nil and (type(c.ack) ~= "string" or c.ack:match("^ck1:%x+$") == nil) then
+			if c.ack ~= nil and (type(c.ack) ~= "string" or c.ack:match("^ck[12]:%x+$") == nil) then
 				return BAD
 			end
 		elseif t == "ask" then
