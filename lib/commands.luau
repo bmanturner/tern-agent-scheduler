@@ -281,6 +281,22 @@ function commands.register()
 	if not okf then
 		tern.log.warn("tern-agent-scheduler: Files button not registered", ferr)
 	end
+	-- A button on the widget's hover card, while this window draws the widget itself.
+	local okw, werr = pcall(tern.on, "widget_action", function(ev: WidgetActionEvent, cx: WindowCx): boolean
+		local kind, payload = status.card_intent(ev)
+		if kind == nil or payload == nil then
+			return false
+		end
+		payload.window = commands.window_key(cx)
+		if kind == "run_now" then
+			payload.expires = os.time() + RUN_NOW_TTL_S
+		end
+		send(cx, kind, payload)
+		return true
+	end)
+	if not okw then
+		tern.log.debug("tern-agent-scheduler: no widget_action event", werr)
+	end
 end
 
 return commands

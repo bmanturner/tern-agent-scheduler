@@ -117,6 +117,7 @@ local function recent_entries(now: number): ({ any }, number)
 					ended = r.ended,
 					trigger = r.trigger,
 					incident_repeat = r.incident_repeat,
+					acked = r.acked == true or nil,
 				})
 			end
 			if

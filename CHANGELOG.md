@@ -2,6 +2,15 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.12.0 (2026-11-20)
+
+Built and tested on Tern 0.9.29.
+
+### Added
+
+- Hover the **Agent Scheduler** widget for a card listing runs that need you, runs in progress, unseen failures and the next three runs. Its buttons open or stop a run, mark a failure seen, run a job now, or resume all jobs when they're paused.
+- Rows in the manager glide to their new places when the list changes, such as a run moving from Now into the results when it finishes.
+
 ## 0.11.1 (2026-11-20)
 
 Built and tested on Tern 0.9.29. **Update Tern to 0.9.29:** on an older Tern, Settings › Setup flags the Tern version.

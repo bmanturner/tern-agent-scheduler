@@ -2398,6 +2398,16 @@ function runner.load()
 			table.insert(S.events, ev)
 		end)
 	end)
+	-- A button on the widget's hover card.
+	pcall(function()
+		T().on("widget_action", function(ev: any): boolean
+			local ok, err = pcall(host_widget.on_action, ev, handlers)
+			if not ok then
+				log_warn("tern-agent-scheduler: widget action", tostring(err))
+			end
+			return true
+		end)
+	end)
 	pcall(function()
 		local w = T().kv.get("last_window")
 		if type(w) == "string" then

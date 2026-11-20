@@ -1,3 +1,4 @@
 PASS host widget shows the next run
 PASS host widget follows runs, refresh throttled
+PASS hover card lists runs and next runs; its Stop stops the run
 PASS window widget only for window-side warnings

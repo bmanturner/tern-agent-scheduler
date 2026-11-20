@@ -741,6 +741,22 @@ function L.view(state: State): (Node, Node)
 	if timeline and model.quiet ~= nil then
 		table.insert(children, C.with(C.text({ ui.span(model.quiet, "muted") }, "quiet"), { key = "quiet", role = "tas.quiet" }))
 	end
+	-- Rows glide to their new places on each update (a run moving from Now into the results, a job
+	-- reordering by its next run). Keys are unique within the container, and kept across sections.
+	local motion_used: { [string]: boolean } = {}
+	local function motion(node: Node, r: Row)
+		local run: any = r.run
+		local key = if r.kind ~= "job" and r.kind ~= "invalid" and run ~= nil and run.run_id ~= nil
+			then "run:" .. tostring(run.run_id)
+			else "job:" .. tostring(if r.job ~= nil then (r.job :: any).id else r.id)
+		if motion_used[key] then
+			return
+		end
+		motion_used[key] = true
+		local props: any = node.p or {}
+		props.motionKey = key
+		node.p = props
+	end
 	for _, sec in model.sections do
 		if timeline and sec.id == "now" then
 			table.insert(children, ui.el("div", { key = "h-now", role = "tas.now-rule" }, { ui.el("span", { role = "tas.now-pill", text = sec.title }) }))
@@ -758,6 +774,7 @@ function L.view(state: State): (Node, Node)
 					local props: any = node.p
 					props.role = "tas.live-row"
 					if timeline and type(nxt) == "number" then table.insert(props.badges, { text = "next " .. timefmt.date("%H:%M", nxt) }) end
+					motion(node, r)
 					table.insert(nodes, node)
 				end
 				table.insert(children, ui.node("col", { key = sec.id, gap = "xs" }, nodes))
@@ -771,6 +788,7 @@ function L.view(state: State): (Node, Node)
 					else
 						table.insert(items, item_node(r, now, tier))
 					end
+					motion(items[#items], r)
 					if row ~= nil and r == row then
 						selected = r.id
 						items[#items].p.mark = "pick"
@@ -789,7 +807,7 @@ function L.view(state: State): (Node, Node)
 		if state.detail == nil or state.detail.job_id ~= id then state.detail = { job_id = id, sel = nil, expanded = nil } end
 		if row.kind == "result" and not state.split_focus then state.detail.sel = (row.run :: any).run_id end
 		local detail = D.view(state, true, now)
-		local left = ui.node("col", { key = "timeline", role = "tas.timeline", gap = "sm" }, children)
+		local left = ui.node("col", { key = "timeline", role = "tas.timeline", gap = "sm", transition = "layout" }, children)
 		local right = C.with(detail, { key = "detail", role = "tas.detail" })
 		-- Native lists require absolute node ids after nesting.
 		local function rebase(n: any, prefix: string)
@@ -799,7 +817,11 @@ function L.view(state: State): (Node, Node)
 		rebase(left, "main.split.timeline"); rebase(right, "main.split.detail")
 		return ui.col({ ui.node("row", { key = "split", role = "tas.split", gap = "lg" }, { left, right }) }), dock
 	end
-	return ui.col(children), dock
+	local body = ui.col(children)
+	local props: any = body.p or {}
+	props.transition = "layout"
+	body.p = props
+	return body, dock
 end
 
 -- Keys --------------------------------------------------------------------------------------------------------

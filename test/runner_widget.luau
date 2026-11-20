@@ -48,6 +48,33 @@ fake.advance(4000)
 assert(refreshes - before <= 1, "a ticking clock refreshes at most every 5 s, got " .. (refreshes - before))
 print("PASS host widget follows runs, refresh throttled")
 
+-- The hover card: the running run with Open and Stop, the next run with Run now; its buttons act.
+local running = runner.inflight()[1]
+local function row_with(card, act)
+	for _, r in card or {} do
+		for _, a in r.actions or {} do
+			if a.id == act then
+				return r
+			end
+		end
+	end
+	return nil
+end
+local rrow = row_with(wr.card, "stop")
+assert(rrow and rrow.id == running.run_id and rrow.text:find("^now · ") and rrow.tone == "accent", "card: running row with Stop")
+local nrow = row_with(wr.card, "run")
+assert(nrow and nrow.text == "daily · 09:00" and nrow.id:find("^j_"), "card: next row with Run now, got " .. tostring(nrow and nrow.text))
+fake.emit("widget_action", { widget = "status", row = "r_../../etc", act = "stop" })
+fake.emit("widget_action", { widget = "other", row = running.run_id, act = "stop" })
+assert(runner.inflight()[1] ~= nil, "malformed or foreign clicks do nothing")
+local closes = #fake.calls_of("close")
+fake.emit("widget_action", { widget = "status", row = running.run_id, act = "stop" })
+assert(fake.run_until(function()
+	return runner.inflight()[1] == nil
+end, 30000, 500), "Stop on the card stops the run")
+assert(#fake.calls_of("close") > closes, "the run's pane was closed")
+print("PASS hover card lists runs and next runs; its Stop stops the run")
+
 -- A window: with the host's widget in place it takes its own away; a paused hook brings it back.
 status.register()
 fake.advance(5100)

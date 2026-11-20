@@ -36,6 +36,13 @@ Press `ctrl+alt+shift+m` to open the manager (`ctrl+alt+shift+s` also works on m
 
 To see the scheduler in Tern's widget bar, open the palette's **Edit widgets…** and add **Agent Scheduler** (`tern-agent-scheduler/status`). It shows the next run, runs in progress, and runs that need you or failed; click it to open the manager, or the run that needs you. If your bar has **Plugin segments**, the same status also shows there.
 
+Hover the widget for its card: runs that need you, runs in progress, unseen failures and the next three runs, each with buttons to open or stop a run, mark a failure seen, or run a job now.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/widget-card-dark.png">
+  <img width="325" alt="The Agent Scheduler widget's hover card above the widget bar: a running docs-link-check with Open and Stop, a failed nightly-tests with Open and Seen, and the next three runs with Run now" src="docs/screenshots/widget-card-light.png">
+</picture>
+
 ## Create a job
 
 Press `n` in the manager, or `ctrl+alt+shift+j` anywhere. The folder starts as the focused pane's directory.

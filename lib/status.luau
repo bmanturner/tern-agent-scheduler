@@ -26,6 +26,7 @@ local paused_hooks: { [string]: boolean } = {}
 
 export type View = {
 	seg: StatusSegment?,
+	card: { WidgetCardRow }?,
 	stalled: boolean,
 	stall_age: number,
 	setup_bad: boolean,
@@ -40,7 +41,7 @@ local registered = false
 local window_widget = false -- this window has its own status widget registered
 
 local function window_render(_pane: StatusPaneInfo?): WidgetView?
-	return status.widget_view(view.seg)
+	return status.widget_view(view.seg, view.card)
 end
 
 -- The window's own widget wins over the host's in this window: register it only when the host has none,
@@ -62,12 +63,52 @@ local function sync_widget(v: View)
 	end
 end
 
--- The widget's view of a status segment.
-function status.widget_view(seg: StatusSegment?): WidgetView?
+-- The widget's view of a status segment and its hover card.
+function status.widget_view(seg: StatusSegment?, card: { WidgetCardRow }?): WidgetView?
 	if seg == nil then
 		return nil
 	end
-	return { text = seg.text, icon = seg.icon, tone = seg.tone, command = seg.command }
+	return { text = seg.text, icon = seg.icon, tone = seg.tone, command = seg.command, card = card }
+end
+
+-- What decides the card's shape (rows, their tones and buttons), without its ticking times: a change here
+-- redraws the widget at once, a changed clock only at the throttled pace.
+function status.card_key(card: { WidgetCardRow }?): string
+	if card == nil then
+		return ""
+	end
+	local parts: { string } = {}
+	for _, row in card do
+		local acts: { string } = {}
+		for _, a in row.actions or {} do
+			table.insert(acts, a.id)
+		end
+		table.insert(parts, table.concat({ row.id or "", row.label or "", row.tone or "", table.concat(acts, ",") }, "\1"))
+	end
+	return table.concat(parts, "\2")
+end
+
+-- A hover-card button click, as the intent kind and payload the host applies; nil for anything else.
+-- Row ids are run or job ids the card itself set; they're checked again here.
+function status.card_intent(ev: WidgetActionEvent): (string?, { [string]: any }?)
+	if type(ev) ~= "table" or ev.widget ~= "status" or type(ev.row) ~= "string" then
+		return nil, nil
+	end
+	local row, act = ev.row, ev.act
+	local run = string.match(row, "^r_[%w_]+$") ~= nil
+	local job = string.match(row, "^j_[a-z0-9]+$") ~= nil
+	if act == "open" and run then
+		return "open_run", { run_id = row }
+	elseif act == "stop" and run then
+		return "stop_run", { run_id = row }
+	elseif act == "seen" and run then
+		return "ack_failed", { run_id = row }
+	elseif act == "run" and job then
+		return "run_now", { job_id = row }
+	elseif act == "resume_all" and row == "all" then
+		return "resume_all", {}
+	end
+	return nil, nil
 end
 
 -- The status widget's spec; the host and a window offer the same one.
@@ -131,6 +172,96 @@ local function soonest(snap: { [string]: any }): (string?, number?)
 		end
 	end
 	return best_name, best_at
+end
+
+local CARD_FAILED_MAX = 3
+local CARD_NEXT_MAX = 3
+local FAILED_CARD_DAYS = 7
+local OPEN: WidgetCardButton = { id = "open", label = "Open" }
+
+-- "16:00", or with the weekday when it isn't within a day: the card is narrow.
+local function next_text(at: number, now: number): string
+	return timefmt.date(if at - now < 86400 then "%H:%M" else "%a %H:%M", at)
+end
+
+-- The hover card: what needs you, what's running, unseen failures and the next runs, each with its
+-- buttons. The card is narrow, so rows have no label: the tone says which kind a row is and the text
+-- stays short. Rows only carry ids the snapshot gave; status.card_intent maps a click back to an intent.
+local function build_card(
+	snap: { [string]: any },
+	out: View,
+	needs: { any },
+	running: { any },
+	paused_all: boolean,
+	now: number
+): { WidgetCardRow }
+	local rows: { WidgetCardRow } = {}
+	if out.stalled then
+		table.insert(rows, { text = "Scheduler stalled · last tick " .. span(out.stall_age) .. " ago", tone = "error" })
+	end
+	if out.setup_bad then
+		table.insert(rows, { text = "Setup needed · open Settings", tone = "warn" })
+	end
+	if paused_all then
+		table.insert(rows, {
+			id = "all",
+			text = "All jobs paused",
+			tone = "warn",
+			actions = { { id = "resume_all", label = "Resume all" } },
+		})
+	end
+	for _, r in needs do
+		table.insert(rows, { id = tostring(r.run_id), text = fmt.clip(tostring(r.job_name) .. " · needs you", 200), tone = "warn", actions = { OPEN } })
+	end
+	for _, r in running do
+		local started: any = r.started
+		local elapsed = if type(started) == "number" then live(now - started) else "starting"
+		table.insert(rows, {
+			id = tostring(r.run_id),
+			text = fmt.clip(tostring(r.job_name) .. " · " .. elapsed, 200),
+			tone = "accent",
+			actions = { OPEN, { id = "stop", label = "Stop" } },
+		})
+	end
+	local recent: { any } = if type(snap.recent) == "table" then snap.recent else {}
+	local failed = 0
+	local cutoff = now - FAILED_CARD_DAYS * 86400
+	for _, r in recent do
+		if failed >= CARD_FAILED_MAX then
+			break
+		end
+		if (r.state == "failed" or r.state == "timed_out") and r.acked ~= true and num(r.ended) >= cutoff then
+			failed += 1
+			local word = if r.state == "timed_out" then "timed out" else "failed"
+			table.insert(rows, {
+				id = tostring(r.run_id),
+				text = fmt.clip(tostring(r.job_name) .. " · " .. word, 200),
+				tone = "error",
+				actions = { OPEN, { id = "seen", label = "Seen" } },
+			})
+		end
+	end
+	if not paused_all then
+		local upcoming: { any } = {}
+		for _, j in (if type(snap.jobs) == "table" then snap.jobs else {}) :: { any } do
+			if is_active(j) and type(j.next_run) == "number" then
+				table.insert(upcoming, j)
+			end
+		end
+		table.sort(upcoming, function(a, b)
+			return a.next_run < b.next_run
+		end)
+		for i = 1, math.min(#upcoming, CARD_NEXT_MAX) do
+			local j = upcoming[i]
+			table.insert(rows, {
+				id = tostring(j.id),
+				text = fmt.clip(tostring(j.name) .. " · " .. next_text(j.next_run, now), 200),
+				tone = "muted",
+				actions = { { id = "run", label = "Run now" } },
+			})
+		end
+	end
+	return rows
 end
 
 -- Builds the whole view from a snapshot and hot value. Pure: `now` is unix seconds.
@@ -259,6 +390,7 @@ function status.compute(snap: { [string]: any }?, hot: { [string]: any }?, now: 
 		end
 	end
 	out.seg = seg
+	out.card = build_card(snap, out, needs, running, paused_all, now)
 	return out
 end
 

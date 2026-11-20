@@ -5,6 +5,7 @@
 -- have a warning the host can't give. Nothing here runs at require time.
 local status = require("./status")
 local snapshot = require("./snapshot")
+local jobs = require("./jobs")
 
 local host_widget = {}
 
@@ -21,6 +22,38 @@ local function warn(...: any)
 	pcall(function()
 		(tern :: any).log.warn(table.unpack(args, 1, args.n))
 	end)
+end
+
+local function card_text(card: { WidgetCardRow }?): string
+	local parts: { string } = {}
+	for _, row in card or {} do
+		table.insert(parts, row.text)
+	end
+	return table.concat(parts, "\1")
+end
+
+-- A click on one of the card's buttons, applied through the same handlers as a window's intent.
+function host_widget.on_action(ev: WidgetActionEvent, h: { [string]: any })
+	local kind, p = status.card_intent(ev)
+	if kind == nil or p == nil then
+		return
+	end
+	local window = if type(ev.window) == "string" and ev.window ~= "" then ev.window else nil
+	if kind == "open_run" then
+		h.open_run(p.run_id, window)
+	elseif kind == "stop_run" then
+		h.stop(p.run_id)
+	elseif kind == "ack_failed" then
+		h.ack_failed(p.run_id)
+	elseif kind == "run_now" then
+		local ok, why = h.run_now(p.job_id, window)
+		if not ok then
+			warn("tern-agent-scheduler: widget Run now refused", tostring(why))
+		end
+	elseif kind == "resume_all" then
+		jobs.set_paused_all(false)
+		h.changed()
+	end
 end
 
 -- Offers the widget; true when it is (or already was) registered.
@@ -58,12 +91,13 @@ function host_widget.update(now: number)
 	end
 	local snap, hot = snapshot.last()
 	-- No stall check: only a window can see the host stall.
-	local w = status.widget_view(status.compute(snap, hot, now, true).seg)
+	local v = status.compute(snap, hot, now, true)
+	local w = status.widget_view(v.seg, v.card)
 	local ident = ""
 	local key = ""
 	if w ~= nil then
-		ident = table.concat({ w.icon or "", w.tone or "", w.command or "" }, "\0")
-		key = (w.text or "") .. "\0" .. ident
+		ident = table.concat({ w.icon or "", w.tone or "", w.command or "", status.card_key(w.card) }, "\0")
+		key = (w.text or "") .. "\0" .. ident .. "\0" .. card_text(w.card)
 	end
 	if key == last_key then
 		return
