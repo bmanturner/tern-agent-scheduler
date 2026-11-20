@@ -2,6 +2,14 @@
 
 User-facing changes per release. Update with `tern plugin install github.com/bmanturner/tern-agent-scheduler --force`.
 
+## 0.11.1 (2026-11-20)
+
+Built and tested on Tern 0.9.29. **Update Tern to 0.9.29:** on an older Tern, Settings › Setup flags the Tern version.
+
+### Fixed
+
+- A run's result in the manager no longer offers **Run** on shell code blocks the agent wrote, so a click can't execute a command from an unattended run's output.
+
 ## 0.11.0 (2026-11-16)
 
 Built and tested on Tern 0.9.24. **Update Tern to 0.9.24:** on an older Tern, Settings › Setup flags the Tern version, and script and AI checks can't start.

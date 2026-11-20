@@ -287,7 +287,8 @@ local function expanded_card(run: any): Node
 	local msg: any = run.last_message
 	if type(msg) == "string" and msg ~= "" then
 		local src, cut = md_head(msg, 14)
-		table.insert(lines, C.with(ui.md(src), { key = "result-md" }))
+		-- the agent's own text: its shell code blocks get no Run button
+		table.insert(lines, C.with(ui.md(src, { run = false }), { key = "result-md" }))
 		if cut then
 			table.insert(lines, C.text({ ui.span("…", "muted") }, "result-more"))
 		end
